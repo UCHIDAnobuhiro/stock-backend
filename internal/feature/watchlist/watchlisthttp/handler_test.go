@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,6 +64,14 @@ func newRouter(t *testing.T, register func(r chi.Router)) chi.Router {
 			next.ServeHTTP(w, req.WithContext(jwt.WithUserID(req.Context(), testUserID)))
 		})
 	})
+	register(r)
+	return r
+}
+
+// newRouterNoAuth はユーザーIDを context に注入しない素の chi ルーターを構築します。
+// userID 未設定時のフォールバック分岐を検証するために使用します。
+func newRouterNoAuth(register func(r chi.Router)) chi.Router {
+	r := chi.NewRouter()
 	register(r)
 	return r
 }
@@ -286,6 +295,88 @@ func TestWatchlistHandler_Remove(t *testing.T) {
 			if tt.expectedBody != "" {
 				assert.JSONEq(t, tt.expectedBody, w.Body.String())
 			}
+		})
+	}
+}
+
+func TestWatchlistHandler_MissingUserID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		register func(r chi.Router, h *watchlisthttp.Handler)
+	}{
+		{
+			name:   "List returns 500 when userID is missing",
+			method: http.MethodGet,
+			path:   "/watchlist",
+			register: func(r chi.Router, h *watchlisthttp.Handler) {
+				r.Get("/watchlist", h.List)
+			},
+		},
+		{
+			name:   "Add returns 500 when userID is missing",
+			method: http.MethodPost,
+			path:   "/watchlist",
+			body:   `{"symbol_code":"AAPL"}`,
+			register: func(r chi.Router, h *watchlisthttp.Handler) {
+				r.Post("/watchlist", h.Add)
+			},
+		},
+		{
+			name:   "Remove returns 500 when userID is missing",
+			method: http.MethodDelete,
+			path:   "/watchlist/AAPL",
+			register: func(r chi.Router, h *watchlisthttp.Handler) {
+				r.Delete("/watchlist/{code}", h.Remove)
+			},
+		},
+		{
+			name:   "Reorder returns 500 when userID is missing",
+			method: http.MethodPut,
+			path:   "/watchlist/reorder",
+			body:   `{"codes":["AAPL"]}`,
+			register: func(r chi.Router, h *watchlisthttp.Handler) {
+				r.Put("/watchlist/reorder", h.Reorder)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// usecase が呼ばれないことを保証するため、呼び出し時に失敗するモックを渡す。
+			failFunc := func() error { t.Fatal("usecase should not be called when userID is missing"); return nil }
+			mockUC := &mockUsecase{
+				ListUserSymbolsFunc: func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
+					return nil, failFunc()
+				},
+				AddSymbolFunc:      func(ctx context.Context, userID int64, symbolCode string) error { return failFunc() },
+				RemoveSymbolFunc:   func(ctx context.Context, userID int64, symbolCode string) error { return failFunc() },
+				ReorderSymbolsFunc: func(ctx context.Context, userID int64, orderedCodes []string) error { return failFunc() },
+			}
+			h := watchlisthttp.NewHandler(mockUC)
+			router := newRouterNoAuth(func(r chi.Router) {
+				tt.register(r, h)
+			})
+
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = bytes.NewReader([]byte(tt.body))
+			}
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, bodyReader)
+			if tt.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.JSONEq(t, `{"error":"internal server error"}`, w.Body.String())
 		})
 	}
 }
