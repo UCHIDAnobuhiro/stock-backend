@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -175,6 +176,20 @@ func TestAuthUsecase_Signup(t *testing.T) {
 			verifyBcryptHash: true,
 		},
 		{
+			name:             "password at maximum length",
+			email:            "test@example.com",
+			password:         strings.Repeat("a", 1024),
+			wantErr:          false,
+			verifyBcryptHash: true,
+		},
+		{
+			name:     "password too long",
+			email:    "test@example.com",
+			password: strings.Repeat("a", 1025),
+			wantErr:  true,
+			errMsg:   "password must be at most 1024 characters long",
+		},
+		{
 			name:          "repository create failure",
 			email:         "test@example.com",
 			password:      "password12345",
@@ -268,6 +283,14 @@ func TestAuthUsecase_Login(t *testing.T) {
 			name:              "edge case: empty password with valid user",
 			email:             "test@example.com",
 			password:          "",
+			wantErr:           true,
+			errMsg:            "invalid email or password",
+			findByEmailResult: testUser,
+		},
+		{
+			name:              "password too long is rejected before hashing",
+			email:             "test@example.com",
+			password:          strings.Repeat("a", 1025),
 			wantErr:           true,
 			errMsg:            "invalid email or password",
 			findByEmailResult: testUser,
