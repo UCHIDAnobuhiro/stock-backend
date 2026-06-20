@@ -173,6 +173,13 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			expectedBody:   `{"error":"invalid request"}`,
 		},
 		{
+			name:           "error: symbol code with invalid characters returns 400",
+			body:           `{"symbol_code":"AAPL@x"}`,
+			mockAdd:        nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"invalid symbol code"}`,
+		},
+		{
 			name: "error: usecase returns internal error",
 			body: `{"symbol_code":"AAPL"}`,
 			mockAdd: func(ctx context.Context, userID int64, symbolCode string) error {
@@ -310,6 +317,13 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			mockReorder:    nil,
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"invalid request"}`,
+		},
+		{
+			name:           "error: code with invalid characters returns 400",
+			body:           `{"codes":["AAPL","MSFT@x"]}`,
+			mockReorder:    nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"invalid symbol code"}`,
 		},
 		{
 			name: "error: usecase returns internal error",

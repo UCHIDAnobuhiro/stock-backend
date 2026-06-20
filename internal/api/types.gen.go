@@ -23,6 +23,13 @@ const (
 	OauthCallbackParamsProviderGoogle OauthCallbackParamsProvider = "google"
 )
 
+// Defines values for GetCandlesParamsInterval.
+const (
+	N1day   GetCandlesParamsInterval = "1day"
+	N1month GetCandlesParamsInterval = "1month"
+	N1week  GetCandlesParamsInterval = "1week"
+)
+
 // AddWatchlistRequest defines model for AddWatchlistRequest.
 type AddWatchlistRequest struct {
 	// SymbolCode 追加する銘柄コード（例: AAPL, 7203.T）
@@ -139,6 +146,12 @@ type WatchlistItem struct {
 	SymbolCode string `json:"symbol_code"`
 }
 
+// CsrfToken defines model for CsrfToken.
+type CsrfToken = string
+
+// UnauthorizedError defines model for UnauthorizedError.
+type UnauthorizedError = ErrorResponse
+
 // BeginOAuthParamsProvider defines parameters for BeginOAuth.
 type BeginOAuthParamsProvider string
 
@@ -154,16 +167,54 @@ type OauthCallbackParamsProvider string
 // GetCandlesParams defines parameters for GetCandles.
 type GetCandlesParams struct {
 	// Interval 時間間隔
-	Interval *string `form:"interval,omitempty" json:"interval,omitempty"`
+	Interval *GetCandlesParamsInterval `form:"interval,omitempty" json:"interval,omitempty"`
 
-	// Outputsize 取得件数
+	// Outputsize 取得件数（1〜5000。範囲外の値が指定された場合は200に丸めて扱う）
 	Outputsize *int `form:"outputsize,omitempty" json:"outputsize,omitempty"`
+}
+
+// GetCandlesParamsInterval defines parameters for GetCandles.
+type GetCandlesParamsInterval string
+
+// AnalyzeCompanyParams defines parameters for AnalyzeCompany.
+type AnalyzeCompanyParams struct {
+	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
+	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
 }
 
 // DetectLogoMultipartBody defines parameters for DetectLogo.
 type DetectLogoMultipartBody struct {
 	// Image ロゴ検出対象の画像ファイル（最大10MB）
 	Image openapi_types.File `json:"image"`
+}
+
+// DetectLogoParams defines parameters for DetectLogo.
+type DetectLogoParams struct {
+	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
+	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
+}
+
+// AddToWatchlistParams defines parameters for AddToWatchlist.
+type AddToWatchlistParams struct {
+	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
+	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
+}
+
+// ReorderWatchlistParams defines parameters for ReorderWatchlist.
+type ReorderWatchlistParams struct {
+	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
+	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
+}
+
+// RemoveFromWatchlistParams defines parameters for RemoveFromWatchlist.
+type RemoveFromWatchlistParams struct {
+	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
+	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
 }
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.

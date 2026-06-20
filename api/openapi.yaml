@@ -237,13 +237,19 @@ paths:
           schema:
             type: string
             default: "1day"
+            enum:
+              - "1day"
+              - "1week"
+              - "1month"
         - name: outputsize
           in: query
           required: false
-          description: 取得件数
+          description: "取得件数（1〜5000。範囲外の値が指定された場合は200に丸めて扱う）"
           schema:
             type: integer
             default: 200
+            minimum: 1
+            maximum: 5000
       responses:
         "200":
           description: ローソク足データ一覧
@@ -254,13 +260,15 @@ paths:
                 items:
                   $ref: "#/components/schemas/CandleResponse"
         "400":
-          description: バリデーションエラー（outputsizeに整数以外が指定された等）
+          description: バリデーションエラー（outputsizeに整数以外、未対応のinterval等）
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: 外部API通信エラー
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          description: サーバーエラー
           content:
             application/json:
               schema:
@@ -283,6 +291,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SymbolItem"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "500":
           description: サーバーエラー
           content:
@@ -307,6 +317,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/WatchlistItem"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "500":
           description: サーバーエラー
           content:
@@ -320,6 +332,8 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
       requestBody:
         required: true
         content:
@@ -339,14 +353,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: 銘柄が存在しない
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          description: CSRFトークン不一致
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: CSRFトークン不一致
+        "404":
+          description: 銘柄が存在しない
           content:
             application/json:
               schema:
@@ -381,6 +397,7 @@ paths:
             type: string
             maxLength: 20
             pattern: "^[A-Za-z0-9._-]{1,20}$"
+        - $ref: "#/components/parameters/CsrfToken"
       responses:
         "204":
           description: 削除成功
@@ -390,6 +407,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "403":
           description: CSRFトークン不一致
           content:
@@ -417,6 +436,8 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
       requestBody:
         required: true
         content:
@@ -432,6 +453,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "403":
           description: CSRFトークン不一致
           content:
@@ -453,6 +476,8 @@ paths:
         - logo
       security:
         - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
       requestBody:
         required: true
         content:
@@ -481,6 +506,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "403":
           description: CSRFトークン不一致
           content:
@@ -514,6 +541,8 @@ paths:
         - logo
       security:
         - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
       requestBody:
         required: true
         content:
@@ -533,6 +562,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
         "403":
           description: CSRFトークン不一致
           content:
@@ -552,6 +583,25 @@ components:
       type: apiKey
       in: cookie
       name: auth_token
+
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: |
+        CSRFトークン（Double Submit Cookieパターン）。
+        ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
+      schema:
+        type: string
+
+  responses:
+    UnauthorizedError:
+      description: 認証失敗（auth_token Cookieが無い・無効・期限切れ）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
     SignupRequest:
@@ -726,6 +776,9 @@ components:
       properties:
         symbol_code:
           type: string
+          minLength: 1
+          maxLength: 20
+          pattern: "^[A-Za-z0-9._-]{1,20}$"
           description: "追加する銘柄コード（例: AAPL, 7203.T）"
           x-oapi-codegen-extra-tags:
             binding: "required,min=1,max=20"
@@ -744,6 +797,7 @@ components:
             type: string
             minLength: 1
             maxLength: 20
+            pattern: "^[A-Za-z0-9._-]{1,20}$"
           x-oapi-codegen-extra-tags:
             binding: "required,min=1"
 

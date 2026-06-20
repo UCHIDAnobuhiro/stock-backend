@@ -76,6 +76,10 @@ func (h *Handler) Add(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
+	if !symbolCodePattern.MatchString(req.SymbolCode) {
+		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid symbol code"})
+		return
+	}
 
 	if err := h.uc.AddSymbol(r.Context(), userID, req.SymbolCode); err != nil {
 		switch {
@@ -132,6 +136,12 @@ func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 	if err := httpx.DecodeAndValidate(r, &req); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
+	}
+	for _, code := range req.Codes {
+		if !symbolCodePattern.MatchString(code) {
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid symbol code"})
+			return
+		}
 	}
 
 	if err := h.uc.ReorderSymbols(r.Context(), userID, req.Codes); err != nil {

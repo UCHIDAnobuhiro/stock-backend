@@ -46,6 +46,11 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// 未指定の場合はデフォルト値を使用
 	interval := queryOrDefault(r, "interval", "1day")
+	// 空文字（?interval=）は usecase 側でデフォルトに丸めるため、非空の未対応値のみ拒否する。
+	if interval != "" && !candles.IsValidInterval(interval) {
+		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "unsupported interval"})
+		return
+	}
 	outputsizeStr := queryOrDefault(r, "outputsize", "200")
 	// 文字列を整数に変換
 	outputsize, err := strconv.Atoi(outputsizeStr)

@@ -13,6 +13,19 @@ const (
 	MaxOutputSize = 5000
 )
 
+// validIntervals は許可する時間間隔の集合です。
+var validIntervals = map[string]struct{}{
+	"1day":   {},
+	"1week":  {},
+	"1month": {},
+}
+
+// IsValidInterval は interval が許可された時間間隔かどうかを返します。
+func IsValidInterval(interval string) bool {
+	_, ok := validIntervals[interval]
+	return ok
+}
+
 // Repository はローソク足データの読み取りレイヤーを抽象化します。
 // Goの慣例に従い、インターフェースは利用者（usecase）側で定義します。
 type Repository interface {
