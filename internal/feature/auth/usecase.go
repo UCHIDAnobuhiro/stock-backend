@@ -17,6 +17,12 @@ const (
 	// 辞書攻撃への耐性を高めるため、より長い 12 文字を最低長とする。
 	minPasswordLength = 12
 
+	// maxPasswordLength はパスワードの最大バイト数を定義します。
+	// パスワードは HMAC-SHA256 ペッパー適用を経て bcrypt にかけられるため、
+	// 上限がないと過大なパスワード本体に対する HMAC 計算で CPU を浪費させられる。
+	// これを防ぐため上限を設ける（len() はバイト数を返す）。
+	maxPasswordLength = 1024
+
 	// EnvKeyPasswordPepper はパスワードペッパーの環境変数キーです。
 	EnvKeyPasswordPepper = "PASSWORD_PEPPER"
 )
@@ -127,6 +133,9 @@ func validatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return fmt.Errorf("password must be at least %d characters long", minPasswordLength)
 	}
+	if len(password) > maxPasswordLength {
+		return fmt.Errorf("password must be at most %d characters long", maxPasswordLength)
+	}
 	return nil
 }
 
@@ -155,6 +164,13 @@ func (u *usecase) Signup(ctx context.Context, email, password string) (int64, er
 // メールアドレスとパスワードを検証し、署名済みJWTトークンを生成します。
 // タイミング攻撃を防止するため、ユーザーが存在しない場合でもbcrypt比較を実行します。
 func (u *usecase) Login(ctx context.Context, email, password string) (string, error) {
+	// 過大なパスワードによる CPU 枯渇を防止するため、HMAC 計算前に上限を超えるものを弾く。
+	// 上限超過のパスワードは正規パスワードと一致し得ないため汎用エラーを返す。
+	// ユーザー存在有無に関わらず同じ経路で早期 return するため、ユーザー列挙にはつながらない。
+	if len(password) > maxPasswordLength {
+		return "", ErrInvalidCredentials
+	}
+
 	// メールアドレスでユーザーを検索
 	user, err := u.users.FindByEmail(ctx, email)
 
