@@ -8,13 +8,19 @@ import (
 
 // Repository はウォッチリスト操作の永続化層を抽象化します。
 type Repository interface {
+	// ListByUser はユーザーのウォッチリストを sort_key 昇順で返します。
 	ListByUser(ctx context.Context, userID int64) ([]UserSymbol, error)
 	// Add はsort_keyを指定してウォッチリストに銘柄を追加します。
+	// 重複エントリは ErrAlreadyInWatchlist、銘柄コードの FK 違反は ErrSymbolNotFound を返します。
 	Add(ctx context.Context, entry UserSymbol) error
 	// AddWithNextSortKey はsort_keyをトランザクション内でMAX+1採番して銘柄を追加します。
 	// MaxSortKey取得とInsertをアトミックに実行するため、並行追加時の重複順位を防ぎます。
 	AddWithNextSortKey(ctx context.Context, userID int64, symbolCode string) error
+	// Remove はウォッチリストから銘柄を削除します。
+	// 対象がウォッチリストに存在しない場合は ErrNotInWatchlist を返します。
 	Remove(ctx context.Context, userID int64, symbolCode string) error
+	// UpdateSortKeys は entries の SortKey でウォッチリストの並び順を一括更新します。
+	// 全更新は原子的に適用され、途中で失敗した場合はいずれの並び順も変更されません。
 	UpdateSortKeys(ctx context.Context, userID int64, entries []UserSymbol) error
 }
 
