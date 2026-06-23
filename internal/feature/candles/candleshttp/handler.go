@@ -83,7 +83,7 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // queryOrDefault はクエリパラメータ key の値を返します。key が存在しない場合のみ def を返します。
-// Gin の c.DefaultQuery と同じく、key が空文字で存在する場合（?interval=）は空文字を返します。
+// key が空文字で存在する場合（?interval=）は空文字を返します。
 func queryOrDefault(r *http.Request, key, def string) string {
 	q := r.URL.Query()
 	if q.Has(key) {

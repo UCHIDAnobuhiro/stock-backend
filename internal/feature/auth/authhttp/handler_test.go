@@ -18,7 +18,7 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 )
 
-// H は JSON ボディ構築用の簡易マップ型です（旧 gin.H 相当）。
+// H は JSON ボディ構築用の簡易マップ型です。
 type H = map[string]any
 
 // mockUsecase はUsecaseインターフェースのモック実装です。

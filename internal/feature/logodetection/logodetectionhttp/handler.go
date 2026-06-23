@@ -41,7 +41,7 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 	// 一時ファイルの肥大を防ぐため、ParseMultipartForm の前段でハードリミットをかける。
 	r.Body = http.MaxBytesReader(w, r.Body, maxImageSize+1<<20)
 
-	// ParseMultipartForm の引数はメモリ上限（Gin の MaxMultipartMemory 相当）。
+	// ParseMultipartForm の引数はメモリ上限。
 	if err := r.ParseMultipartForm(maxImageSize); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {

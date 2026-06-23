@@ -18,8 +18,8 @@ import (
 )
 
 // setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
-// Gin の SetSameSite + SetCookie の組をまとめたヘルパーで、auth_token / csrf_token の
-// 設定・削除に共通利用します。maxAge は秒数（削除時は -1）です。
+// auth_token / csrf_token の設定・削除に共通利用します。
+// maxAge は秒数（削除時は -1）です。
 func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
