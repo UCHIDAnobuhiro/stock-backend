@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/di"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
@@ -83,7 +84,7 @@ type BatchConfig struct {
 func LoadAPI() (*Config, error) {
 	cfg := &Config{}
 	cfg.Log = readLog(&cfg.Warnings)
-	cfg.DB = readDB()
+	cfg.DB = readDB(&cfg.Warnings)
 	cfg.Redis = readRedis()
 
 	server, err := readServer(&cfg.Warnings)
@@ -106,7 +107,7 @@ func LoadAPI() (*Config, error) {
 func LoadBatch() (*Config, error) {
 	cfg := &Config{}
 	cfg.Log = readLog(&cfg.Warnings)
-	cfg.DB = readDB()
+	cfg.DB = readDB(&cfg.Warnings)
 	cfg.Redis = readRedis()
 	cfg.TwelveData = readTwelveData()
 	cfg.Batch = readBatch(&cfg.Warnings)
@@ -117,7 +118,7 @@ func LoadBatch() (*Config, error) {
 func LoadMigrate() (*Config, error) {
 	cfg := &Config{}
 	cfg.Log = readLog(&cfg.Warnings)
-	cfg.DB = readDB()
+	cfg.DB = readDB(&cfg.Warnings)
 	return cfg, nil
 }
 
@@ -137,14 +138,19 @@ func readLog(warn *[]string) LogConfig {
 
 // readDB は DB_* 環境変数からデータベース設定を組み立てます。
 // 必須項目の検証は接続時（Config.Validate）に行います。
-func readDB() db.Config {
+// コネクションプール関連の数値・duration は未設定ならゼロ値のままにし、
+// db パッケージ側のデフォルト（Default* 定数）にフォールバックさせます。不正値は警告を蓄積します。
+func readDB(warn *[]string) db.Config {
 	return db.Config{
-		User:         os.Getenv("DB_USER"),
-		Password:     db.Password(os.Getenv("DB_PASSWORD")),
-		Name:         os.Getenv("DB_NAME"),
-		Host:         os.Getenv("DB_HOST"),
-		Port:         os.Getenv("DB_PORT"),
-		InstanceName: os.Getenv("INSTANCE_CONNECTION_NAME"),
+		User:            os.Getenv("DB_USER"),
+		Password:        db.Password(os.Getenv("DB_PASSWORD")),
+		Name:            os.Getenv("DB_NAME"),
+		Host:            os.Getenv("DB_HOST"),
+		Port:            os.Getenv("DB_PORT"),
+		InstanceName:    os.Getenv("INSTANCE_CONNECTION_NAME"),
+		MaxOpenConns:    readInt("DB_MAX_OPEN_CONNS", warn),
+		MaxIdleConns:    readInt("DB_MAX_IDLE_CONNS", warn),
+		ConnMaxLifetime: readDuration("DB_CONN_MAX_LIFETIME", warn),
 	}
 }
 
@@ -272,6 +278,37 @@ func readMaxFailureRate(key string, def float64, warn *[]string) float64 {
 		*warn = append(*warn, fmt.Sprintf("invalid max failure rate for %s=%q, using default %v", key, v, def))
 	}
 	return def
+}
+
+// readInt は env の正の整数を読み取ります。未設定なら 0 を返し、呼び出し側（db パッケージ）の
+// デフォルトにフォールバックさせます。不正値（非整数・0 以下）の場合は警告を蓄積して 0 を返します。
+func readInt(key string, warn *[]string) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		*warn = append(*warn, fmt.Sprintf("invalid int for %s=%q, using default", key, v))
+		return 0
+	}
+	return n
+}
+
+// readDuration は env の duration（time.ParseDuration 形式、例 "5m"）を読み取ります。
+// 未設定なら 0 を返し、呼び出し側のデフォルトにフォールバックさせます。
+// 不正値（解釈不能・0 以下）の場合は警告を蓄積して 0 を返します。
+func readDuration(key string, warn *[]string) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		*warn = append(*warn, fmt.Sprintf("invalid duration for %s=%q, using default", key, v))
+		return 0
+	}
+	return d
 }
 
 // ParseCORSOrigins は CORS_ALLOWED_ORIGINS env の生文字列を、カンマ区切りで

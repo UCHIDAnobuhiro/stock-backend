@@ -3,7 +3,81 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 )
+
+// TestReadInt は readInt の未設定（0）・正常・不正値（警告蓄積して 0）の各ケースを検証します。
+func TestReadInt(t *testing.T) {
+	const key = "TEST_READ_INT"
+
+	tests := []struct {
+		name     string
+		set      bool
+		value    string
+		want     int
+		wantWarn bool
+	}{
+		{name: "未設定なら 0", set: false, want: 0, wantWarn: false},
+		{name: "正常値", set: true, value: "25", want: 25, wantWarn: false},
+		{name: "非整数は警告して 0", set: true, value: "abc", want: 0, wantWarn: true},
+		{name: "0 以下は警告して 0", set: true, value: "0", want: 0, wantWarn: true},
+		{name: "負数は警告して 0", set: true, value: "-1", want: 0, wantWarn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.set {
+				t.Setenv(key, tt.value)
+			} else {
+				t.Setenv(key, "")
+			}
+			var warn []string
+			got := readInt(key, &warn)
+			if got != tt.want {
+				t.Errorf("readInt = %d, want %d", got, tt.want)
+			}
+			if (len(warn) > 0) != tt.wantWarn {
+				t.Errorf("warn = %v, wantWarn %v", warn, tt.wantWarn)
+			}
+		})
+	}
+}
+
+// TestReadDuration は readDuration の未設定（0）・正常・不正値（警告蓄積して 0）の各ケースを検証します。
+func TestReadDuration(t *testing.T) {
+	const key = "TEST_READ_DURATION"
+
+	tests := []struct {
+		name     string
+		set      bool
+		value    string
+		want     time.Duration
+		wantWarn bool
+	}{
+		{name: "未設定なら 0", set: false, want: 0, wantWarn: false},
+		{name: "正常値", set: true, value: "5m", want: 5 * time.Minute, wantWarn: false},
+		{name: "解釈不能は警告して 0", set: true, value: "5", want: 0, wantWarn: true},
+		{name: "0 以下は警告して 0", set: true, value: "0s", want: 0, wantWarn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.set {
+				t.Setenv(key, tt.value)
+			} else {
+				t.Setenv(key, "")
+			}
+			var warn []string
+			got := readDuration(key, &warn)
+			if got != tt.want {
+				t.Errorf("readDuration = %v, want %v", got, tt.want)
+			}
+			if (len(warn) > 0) != tt.wantWarn {
+				t.Errorf("warn = %v, wantWarn %v", warn, tt.wantWarn)
+			}
+		})
+	}
+}
 
 // TestParseCORSOrigins は CORS_ALLOWED_ORIGINS env の生文字列パースが
 // trim・空要素除去・複数要素対応を正しく行うことを検証します。
