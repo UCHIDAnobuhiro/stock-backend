@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -8,6 +9,10 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx" の登録
 )
+
+// pingTimeout は接続確認 (PingContext) のタイムアウトです。
+// 接続先がハングした場合でも有限時間で失敗させ、起動時の挙動を安定させます。
+const pingTimeout = 5 * time.Second
 
 // SQLOpener は database/sql のコネクションを開く関数型です。
 // テストでモック化するために関数型として定義します。
@@ -60,7 +65,10 @@ func DefaultSQLOpener(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 	// sql.Open はコネクション確立を遅延するため、Ping で疎通確認する。
-	if err := db.Ping(); err != nil {
+	// ハング時に有限時間で失敗させるためタイムアウト付きコンテキストを使う。
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
