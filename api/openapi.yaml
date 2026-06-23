@@ -244,7 +244,7 @@ paths:
         - name: outputsize
           in: query
           required: false
-          description: "取得件数（1〜5000。範囲外の値が指定された場合は200に丸めて扱う）"
+          description: "取得件数（1〜5000。範囲外の値が指定された場合は400を返す）"
           schema:
             type: integer
             default: 200
@@ -260,7 +260,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/CandleResponse"
         "400":
-          description: バリデーションエラー（outputsizeに整数以外、未対応のinterval等）
+          description: バリデーションエラー（outputsizeに整数以外、outputsize範囲外、未対応のinterval等）
           content:
             application/json:
               schema:

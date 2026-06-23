@@ -103,8 +103,8 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AnalyzeCompany(w http.ResponseWriter, r *http.Request) {
 	var req api.CompanyAnalysisRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
-		slog.Warn("企業分析リクエストのバリデーションに失敗", "error", err, "remote_addr", httpx.ClientIP(r))
-		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "企業名が必要です"})
+		slog.Warn("企業分析リクエストのデコードに失敗", "error", err, "remote_addr", httpx.ClientIP(r))
+		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
 

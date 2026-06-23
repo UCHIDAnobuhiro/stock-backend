@@ -5,10 +5,6 @@ import (
 )
 
 const (
-	// DefaultInterval はローソク足クエリのデフォルト時間間隔です。
-	DefaultInterval = "1day"
-	// DefaultOutputSize はデフォルトのローソク足返却件数です。
-	DefaultOutputSize = 200
 	// MaxOutputSize はローソク足の最大返却件数です。
 	MaxOutputSize = 5000
 )
@@ -44,14 +40,9 @@ func NewUsecase(candle Repository) *usecase {
 }
 
 // GetCandles は指定された銘柄と時間間隔のローソク足データを取得します。
+// interval / outputsize の妥当性は OpenAPI バリデーションミドルウェアと handler が
+// 検証済みのため、ここでは丸めやデフォルト化は行わず受け取った値をそのまま使います。
 func (cu *usecase) GetCandles(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
-	if interval == "" {
-		interval = DefaultInterval
-	}
-	if outputsize <= 0 || outputsize > MaxOutputSize {
-		outputsize = DefaultOutputSize
-	}
-
 	cs, err := cu.candle.Find(ctx, symbol, interval, outputsize)
 	if err != nil {
 		return nil, err

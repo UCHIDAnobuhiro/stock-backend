@@ -60,43 +60,19 @@ func TestCandlesUsecase_GetCandles(t *testing.T) {
 			expectedOutputsize: 50,
 		},
 		{
-			name:            "success: default value used when interval is empty",
+			// interval / outputsize の妥当性は handler・ミドルウェアが検証済みのため、
+			// usecase は受け取った値をそのままリポジトリに渡す（丸めやデフォルト化はしない）。
+			name:            "success: parameters passed through as-is",
 			inputSymbol:     "GOOG",
-			inputInterval:   "",
+			inputInterval:   "1month",
 			inputOutputsize: 100,
 			mockFindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
 				return expectedCandles, nil
 			},
 			expectedCandles:    expectedCandles,
 			expectedErr:        nil,
-			expectedInterval:   "1day",
-			expectedOutputsize: 100,
-		},
-		{
-			name:            "success: default value used when outputsize is 0",
-			inputSymbol:     "MSFT",
-			inputInterval:   "1month",
-			inputOutputsize: 0,
-			mockFindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				return expectedCandles, nil
-			},
-			expectedCandles:    expectedCandles,
-			expectedErr:        nil,
 			expectedInterval:   "1month",
-			expectedOutputsize: 200,
-		},
-		{
-			name:            "success: default value used when outputsize exceeds max",
-			inputSymbol:     "TSLA",
-			inputInterval:   "1day",
-			inputOutputsize: 5001,
-			mockFindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				return expectedCandles, nil
-			},
-			expectedCandles:    expectedCandles,
-			expectedErr:        nil,
-			expectedInterval:   "1day",
-			expectedOutputsize: 200,
+			expectedOutputsize: 100,
 		},
 		{
 			name:            "error: repository returns error",

@@ -149,7 +149,7 @@ func TestLogoDetectionHandler_AnalyzeCompany(t *testing.T) {
 			name:           "error: invalid json",
 			requestBody:    `invalid`,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"企業名が必要です"}`,
+			expectedBody:   `{"error":"invalid request"}`,
 		},
 		{
 			name:        "error: usecase returns error",

@@ -34,6 +34,7 @@ func newValidatedRouter(t *testing.T) http.Handler {
 		r.Post("/watchlist", ok)
 		r.Put("/watchlist/order", ok)
 		r.Get("/symbols", ok)
+		r.Get("/candles/{code}", ok)
 	})
 	return r
 }
@@ -77,6 +78,17 @@ func TestMiddleware_RequestValidation(t *testing.T) {
 		{"reorder: 正常", http.MethodPut, "/v1/watchlist/order", `{"codes":["AAPL","MSFT"]}`, http.StatusOK},
 		{"reorder: codes 空配列", http.MethodPut, "/v1/watchlist/order", `{"codes":[]}`, http.StatusBadRequest},
 		{"reorder: codes 内に不正文字", http.MethodPut, "/v1/watchlist/order", `{"codes":["AAPL","MSFT@x"]}`, http.StatusBadRequest},
+
+		// --- candles ---
+		{"candles: 正常", http.MethodGet, "/v1/candles/AAPL?interval=1week&outputsize=10", "", http.StatusOK},
+		{"candles: クエリ省略", http.MethodGet, "/v1/candles/AAPL", "", http.StatusOK},
+		{"candles: outputsize 上限超過", http.MethodGet, "/v1/candles/AAPL?outputsize=10000", "", http.StatusBadRequest},
+		{"candles: outputsize 0", http.MethodGet, "/v1/candles/AAPL?outputsize=0", "", http.StatusBadRequest},
+		{"candles: outputsize 整数以外", http.MethodGet, "/v1/candles/AAPL?outputsize=abc", "", http.StatusBadRequest},
+		{"candles: interval 未対応値", http.MethodGet, "/v1/candles/AAPL?interval=3day", "", http.StatusBadRequest},
+		// 空文字（?interval=）は kin-openapi が enum 未指定扱いとして通過させるため、
+		// ミドルウェアでは 200。空文字の拒否は handler が担う（candleshttp の handler_test で検証）。
+		{"candles: interval 空文字はミドルウェアを通過", http.MethodGet, "/v1/candles/AAPL?interval=", "", http.StatusOK},
 	}
 
 	for _, tt := range tests {
