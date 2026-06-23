@@ -86,14 +86,11 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 			expectedBody:   `{"error":"unsupported interval"}`,
 		},
 		{
-			name: "success: empty interval falls back to default",
-			url:  "/candles/7203.T?interval=",
-			mockGetCandles: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				assert.Equal(t, "", interval) // 空文字はハンドラを通過し usecase 側でデフォルトに丸める
-				return []candles.Candle{}, nil
-			},
-			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			name:           "error: empty interval returns 400",
+			url:            "/candles/7203.T?interval=",
+			mockGetCandles: nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"unsupported interval"}`,
 		},
 		{
 			name:           "error: symbol code with invalid characters returns 400",

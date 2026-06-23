@@ -33,7 +33,7 @@ const (
 // AddWatchlistRequest defines model for AddWatchlistRequest.
 type AddWatchlistRequest struct {
 	// SymbolCode 追加する銘柄コード（例: AAPL, 7203.T）
-	SymbolCode string `binding:"required,min=1,max=20" json:"symbol_code"`
+	SymbolCode string `json:"symbol_code"`
 }
 
 // CandleResponse defines model for CandleResponse.
@@ -60,7 +60,7 @@ type CandleResponse struct {
 // CompanyAnalysisRequest defines model for CompanyAnalysisRequest.
 type CompanyAnalysisRequest struct {
 	// CompanyName 分析対象の企業名
-	CompanyName string `binding:"required" json:"company_name"`
+	CompanyName string `json:"company_name"`
 }
 
 // CompanyAnalysisResponse defines model for CompanyAnalysisResponse.
@@ -96,10 +96,10 @@ type HealthResponse struct {
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// Email メールアドレス
-	Email string `binding:"required,email" json:"email"`
+	Email string `json:"email"`
 
 	// Password パスワード
-	Password string `binding:"required" json:"password"`
+	Password string `json:"password"`
 }
 
 // MessageResponse defines model for MessageResponse.
@@ -110,16 +110,16 @@ type MessageResponse struct {
 // ReorderWatchlistRequest defines model for ReorderWatchlistRequest.
 type ReorderWatchlistRequest struct {
 	// Codes 新しい順序での銘柄コード一覧
-	Codes []string `binding:"required,min=1" json:"codes"`
+	Codes []string `json:"codes"`
 }
 
 // SignupRequest defines model for SignupRequest.
 type SignupRequest struct {
 	// Email メールアドレス
-	Email string `binding:"required,email" json:"email"`
+	Email string `json:"email"`
 
 	// Password パスワード（12文字以上）
-	Password string `binding:"required,min=12" json:"password"`
+	Password string `json:"password"`
 }
 
 // SymbolItem defines model for SymbolItem.

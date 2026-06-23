@@ -175,8 +175,10 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			expectedBody:   `{"error":"symbol already in watchlist"}`,
 		},
 		{
-			name:           "error: invalid request body returns 400",
-			body:           `{"symbol_code":""}`,
+			// 空文字・必須等のスキーマ検証はミドルウェアの責務（middleware_test.go）。
+			// ここではハンドラ自身の JSON デコード失敗分岐を検証する。
+			name:           "error: malformed JSON returns 400",
+			body:           `{"symbol_code":`,
 			mockAdd:        nil,
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"invalid request"}`,
@@ -403,8 +405,10 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			expectedBody:   "",
 		},
 		{
-			name:           "error: invalid request body returns 400",
-			body:           `{"codes":[]}`,
+			// 空配列・必須等のスキーマ検証はミドルウェアの責務（middleware_test.go）。
+			// ここではハンドラ自身の JSON デコード失敗分岐を検証する。
+			name:           "error: malformed JSON returns 400",
+			body:           `{"codes":`,
 			mockReorder:    nil,
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"invalid request"}`,

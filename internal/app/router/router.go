@@ -28,6 +28,7 @@ func NewRouter(authHandler *authhttp.Handler, oauthHandler *authhttp.OAuthHandle
 	symbol *symbollisthttp.Handler, logo *logodetectionhttp.Handler,
 	watchlist *watchlisthttp.Handler,
 	limiter *httpratelimit.Limiter,
+	openapiValidator func(http.Handler) http.Handler,
 	allowedOrigins []string,
 	gcpProjectID string,
 	jwtSecret string,
@@ -54,38 +55,46 @@ func NewRouter(authHandler *authhttp.Handler, oauthHandler *authhttp.OAuthHandle
 
 	// API v1 ルート
 	r.Route("/v1", func(r chi.Router) {
-		// 公開ルート（認証不要）+ レートリミット
-		r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
-			Prefix: "rl:signup:ip",
-			Limit:  5,
-			Window: 1 * time.Hour,
-		})).Post("/signup", authHandler.Signup)
+		// 公開ルート（認証不要）+ レートリミット + OpenAPI バリデーション。
+		// OpenAPI スペックに基づき、パス/クエリ/JSON ボディを契約準拠で検証する。
+		r.Group(func(r chi.Router) {
+			r.Use(openapiValidator)
 
-		r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
-			Prefix: "rl:login:ip",
-			Limit:  10,
-			Window: 1 * time.Minute,
-		})).Post("/login", authHandler.Login)
+			r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
+				Prefix: "rl:signup:ip",
+				Limit:  5,
+				Window: 1 * time.Hour,
+			})).Post("/signup", authHandler.Signup)
 
-		// 期限切れトークンでもログアウトできるよう認証不要
-		r.Delete("/logout", authHandler.Logout)
+			r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
+				Prefix: "rl:login:ip",
+				Limit:  10,
+				Window: 1 * time.Minute,
+			})).Post("/login", authHandler.Login)
 
-		// OAuthルート（環境変数が設定されている場合のみ登録）
-		if oauthHandler != nil {
-			r.Route("/auth/oauth", func(r chi.Router) {
-				r.Get("/{provider}", oauthHandler.BeginAuth)
-				r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
-					Prefix: "rl:oauth:callback:ip",
-					Limit:  20,
-					Window: 1 * time.Minute,
-				})).Get("/{provider}/callback", oauthHandler.Callback)
-			})
-		}
+			// 期限切れトークンでもログアウトできるよう認証不要
+			r.Delete("/logout", authHandler.Logout)
+
+			// OAuthルート（環境変数が設定されている場合のみ登録）
+			if oauthHandler != nil {
+				r.Route("/auth/oauth", func(r chi.Router) {
+					r.Get("/{provider}", oauthHandler.BeginAuth)
+					r.With(httpratelimit.ByIP(limiter, httpratelimit.IPRateLimitConfig{
+						Prefix: "rl:oauth:callback:ip",
+						Limit:  20,
+						Window: 1 * time.Minute,
+					})).Get("/{provider}/callback", oauthHandler.Callback)
+				})
+			}
+		})
 
 		// 保護ルート（認証必須・CSRF保護）
+		// バリデーションは認証・CSRF の後に行う（未認証/CSRF 不正は 401/403 を優先し、
+		// 認証済みリクエストのボディ/パラメータのみ spec 準拠で検証する）。
 		r.Group(func(r chi.Router) {
 			r.Use(jwt.AuthRequired(jwtSecret))
 			r.Use(csrfmw.Protect())
+			r.Use(openapiValidator)
 
 			r.Get("/candles/{code}", candles.GetCandlesHandler)
 			r.Get("/symbols", symbol.List)

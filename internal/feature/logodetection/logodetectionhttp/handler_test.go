@@ -142,17 +142,14 @@ func TestLogoDetectionHandler_AnalyzeCompany(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   `{"company_name":"任天堂","summary":"任天堂の強みは..."}`,
 		},
-		{
-			name:           "error: empty request body",
-			requestBody:    `{}`,
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"企業名が必要です"}`,
-		},
+		// 注: company_name の必須・空文字チェックは OpenAPI バリデーションミドルウェアの
+		// 責務に移行したため、その検証は middleware_test.go で実施する。
+		// ここではハンドラ自身の JSON デコード失敗分岐のみを検証する。
 		{
 			name:           "error: invalid json",
 			requestBody:    `invalid`,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"企業名が必要です"}`,
+			expectedBody:   `{"error":"invalid request"}`,
 		},
 		{
 			name:        "error: usecase returns error",

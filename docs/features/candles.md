@@ -144,8 +144,8 @@ sequenceDiagram
 **クエリパラメータ**
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
-| `interval` | `1day` | 時間間隔（`1day`, `1week`, `1month`） |
-| `outputsize` | `200` | 返却するデータポイント数（最大: 5000） |
+| `interval` | `1day` | 時間間隔（`1day`, `1week`, `1month`）。未指定時のみデフォルト適用。空文字や未対応値は `400` |
+| `outputsize` | `200` | 返却するデータポイント数（`1`〜`5000`）。範囲外・整数以外は `400` |
 
 **リクエスト例（Cookieベース）**
 ```http
@@ -287,9 +287,9 @@ graph TB
 - **API型**（`internal/api/types.gen.go`）: OpenAPI仕様から自動生成された `api.CandleResponse` を使用
 
 #### ユースケース層
-- **Usecase**（[usecase.go](../../internal/feature/candles/usecase.go)）: パラメータバリデーション付きのローソク足データ取得
-  - インターバルとoutputsizeのデフォルト値を適用
-  - 最大outputsize制限（5000）を適用
+- **Usecase**（[usecase.go](../../internal/feature/candles/usecase.go)）: ローソク足データ取得
+  - パラメータの妥当性検証は OpenAPI バリデーションミドルウェアと handler が担うため、usecase は受け取った値をそのままリポジトリへ渡す（丸めやデフォルト化はしない）
+  - 未指定時のデフォルト（`interval=1day` / `outputsize=200`）は handler が補う
   - `Repository`インターフェース（読み取り専用）を定義（Goの「インターフェースは利用者が定義する」慣例に従う）
 - **IngestUsecase**（[ingest.go](../../internal/feature/candles/ingest.go)）: 外部APIからのバッチデータ取り込み
   - アクティブな銘柄（コード + IANA タイムゾーン）を取得

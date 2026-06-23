@@ -46,8 +46,8 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	// 未指定の場合はデフォルト値を使用
 	interval := queryOrDefault(r, "interval", "1day")
-	// 空文字（?interval=）は usecase 側でデフォルトに丸めるため、非空の未対応値のみ拒否する。
-	if interval != "" && !candles.IsValidInterval(interval) {
+	// 空文字（?interval=）を含む未対応値は拒否する（OpenAPI spec の enum と整合）。
+	if !candles.IsValidInterval(interval) {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "unsupported interval"})
 		return
 	}
@@ -83,7 +83,7 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // queryOrDefault はクエリパラメータ key の値を返します。key が存在しない場合のみ def を返します。
-// Gin の c.DefaultQuery と同じく、key が空文字で存在する場合（?interval=）は空文字を返します。
+// key が空文字で存在する場合（?interval=）は空文字を返します。
 func queryOrDefault(r *http.Request, key, def string) string {
 	q := r.URL.Query()
 	if q.Has(key) {

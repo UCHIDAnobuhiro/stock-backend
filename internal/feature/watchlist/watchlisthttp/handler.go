@@ -72,7 +72,7 @@ func (h *Handler) Add(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.AddWatchlistRequest
-	if err := httpx.DecodeAndValidate(r, &req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
@@ -133,7 +133,7 @@ func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.ReorderWatchlistRequest
-	if err := httpx.DecodeAndValidate(r, &req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}

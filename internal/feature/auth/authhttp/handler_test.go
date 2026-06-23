@@ -18,7 +18,7 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 )
 
-// H は JSON ボディ構築用の簡易マップ型です（旧 gin.H 相当）。
+// H は JSON ボディ構築用の簡易マップ型です。
 type H = map[string]any
 
 // mockUsecase はUsecaseインターフェースのモック実装です。
@@ -125,20 +125,9 @@ func TestAuthHandler_Signup(t *testing.T) {
 			expectedStatus: http.StatusCreated,
 			expectedBody:   H{"message": "ok"},
 		},
-		{
-			name:           "failure: invalid email address",
-			requestBody:    H{"email": "invalid-email", "password": "password12345"},
-			mockSignupFunc: nil, // Usecaseは呼ばれない
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   H{"error": "invalid request"},
-		},
-		{
-			name:           "failure: short password",
-			requestBody:    H{"email": "test@example.com", "password": "short"},
-			mockSignupFunc: nil, // Usecaseは呼ばれない
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   H{"error": "invalid request"},
-		},
+		// 注: email 形式・password 長さ等のスキーマバリデーションは
+		// OpenAPI バリデーションミドルウェア（internal/transport/openapivalidate）の
+		// 責務に移行したため、その検証は middleware_test.go で実施する。
 		{
 			name:        "failure: duplicate email (usecase error)",
 			requestBody: H{"email": "existing@example.com", "password": "password12345"},
@@ -235,20 +224,8 @@ func TestAuthHandler_Login(t *testing.T) {
 			checkCookies:   true,
 			secureCookie:   true,
 		},
-		{
-			name:           "failure: invalid email address",
-			requestBody:    H{"email": "invalid-email", "password": "password12345"},
-			mockLoginFunc:  nil, // Usecaseは呼ばれない
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   H{"error": "invalid request"},
-		},
-		{
-			name:           "failure: missing password",
-			requestBody:    H{"email": "test@example.com"},
-			mockLoginFunc:  nil, // Usecaseは呼ばれない
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   H{"error": "invalid request"},
-		},
+		// 注: email 形式・必須項目等のスキーマバリデーションは OpenAPI バリデーション
+		// ミドルウェアの責務に移行したため、その検証は middleware_test.go で実施する。
 		{
 			name:        "failure: invalid credentials (usecase error)",
 			requestBody: H{"email": "wrong@example.com", "password": "wrong-password"},
