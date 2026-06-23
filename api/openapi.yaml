@@ -615,14 +615,10 @@ components:
           format: email
           description: メールアドレス
           x-go-type: string
-          x-oapi-codegen-extra-tags:
-            binding: "required,email"
         password:
           type: string
           minLength: 12
           description: パスワード（12文字以上）
-          x-oapi-codegen-extra-tags:
-            binding: "required,min=12"
 
     LoginRequest:
       type: object
@@ -635,13 +631,10 @@ components:
           format: email
           description: メールアドレス
           x-go-type: string
-          x-oapi-codegen-extra-tags:
-            binding: "required,email"
         password:
           type: string
+          minLength: 1
           description: パスワード
-          x-oapi-codegen-extra-tags:
-            binding: "required"
 
     CandleResponse:
       type: object
@@ -720,9 +713,8 @@ components:
       properties:
         company_name:
           type: string
+          minLength: 1
           description: 分析対象の企業名
-          x-oapi-codegen-extra-tags:
-            binding: "required"
 
     DetectedLogoResponse:
       type: object
@@ -780,8 +772,6 @@ components:
           maxLength: 20
           pattern: "^[A-Za-z0-9._-]{1,20}$"
           description: "追加する銘柄コード（例: AAPL, 7203.T）"
-          x-oapi-codegen-extra-tags:
-            binding: "required,min=1,max=20"
 
     ReorderWatchlistRequest:
       type: object
@@ -798,8 +788,6 @@ components:
             minLength: 1
             maxLength: 20
             pattern: "^[A-Za-z0-9._-]{1,20}$"
-          x-oapi-codegen-extra-tags:
-            binding: "required,min=1"
 
     HealthResponse:
       type: object

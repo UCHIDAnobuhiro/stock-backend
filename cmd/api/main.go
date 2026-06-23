@@ -32,6 +32,7 @@ import (
 	infraredis "github.com/UCHIDAnobuhiro/stock-backend/internal/infra/redis"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/openapivalidate"
 )
 
 // main は run の戻り値で os.Exit するだけのラッパー。
@@ -140,8 +141,15 @@ func run() int {
 	logoH := logodetectionhttp.NewHandler(logoUC)
 	watchlistH := watchlisthttp.NewHandler(watchlistUC)
 
+	// OpenAPI スペックに基づくリクエストバリデーションミドルウェア
+	openapiValidator, err := openapivalidate.New()
+	if err != nil {
+		slog.Error("failed to set up OpenAPI request validator", "error", err)
+		return 1
+	}
+
 	// ルーター作成
-	r := router.NewRouter(authH, oauthH, candlesH, symbolH, logoH, watchlistH, rateLimiter, cfg.Server.CORSOrigins, cfg.Server.GCPProjectID, cfg.Server.JWTSecret)
+	r := router.NewRouter(authH, oauthH, candlesH, symbolH, logoH, watchlistH, rateLimiter, openapiValidator, cfg.Server.CORSOrigins, cfg.Server.GCPProjectID, cfg.Server.JWTSecret)
 
 	srv := &http.Server{
 		Addr:              ":8080",
