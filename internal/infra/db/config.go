@@ -17,6 +17,8 @@ const (
 	// DefaultConnMaxLifetime は接続の最大生存時間のデフォルト値です。
 	// Cloud SQL は古い接続を切るため、それより短い 5 分を既定とします。
 	DefaultConnMaxLifetime = 5 * time.Minute
+	// DefaultSSLMode は TCP 接続時の sslmode のデフォルト値です。
+	DefaultSSLMode = "disable"
 )
 
 // Password はログ出力・文字列化・JSONシリアライズ時に値をマスクする機密文字列型です。
@@ -45,6 +47,7 @@ type Config struct {
 	Host         string
 	Port         string
 	InstanceName string // Cloud SQLインスタンス接続名（オプション）
+	SSLMode      string // TCP 接続時の sslmode（空なら DefaultSSLMode）
 
 	// コネクションプール設定。ゼロ値のときは Default* 定数にフォールバックします。
 	MaxOpenConns    int
@@ -104,10 +107,15 @@ func BuildDSN(cfg Config) string {
 			quotePGValue(string(cfg.Password)),
 			quotePGValue(cfg.Name))
 	}
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+	sslMode := cfg.SSLMode
+	if sslMode == "" {
+		sslMode = DefaultSSLMode
+	}
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		quotePGValue(cfg.Host),
 		quotePGValue(cfg.Port),
 		quotePGValue(cfg.User),
 		quotePGValue(string(cfg.Password)),
-		quotePGValue(cfg.Name))
+		quotePGValue(cfg.Name),
+		quotePGValue(sslMode))
 }
