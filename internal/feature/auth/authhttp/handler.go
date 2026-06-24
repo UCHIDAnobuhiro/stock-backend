@@ -18,8 +18,8 @@ import (
 )
 
 // setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
-// Gin の SetSameSite + SetCookie の組をまとめたヘルパーで、auth_token / csrf_token の
-// 設定・削除に共通利用します。maxAge は秒数（削除時は -1）です。
+// auth_token / csrf_token の設定・削除に共通利用します。
+// maxAge は秒数（削除時は -1）です。
 func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -71,7 +71,7 @@ func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, secureCookie bool, p
 // - 成功時は201を返却
 func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req api.SignupRequest
-	if err := httpx.DecodeAndValidate(r, &req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		slog.Warn("signup validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
@@ -101,7 +101,7 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 // - 認証成功時はJWTトークン付きで200を返却
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req api.LoginRequest
-	if err := httpx.DecodeAndValidate(r, &req); err != nil {
+	if err := httpx.DecodeJSON(r, &req); err != nil {
 		slog.Warn("login validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return

@@ -41,7 +41,7 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 	// 一時ファイルの肥大を防ぐため、ParseMultipartForm の前段でハードリミットをかける。
 	r.Body = http.MaxBytesReader(w, r.Body, maxImageSize+1<<20)
 
-	// ParseMultipartForm の引数はメモリ上限（Gin の MaxMultipartMemory 相当）。
+	// ParseMultipartForm の引数はメモリ上限。
 	if err := r.ParseMultipartForm(maxImageSize); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
@@ -102,9 +102,9 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 // Content-Type: application/json
 func (h *Handler) AnalyzeCompany(w http.ResponseWriter, r *http.Request) {
 	var req api.CompanyAnalysisRequest
-	if err := httpx.DecodeAndValidate(r, &req); err != nil {
-		slog.Warn("企業分析リクエストのバリデーションに失敗", "error", err, "remote_addr", httpx.ClientIP(r))
-		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "企業名が必要です"})
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		slog.Warn("企業分析リクエストのデコードに失敗", "error", err, "remote_addr", httpx.ClientIP(r))
+		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
 

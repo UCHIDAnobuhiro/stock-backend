@@ -23,7 +23,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@v7
 
             - name: Auth to Google Cloud (OIDC/WIF)
               uses: google-github-actions/auth@v3

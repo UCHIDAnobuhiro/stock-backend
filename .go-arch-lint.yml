@@ -41,6 +41,8 @@ components:
   infra:     { in: internal/infra/** }
   shared:    { in: internal/shared/** }
   api:      { in: internal/api }
+  # OpenAPI スペック（openapi.yaml）を埋め込む repo 直下の api パッケージ。
+  apispec:  { in: api }
   app:      { in: internal/app/** }
   cmd:      { in: cmd/** }
   # マイグレーション SQL を埋め込む repo 直下の db パッケージ。
@@ -70,7 +72,7 @@ deps:
   # transport（inbound HTTP）/ infra（技術基盤）は feature に依存できない。
   # transport は infra・共通基盤・api 型に依存可。infra は共通基盤・api 型・埋め込み migrations に依存可。
   # それぞれ内部のパッケージ間依存を許可するため自身も含める（例: infra の db/dbtest → db）。
-  transport: { mayDependOn: [transport, infra, shared, api] }
+  transport: { mayDependOn: [transport, infra, shared, api, apispec] }
   infra:     { mayDependOn: [infra, shared, api, migrations-embed] }
 
   # 合成ルート（DI/ルーティング/エントリポイント）は全コンポーネントに依存可。
@@ -95,6 +97,7 @@ deps:
       - infra
       - shared
       - api
+      - apispec
   cmd:
     mayDependOn:
       - app
@@ -115,3 +118,4 @@ deps:
       - infra
       - shared
       - api
+      - apispec

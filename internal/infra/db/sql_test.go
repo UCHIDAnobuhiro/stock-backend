@@ -93,6 +93,31 @@ func TestConnectSQLWithRetry_ErrorWrapped(t *testing.T) {
 	}
 }
 
+// TestConfigurePool_AppliesDefaults は cfg の値がゼロのとき Default* がプールに適用されることを検証します。
+// MaxIdleConns / ConnMaxLifetime は database/sql に getter がないため、検証可能な MaxOpenConnections を確認します。
+func TestConfigurePool_AppliesDefaults(t *testing.T) {
+	t.Parallel()
+
+	db := &sql.DB{}
+	configurePool(db, Config{})
+
+	if got := db.Stats().MaxOpenConnections; got != DefaultMaxOpenConns {
+		t.Errorf("expected MaxOpenConnections %d, got %d", DefaultMaxOpenConns, got)
+	}
+}
+
+// TestConfigurePool_AppliesExplicit は cfg に明示された値がプールに適用されることを検証します。
+func TestConfigurePool_AppliesExplicit(t *testing.T) {
+	t.Parallel()
+
+	db := &sql.DB{}
+	configurePool(db, Config{MaxOpenConns: 7, MaxIdleConns: 3, ConnMaxLifetime: time.Minute})
+
+	if got := db.Stats().MaxOpenConnections; got != 7 {
+		t.Errorf("expected MaxOpenConnections 7, got %d", got)
+	}
+}
+
 func TestOpenSQL_InvalidConfig(t *testing.T) {
 	t.Parallel()
 

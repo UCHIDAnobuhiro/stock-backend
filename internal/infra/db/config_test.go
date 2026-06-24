@@ -29,6 +29,39 @@ func TestBuildDSN_TCP(t *testing.T) {
 	}
 }
 
+// TestBuildDSN_SSLMode は TCP 接続で SSLMode が指定された場合に DSN へ反映され、
+// 未指定なら DefaultSSLMode（disable）にフォールバックすることを検証します。
+func TestBuildDSN_SSLMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		sslMode  string
+		expected string
+	}{
+		{
+			name:     "explicit require",
+			sslMode:  "require",
+			expected: "host=localhost port=5432 user=u password=p dbname=d sslmode=require",
+		},
+		{
+			name:     "empty falls back to disable",
+			sslMode:  "",
+			expected: "host=localhost port=5432 user=u password=p dbname=d sslmode=disable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{User: "u", Password: "p", Name: "d", Host: "localhost", Port: "5432", SSLMode: tt.sslMode}
+			if got := BuildDSN(cfg); got != tt.expected {
+				t.Errorf("BuildDSN mismatch\n want: %q\n  got: %q", tt.expected, got)
+			}
+		})
+	}
+}
+
 // TestBuildDSN_CloudSQL はCloud SQL Unixソケット接続用のDSN文字列が正しく生成されることを検証します。
 func TestBuildDSN_CloudSQL(t *testing.T) {
 	t.Parallel()
