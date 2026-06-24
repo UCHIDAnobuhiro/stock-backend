@@ -149,7 +149,19 @@ func run() int {
 	}
 
 	// ルーター作成
-	r := router.NewRouter(authH, oauthH, candlesH, symbolH, logoH, watchlistH, rateLimiter, openapiValidator, cfg.Server.CORSOrigins, cfg.Server.GCPProjectID, cfg.Server.JWTSecret)
+	r := router.NewRouter(
+		router.Handlers{
+			Auth: authH, OAuth: oauthH, Candles: candlesH,
+			Symbol: symbolH, Logo: logoH, Watchlist: watchlistH,
+		},
+		router.Config{
+			Limiter:          rateLimiter,
+			OpenAPIValidator: openapiValidator,
+			AllowedOrigins:   cfg.Server.CORSOrigins,
+			GCPProjectID:     cfg.Server.GCPProjectID,
+			JWTSecret:        cfg.Server.JWTSecret,
+		},
+	)
 
 	srv := &http.Server{
 		Addr:              ":8080",
