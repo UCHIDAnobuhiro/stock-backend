@@ -86,7 +86,7 @@ func TestLogoDetectionHandler_DetectLogos(t *testing.T) {
 			},
 			mockFunc:       nil,
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"画像ファイルが必要です"}`,
+			expectedBody:   `{"error":"image file is required"}`,
 		},
 		{
 			name: "error: usecase returns error",
@@ -98,7 +98,7 @@ func TestLogoDetectionHandler_DetectLogos(t *testing.T) {
 				return nil, errors.New("vision API error")
 			},
 			expectedStatus: http.StatusBadGateway,
-			expectedBody:   `{"error":"ロゴ検出に失敗しました"}`,
+			expectedBody:   `{"error":"logo detection failed"}`,
 		},
 	}
 
@@ -158,7 +158,7 @@ func TestLogoDetectionHandler_AnalyzeCompany(t *testing.T) {
 				return nil, errors.New("gemini API error")
 			},
 			expectedStatus: http.StatusBadGateway,
-			expectedBody:   `{"error":"企業分析に失敗しました"}`,
+			expectedBody:   `{"error":"company analysis failed"}`,
 		},
 	}
 
