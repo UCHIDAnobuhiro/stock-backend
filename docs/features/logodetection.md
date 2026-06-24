@@ -28,11 +28,11 @@ sequenceDiagram
     Handler->>Handler: FormFile("image")で画像取得
 
     alt 画像フィールドなし
-        Handler-->>Client: 400 Bad Request<br/>{"error":"画像ファイルが必要です"}
+        Handler-->>Client: 400 Bad Request<br/>{"error":"image file is required"}
     end
 
     alt ファイルサイズ > 10MB
-        Handler-->>Client: 413 Request Entity Too Large<br/>{"error":"画像サイズが上限（10MB）を超えています"}
+        Handler-->>Client: 413 Request Entity Too Large<br/>{"error":"image size exceeds the limit (10MB)"}
     end
 
     Handler->>Handler: io.ReadAll(io.LimitReader(f, 10MB+1))
@@ -50,7 +50,7 @@ sequenceDiagram
         API-->>Vision: Error
         Vision-->>Usecase: error
         Usecase-->>Handler: error
-        Handler-->>Client: 502 Bad Gateway<br/>{"error":"ロゴ検出に失敗しました"}
+        Handler-->>Client: 502 Bad Gateway<br/>{"error":"logo detection failed"}
     end
 ```
 
@@ -68,7 +68,7 @@ sequenceDiagram
     Handler->>Handler: ShouldBindJSON(&req)
 
     alt バリデーションエラー
-        Handler-->>Client: 400 Bad Request<br/>{"error":"企業名が必要です"}
+        Handler-->>Client: 400 Bad Request<br/>{"error":"invalid request"}
     end
 
     Handler->>Usecase: AnalyzeCompany(ctx, "任天堂")
@@ -85,7 +85,7 @@ sequenceDiagram
         API-->>Gemini: Error
         Gemini-->>Usecase: error
         Usecase-->>Handler: error
-        Handler-->>Client: 502 Bad Gateway<br/>{"error":"企業分析に失敗しました"}
+        Handler-->>Client: 502 Bad Gateway<br/>{"error":"company analysis failed"}
     end
 ```
 
@@ -141,21 +141,21 @@ Content-Type: image/jpeg
 - **400 Bad Request** - 画像フィールドなし
   ```json
   {
-    "error": "画像ファイルが必要です"
+    "error": "image file is required"
   }
   ```
 
 - **413 Request Entity Too Large** - 画像サイズ超過
   ```json
   {
-    "error": "画像サイズが上限（10MB）を超えています"
+    "error": "image size exceeds the limit (10MB)"
   }
   ```
 
 - **502 Bad Gateway** - Vision APIエラー
   ```json
   {
-    "error": "ロゴ検出に失敗しました"
+    "error": "logo detection failed"
   }
   ```
 
@@ -208,14 +208,14 @@ Content-Type: application/json
 - **400 Bad Request** - 企業名なしまたはバリデーションエラー
   ```json
   {
-    "error": "企業名が必要です"
+    "error": "invalid request"
   }
   ```
 
 - **502 Bad Gateway** - Gemini APIエラー
   ```json
   {
-    "error": "企業分析に失敗しました"
+    "error": "company analysis failed"
   }
   ```
 
