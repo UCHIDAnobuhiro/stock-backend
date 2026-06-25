@@ -276,10 +276,21 @@ func TestWatchlistUsecase_RemoveSymbol(t *testing.T) {
 func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 	t.Parallel()
 
+	// listByUserFunc は指定したコード群を sort_key 昇順の watchlist として返すヘルパーです。
+	listByUserFunc := func(codes ...string) func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
+		return func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
+			entries := make([]watchlist.UserSymbol, 0, len(codes))
+			for i, code := range codes {
+				entries = append(entries, watchlist.UserSymbol{UserID: userID, SymbolCode: code, SortKey: i})
+			}
+			return entries, nil
+		}
+	}
+
 	t.Run("success: assigns sequential sort keys in order", func(t *testing.T) {
 		t.Parallel()
 
-		repo := &mockRepository{}
+		repo := &mockRepository{ListByUserFunc: listByUserFunc("AAPL", "MSFT", "GOOGL")}
 		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
 
 		err := uc.ReorderSymbols(context.Background(), 42, []string{"MSFT", "AAPL", "GOOGL"})
@@ -292,10 +303,10 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		}, repo.UpdatedEntries)
 	})
 
-	t.Run("success: empty order produces empty entries", func(t *testing.T) {
+	t.Run("success: empty order with empty watchlist produces empty entries", func(t *testing.T) {
 		t.Parallel()
 
-		repo := &mockRepository{}
+		repo := &mockRepository{ListByUserFunc: listByUserFunc()}
 		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
 
 		err := uc.ReorderSymbols(context.Background(), 42, []string{})
@@ -304,10 +315,62 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		assert.Empty(t, repo.UpdatedEntries)
 	})
 
+	t.Run("failure: partial list returns ErrReorderCodesMismatch", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{ListByUserFunc: listByUserFunc("AAPL", "MSFT", "GOOGL")}
+		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
+
+		err := uc.ReorderSymbols(context.Background(), 42, []string{"GOOGL", "AAPL"})
+
+		assert.ErrorIs(t, err, watchlist.ErrReorderCodesMismatch)
+		assert.Nil(t, repo.UpdatedEntries)
+	})
+
+	t.Run("failure: unknown code returns ErrReorderCodesMismatch", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{ListByUserFunc: listByUserFunc("AAPL", "MSFT")}
+		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
+
+		err := uc.ReorderSymbols(context.Background(), 42, []string{"AAPL", "TSLA"})
+
+		assert.ErrorIs(t, err, watchlist.ErrReorderCodesMismatch)
+		assert.Nil(t, repo.UpdatedEntries)
+	})
+
+	t.Run("failure: duplicate code returns ErrReorderCodesMismatch", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{ListByUserFunc: listByUserFunc("AAPL", "MSFT")}
+		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
+
+		err := uc.ReorderSymbols(context.Background(), 42, []string{"AAPL", "AAPL"})
+
+		assert.ErrorIs(t, err, watchlist.ErrReorderCodesMismatch)
+		assert.Nil(t, repo.UpdatedEntries)
+	})
+
+	t.Run("failure: ListByUser returns error", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{
+			ListByUserFunc: func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
+				return nil, errors.New("list failed")
+			},
+		}
+		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
+
+		err := uc.ReorderSymbols(context.Background(), 42, []string{"AAPL"})
+
+		assert.ErrorContains(t, err, "list failed")
+	})
+
 	t.Run("failure: repository returns error", func(t *testing.T) {
 		t.Parallel()
 
 		repo := &mockRepository{
+			ListByUserFunc: listByUserFunc("AAPL"),
 			UpdateSortKeysFunc: func(ctx context.Context, userID int64, entries []watchlist.UserSymbol) error {
 				return errors.New("update failed")
 			},

@@ -421,6 +421,15 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			expectedBody:   `{"error":"invalid symbol code"}`,
 		},
 		{
+			name: "error: codes mismatch returns 400",
+			body: `{"codes":["AAPL"]}`,
+			mockReorder: func(ctx context.Context, userID int64, orderedCodes []string) error {
+				return watchlist.ErrReorderCodesMismatch
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"reorder codes do not match watchlist"}`,
+		},
+		{
 			name: "error: usecase returns internal error",
 			body: `{"codes":["AAPL"]}`,
 			mockReorder: func(ctx context.Context, userID int64, orderedCodes []string) error {

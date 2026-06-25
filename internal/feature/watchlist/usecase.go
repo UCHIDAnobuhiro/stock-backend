@@ -68,7 +68,36 @@ func (u *usecase) RemoveSymbol(ctx context.Context, userID int64, symbolCode str
 }
 
 // ReorderSymbols はウォッチリストの並び順を更新します。
+// orderedCodes はユーザーの watchlist 全件と過不足・重複なく一致する必要があります。
+// 一致しない場合は ErrReorderCodesMismatch を返します。これは部分リストを渡した際に
+// 更新対象外レコードと sort_key が衝突し、(user_id, sort_key) UNIQUE 制約違反で
+// トランザクションが失敗する（500）のを防ぐためです。
 func (u *usecase) ReorderSymbols(ctx context.Context, userID int64, orderedCodes []string) error {
+	existing, err := u.repo.ListByUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("listing watchlist: %w", err)
+	}
+
+	if len(orderedCodes) != len(existing) {
+		return ErrReorderCodesMismatch
+	}
+
+	existingCodes := make(map[string]struct{}, len(existing))
+	for _, e := range existing {
+		existingCodes[e.SymbolCode] = struct{}{}
+	}
+
+	seen := make(map[string]struct{}, len(orderedCodes))
+	for _, code := range orderedCodes {
+		if _, dup := seen[code]; dup {
+			return ErrReorderCodesMismatch
+		}
+		if _, ok := existingCodes[code]; !ok {
+			return ErrReorderCodesMismatch
+		}
+		seen[code] = struct{}{}
+	}
+
 	entries := make([]UserSymbol, 0, len(orderedCodes))
 	for i, code := range orderedCodes {
 		entries = append(entries, UserSymbol{

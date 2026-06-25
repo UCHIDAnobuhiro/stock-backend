@@ -145,8 +145,13 @@ func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.uc.ReorderSymbols(r.Context(), userID, req.Codes); err != nil {
-		slog.Error("failed to reorder watchlist", "error", err, "userID", userID)
-		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
+		switch {
+		case errors.Is(err, watchlist.ErrReorderCodesMismatch):
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: err.Error()})
+		default:
+			slog.Error("failed to reorder watchlist", "error", err, "userID", userID)
+			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
+		}
 		return
 	}
 

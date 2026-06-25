@@ -11,4 +11,8 @@ var (
 
 	// ErrNotInWatchlist は削除対象の銘柄がウォッチリストに存在しない場合のエラーです。
 	ErrNotInWatchlist = errors.New("symbol not in watchlist")
+
+	// ErrReorderCodesMismatch は並び替えの codes がユーザーの watchlist 全件と
+	// 一致しない（過不足・重複あり）場合のエラーです。
+	ErrReorderCodesMismatch = errors.New("reorder codes do not match watchlist")
 )
