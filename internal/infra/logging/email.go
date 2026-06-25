@@ -23,6 +23,6 @@ func (e HashedEmail) LogValue() slog.Value {
 	if e == "" {
 		return slog.StringValue("")
 	}
-	sum := sha256.Sum256([]byte(strings.ToLower(string(e))))
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(string(e)))))
 	return slog.StringValue(hex.EncodeToString(sum[:])[:hashedEmailLen])
 }

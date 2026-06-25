@@ -54,6 +54,18 @@ func TestHashedEmail_CaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestHashedEmail_TrimSpace は前後の空白の有無で同一ハッシュを返すことを検証します。
+// usecase 側の正規化（trim + 小文字化）とログ相関を一致させるため。
+func TestHashedEmail_TrimSpace(t *testing.T) {
+	t.Parallel()
+
+	a := HashedEmail("  User@Example.com  ").LogValue().String()
+	b := HashedEmail("user@example.com").LogValue().String()
+	if a != b {
+		t.Errorf("whitespace/case mismatch: %q != %q", a, b)
+	}
+}
+
 // TestHashedEmail_Deterministic は同一入力が常に同一ハッシュを返すことを検証します。
 // 連続失敗・レート制限ログの相関解析が成立する前提条件。
 func TestHashedEmail_Deterministic(t *testing.T) {

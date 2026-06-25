@@ -96,6 +96,9 @@ func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, 
 	if err != nil {
 		return "", fmt.Errorf("oauth code exchange failed: %w", err)
 	}
+	// プロバイダー返却メールを正規化し、自動リンク・新規作成・JWT 生成を
+	// すべて正規化済みメールで行う（大小文字違いによる重複アカウントを防ぐ）。
+	info.Email = NormalizeEmail(info.Email)
 	if info.Email == "" {
 		return "", ErrOAuthEmailUnavailable
 	}

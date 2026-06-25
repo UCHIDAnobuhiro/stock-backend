@@ -142,6 +142,9 @@ func validatePassword(password string) error {
 // Signup はハッシュ化されたパスワードで新規ユーザーを登録します。
 // 成功時に作成されたユーザーのIDを返します。
 func (u *usecase) Signup(ctx context.Context, email, password string) (int64, error) {
+	// メールアドレスを正規化（小文字化・trim）してから保存する。
+	email = NormalizeEmail(email)
+
 	// パスワード強度を検証
 	if err := validatePassword(password); err != nil {
 		return 0, err
@@ -170,6 +173,9 @@ func (u *usecase) Login(ctx context.Context, email, password string) (string, er
 	if len(password) > maxPasswordLength {
 		return "", ErrInvalidCredentials
 	}
+
+	// 保存時と同じ正規化を施してから検索する（ケース依存の不一致を防ぐ）。
+	email = NormalizeEmail(email)
 
 	// メールアドレスでユーザーを検索
 	user, err := u.users.FindByEmail(ctx, email)

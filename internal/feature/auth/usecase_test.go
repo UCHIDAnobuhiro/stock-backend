@@ -342,6 +342,56 @@ func TestAuthUsecase_Login(t *testing.T) {
 	}
 }
 
+// TestAuthUsecase_Signup_NormalizesEmail はサインアップ時にメールアドレスが
+// 小文字化・trim されてリポジトリに保存されることを検証します（重複アカウント防止）。
+func TestAuthUsecase_Signup_NormalizesEmail(t *testing.T) {
+	t.Parallel()
+
+	var storedEmail string
+	mockRepo := &mockUserRepository{
+		CreateFunc: func(ctx context.Context, user *auth.User) error {
+			storedEmail = user.Email
+			return nil
+		},
+	}
+	uc := auth.NewUsecase(mockRepo, &mockJWTGenerator{}, testPepper)
+
+	if _, err := uc.Signup(context.Background(), "  User@Example.COM ", "password12345"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if storedEmail != "user@example.com" {
+		t.Errorf("stored email = %q, want %q", storedEmail, "user@example.com")
+	}
+}
+
+// TestAuthUsecase_Login_NormalizesEmail はログイン時に正規化済みメールアドレスで
+// ユーザー検索が行われることを検証します（レート制限キーとの不整合を防ぐ）。
+func TestAuthUsecase_Login_NormalizesEmail(t *testing.T) {
+	t.Parallel()
+
+	testUser := createTestUser(t, 1, "user@example.com", "password12345")
+
+	var lookupEmail string
+	mockRepo := &mockUserRepository{
+		FindByEmailFunc: func(ctx context.Context, email string) (*auth.User, error) {
+			lookupEmail = email
+			return testUser, nil
+		},
+	}
+	uc := auth.NewUsecase(mockRepo, &mockJWTGenerator{}, testPepper)
+
+	token, err := uc.Login(context.Background(), "  User@Example.COM ", "password12345")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token == "" {
+		t.Error("token is empty")
+	}
+	if lookupEmail != "user@example.com" {
+		t.Errorf("FindByEmail called with %q, want %q", lookupEmail, "user@example.com")
+	}
+}
+
 // TestAuthUsecase_PepperApplied はペッパーが正しくパスワードに適用されることを検証します。
 func TestAuthUsecase_PepperApplied(t *testing.T) {
 	t.Parallel()
