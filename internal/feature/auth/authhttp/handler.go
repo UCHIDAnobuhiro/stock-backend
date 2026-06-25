@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/api"
@@ -108,7 +107,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// メールベースのレートリミットチェック
-	key := fmt.Sprintf("rl:login:email:%s", strings.ToLower(req.Email))
+	// 実際のユーザー検索（usecase）と同じ正規化を用い、バケットを一致させる。
+	key := fmt.Sprintf("rl:login:email:%s", auth.NormalizeEmail(req.Email))
 	result := h.limiter.Allow(r.Context(), key, loginEmailLimit, loginEmailWindow)
 	if !result.Allowed {
 		slog.Warn("login rate limit exceeded",
