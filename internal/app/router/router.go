@@ -37,6 +37,8 @@ type Config struct {
 	AllowedOrigins   []string
 	GCPProjectID     string
 	JWTSecret        string
+	// SecureCookie が true（本番・TLS終端）のとき HSTS ヘッダーを有効化する。
+	SecureCookie bool
 }
 
 // NewRouter はすべてのアプリケーションルートを設定したHTTPハンドラー（chiルーター）を生成します。
@@ -57,7 +59,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 		AllowCredentials: true,
 		MaxAge:           int((12 * time.Hour).Seconds()),
 	}))
-	r.Use(httpmw.SecurityHeaders())
+	r.Use(httpmw.SecurityHeaders(cfg.SecureCookie))
 
 	// ヘルスチェックエンドポイント（バージョンなし）。
 	// Health はメソッドごとの分岐を自身で行うため、全メソッドを単一ハンドラーで処理する。

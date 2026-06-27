@@ -160,6 +160,7 @@ func run() int {
 			AllowedOrigins:   cfg.Server.CORSOrigins,
 			GCPProjectID:     cfg.Server.GCPProjectID,
 			JWTSecret:        cfg.Server.JWTSecret,
+			SecureCookie:     cfg.Server.SecureCookie,
 		},
 	)
 
