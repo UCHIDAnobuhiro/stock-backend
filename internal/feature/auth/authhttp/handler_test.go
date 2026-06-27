@@ -43,6 +43,21 @@ func (m *mockUsecase) Login(ctx context.Context, email, password string) (string
 	return "", errors.New("login failed") // デフォルト: 失敗
 }
 
+// mockPostHook は auth.UserCreatedHook インターフェースのモック実装です。
+type mockPostHook struct {
+	OnUserCreatedFunc func(ctx context.Context, userID int64) error
+	called            bool
+}
+
+// OnUserCreated はサインアップ後フックのモック実装です。
+func (m *mockPostHook) OnUserCreated(ctx context.Context, userID int64) error {
+	m.called = true
+	if m.OnUserCreatedFunc != nil {
+		return m.OnUserCreatedFunc(ctx, userID)
+	}
+	return nil
+}
+
 // makeRequest はHTTPリクエストを作成し、指定ハンドラーを直接実行するヘルパー関数です。
 func makeRequest(t *testing.T, handler http.HandlerFunc, method, path string, body H) *httptest.ResponseRecorder {
 	t.Helper()
@@ -150,6 +165,30 @@ func TestAuthHandler_Signup(t *testing.T) {
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
 		})
 	}
+}
+
+// TestAuthHandler_Signup_HookFailureIsNonFatal はサインアップ後フックが失敗しても
+// ユーザー作成が成功している限り 201 を返す（非致命的扱い）ことを検証します（issue #196）。
+func TestAuthHandler_Signup_HookFailureIsNonFatal(t *testing.T) {
+	t.Parallel()
+
+	mockUC := &mockUsecase{
+		SignupFunc: func(ctx context.Context, email, password string) (int64, error) { return 1, nil },
+	}
+	hook := &mockPostHook{
+		OnUserCreatedFunc: func(ctx context.Context, userID int64) error {
+			return errors.New("watchlist init failed")
+		},
+	}
+	h := authhttp.NewHandler(mockUC, nil, false, hook)
+
+	w := makeRequest(t, h.Signup, http.MethodPost, "/signup", H{
+		"email":    "test@example.com",
+		"password": "password12345",
+	})
+
+	assertJSONResponse(t, w, http.StatusCreated, H{"message": "ok"})
+	assert.True(t, hook.called, "後処理フックが呼ばれること")
 }
 
 // TestAuthHandler_Login_RateLimited はメールベースのレートリミット超過時に429が返されることを検証します。
