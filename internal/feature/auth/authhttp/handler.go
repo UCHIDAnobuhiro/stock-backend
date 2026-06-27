@@ -82,11 +82,11 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "signup failed"})
 		return
 	}
+	// 後処理フック呼び出し（例: ウォッチリスト初期化）
+	// フック失敗はユーザー作成自体には影響しないため非致命的とし、ログのみ記録する。
 	for _, hook := range h.postHooks {
 		if err := hook.OnUserCreated(r.Context(), userID); err != nil {
 			slog.Error("post-signup hook failed", "error", err, "userID", userID)
-			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "signup failed"})
-			return
 		}
 	}
 	slog.Info("user signup successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
