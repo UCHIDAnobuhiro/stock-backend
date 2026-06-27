@@ -7,6 +7,9 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
+// validSecret は最低長(minSecretLength=32)を満たすテスト用シークレット。
+const validSecret = "0123456789abcdef0123456789abcdef" // 32 バイト
+
 // clearServerEnv は設定検証に関わる環境変数をすべて空にし、テストを決定的にする。
 func clearServerEnv(t *testing.T) {
 	t.Helper()
@@ -31,24 +34,51 @@ func clearServerEnv(t *testing.T) {
 func TestLoadAPI(t *testing.T) {
 	t.Run("JWT_SECRET 未設定はエラー", func(t *testing.T) {
 		clearServerEnv(t)
-		t.Setenv(auth.EnvKeyPasswordPepper, "pepper")
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
 		if _, err := LoadAPI(); err == nil {
 			t.Fatal("expected error when JWT_SECRET is missing, got nil")
 		}
 	})
 
+	t.Run("JWT_SECRET が短すぎる場合はエラー", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret[:minSecretLength-1])
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		if _, err := LoadAPI(); err == nil {
+			t.Fatalf("expected error when JWT_SECRET is shorter than %d bytes, got nil", minSecretLength)
+		}
+	})
+
 	t.Run("PASSWORD_PEPPER 未設定はエラー", func(t *testing.T) {
 		clearServerEnv(t)
-		t.Setenv(jwt.EnvKeyJWTSecret, "secret")
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
 		if _, err := LoadAPI(); err == nil {
 			t.Fatal("expected error when PASSWORD_PEPPER is missing, got nil")
 		}
 	})
 
+	t.Run("PASSWORD_PEPPER が短すぎる場合はエラー", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret[:minSecretLength-1])
+		if _, err := LoadAPI(); err == nil {
+			t.Fatalf("expected error when PASSWORD_PEPPER is shorter than %d bytes, got nil", minSecretLength)
+		}
+	})
+
+	t.Run("ちょうど最低長で成功", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret[:minSecretLength])
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret[:minSecretLength])
+		if _, err := LoadAPI(); err != nil {
+			t.Fatalf("unexpected error for %d-byte secrets: %v", minSecretLength, err)
+		}
+	})
+
 	t.Run("必須のみ設定で成功・デフォルト適用", func(t *testing.T) {
 		clearServerEnv(t)
-		t.Setenv(jwt.EnvKeyJWTSecret, "secret")
-		t.Setenv(auth.EnvKeyPasswordPepper, "pepper")
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
 
 		cfg, err := LoadAPI()
 		if err != nil {
@@ -67,8 +97,8 @@ func TestLoadAPI(t *testing.T) {
 
 	t.Run("APP_ENV=production で secureCookie が true", func(t *testing.T) {
 		clearServerEnv(t)
-		t.Setenv(jwt.EnvKeyJWTSecret, "secret")
-		t.Setenv(auth.EnvKeyPasswordPepper, "pepper")
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
 		t.Setenv("APP_ENV", "production")
 
 		cfg, err := LoadAPI()
@@ -82,8 +112,8 @@ func TestLoadAPI(t *testing.T) {
 
 	t.Run("不正な COOKIE_SECURE は Warnings に記録しデフォルト動作", func(t *testing.T) {
 		clearServerEnv(t)
-		t.Setenv(jwt.EnvKeyJWTSecret, "secret")
-		t.Setenv(auth.EnvKeyPasswordPepper, "pepper")
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
 		t.Setenv("COOKIE_SECURE", "notabool")
 
 		cfg, err := LoadAPI()

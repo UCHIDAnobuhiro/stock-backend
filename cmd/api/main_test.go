@@ -38,8 +38,9 @@ func TestRun_ReturnsTwoWhenConfigInvalid(t *testing.T) {
 
 func TestRun_ReturnsOneWhenDBConfigInvalid(t *testing.T) {
 	clearEnv(t)
-	t.Setenv(jwt.EnvKeyJWTSecret, "secret")
-	t.Setenv(auth.EnvKeyPasswordPepper, "pepper")
+	// 最低長(32 バイト)を満たす値で config 検証を通し、DB 設定不備で失敗させる
+	t.Setenv(jwt.EnvKeyJWTSecret, "0123456789abcdef0123456789abcdef")
+	t.Setenv(auth.EnvKeyPasswordPepper, "0123456789abcdef0123456789abcdef")
 	t.Setenv("DB_USER", "")
 
 	if got := run(); got != 1 {

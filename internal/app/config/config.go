@@ -33,6 +33,9 @@ const (
 	defaultIngestTimeoutHours = 3
 	// defaultMaxFailureRate は *_MAX_FAILURE_RATE のデフォルト値。
 	defaultMaxFailureRate = 0.2
+	// minSecretLength は JWT_SECRET / PASSWORD_PEPPER に要求する最低バイト数。
+	// HS256 署名鍵の総当たり偽造を防ぐため 32 バイト以上を必須とする。
+	minSecretLength = 32
 )
 
 // Config はアプリケーション全体の設定を保持します。
@@ -178,10 +181,16 @@ func readServer(warn *[]string) (ServerConfig, error) {
 	if jwtSecret == "" {
 		return ServerConfig{}, fmt.Errorf("%s is required", jwt.EnvKeyJWTSecret)
 	}
+	if len(jwtSecret) < minSecretLength {
+		return ServerConfig{}, fmt.Errorf("%s must be at least %d bytes", jwt.EnvKeyJWTSecret, minSecretLength)
+	}
 
 	passwordPepper := os.Getenv(auth.EnvKeyPasswordPepper)
 	if passwordPepper == "" {
 		return ServerConfig{}, fmt.Errorf("%s is required", auth.EnvKeyPasswordPepper)
+	}
+	if len(passwordPepper) < minSecretLength {
+		return ServerConfig{}, fmt.Errorf("%s must be at least %d bytes", auth.EnvKeyPasswordPepper, minSecretLength)
 	}
 
 	// COOKIE_SECURE を優先し、未設定なら APP_ENV=production をフォールバックとして使用
