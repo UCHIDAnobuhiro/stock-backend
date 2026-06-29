@@ -48,22 +48,24 @@ func NewOAuthUsecase(
 	}
 }
 
-// BeginAuth は指定プロバイダーのOAuth2認可URLを生成します。
+// BeginAuth は指定プロバイダーのOAuth2認可URLと、生成した state を返します。
 // PKCE（S256）のcodeVerifierとstateを生成しRedisに保存します。
-func (uc *oauthUsecase) BeginAuth(ctx context.Context, providerName string) (string, error) {
+// 返却した state は呼び出し側（HTTPハンドラー）でブラウザ側 Cookie にも保存し、
+// コールバック時にクエリの state と照合することでログイン CSRF を防ぎます。
+func (uc *oauthUsecase) BeginAuth(ctx context.Context, providerName string) (authURL, state string, err error) {
 	provider, ok := uc.providers[providerName]
 	if !ok {
-		return "", ErrUnknownProvider
+		return "", "", ErrUnknownProvider
 	}
 
-	state, err := generateRandomBase64(32)
+	state, err = generateRandomBase64(32)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate oauth state: %w", err)
+		return "", "", fmt.Errorf("failed to generate oauth state: %w", err)
 	}
 
 	codeVerifier, err := generateRandomBase64(32)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate code verifier: %w", err)
+		return "", "", fmt.Errorf("failed to generate code verifier: %w", err)
 	}
 
 	// S256: codeChallenge = BASE64URL(SHA256(codeVerifier))
@@ -71,10 +73,10 @@ func (uc *oauthUsecase) BeginAuth(ctx context.Context, providerName string) (str
 	codeChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
 
 	if err := uc.stateStore.SaveState(ctx, state, codeVerifier, oauthStateTTL); err != nil {
-		return "", fmt.Errorf("failed to save oauth state: %w", err)
+		return "", "", fmt.Errorf("failed to save oauth state: %w", err)
 	}
 
-	return provider.AuthorizationURL(state, codeChallenge), nil
+	return provider.AuthorizationURL(state, codeChallenge), state, nil
 }
 
 // HandleCallback はプロバイダーから返却されたcodeとstateを検証し、
