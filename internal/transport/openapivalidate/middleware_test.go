@@ -86,9 +86,9 @@ func TestMiddleware_RequestValidation(t *testing.T) {
 		{"candles: outputsize 0", http.MethodGet, "/v1/candles/AAPL?outputsize=0", "", http.StatusBadRequest},
 		{"candles: outputsize 整数以外", http.MethodGet, "/v1/candles/AAPL?outputsize=abc", "", http.StatusBadRequest},
 		{"candles: interval 未対応値", http.MethodGet, "/v1/candles/AAPL?interval=3day", "", http.StatusBadRequest},
-		// 空文字（?interval=）は kin-openapi が enum 未指定扱いとして通過させるため、
-		// ミドルウェアでは 200。空文字の拒否は handler が担う（candleshttp の handler_test で検証）。
-		{"candles: interval 空文字はミドルウェアを通過", http.MethodGet, "/v1/candles/AAPL?interval=", "", http.StatusOK},
+		// 空文字（?interval=）は kin-openapi v0.140.0 以降、enum 検証の対象となり 400。
+		// （v0.133.0 では未指定扱いで通過していた。handler 側にも空文字拒否があり多層防御となる）
+		{"candles: interval 空文字はミドルウェアで拒否", http.MethodGet, "/v1/candles/AAPL?interval=", "", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
