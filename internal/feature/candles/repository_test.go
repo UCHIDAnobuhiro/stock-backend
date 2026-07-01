@@ -214,17 +214,6 @@ func TestCandleRepository_Find(t *testing.T) {
 			},
 		},
 		{
-			name: "success: outputsize 0 returns all", symbol: "AAPL", interval: "1day", outputsize: 0,
-			setupFunc: func(t *testing.T, db *sql.DB) {
-				for i := 0; i < 5; i++ {
-					seedCandle(t, db, "AAPL", "1day", baseTime.AddDate(0, 0, i))
-				}
-			},
-			validateFunc: func(t *testing.T, candles []Candle) {
-				assert.Len(t, candles, 5)
-			},
-		},
-		{
 			name: "success: results ordered by time descending", symbol: "AAPL", interval: "1day", outputsize: 10,
 			setupFunc: func(t *testing.T, db *sql.DB) {
 				seedCandle(t, db, "AAPL", "1day", baseTime)

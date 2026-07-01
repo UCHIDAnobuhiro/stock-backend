@@ -9,7 +9,6 @@ import (
 )
 
 type Querier interface {
-	FindCandlesAll(ctx context.Context, arg FindCandlesAllParams) ([]FindCandlesAllRow, error)
 	FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]FindCandlesLimitRow, error)
 }
 
