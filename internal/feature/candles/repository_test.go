@@ -161,6 +161,7 @@ func TestCandleRepository_Find(t *testing.T) {
 		symbol       string
 		interval     string
 		outputsize   int
+		wantErr      error
 		setupFunc    func(t *testing.T, db *sql.DB)
 		validateFunc func(t *testing.T, candles []Candle)
 	}{
@@ -226,6 +227,24 @@ func TestCandleRepository_Find(t *testing.T) {
 				assert.True(t, candles[1].Time.After(candles[2].Time))
 			},
 		},
+		{
+			name: "error: outputsize zero returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: 0,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "error: negative outputsize returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: -1,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "error: outputsize exceeding MaxOutputSize returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: MaxOutputSize + 1,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "success: outputsize equal to MaxOutputSize is allowed", symbol: "AAPL", interval: "1day", outputsize: MaxOutputSize,
+			validateFunc: func(t *testing.T, candles []Candle) {
+				assert.Empty(t, candles)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -237,6 +256,10 @@ func TestCandleRepository_Find(t *testing.T) {
 				tt.setupFunc(t, db)
 			}
 			candles, err := repo.Find(context.Background(), tt.symbol, tt.interval, tt.outputsize)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
 			require.NoError(t, err)
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, candles)
