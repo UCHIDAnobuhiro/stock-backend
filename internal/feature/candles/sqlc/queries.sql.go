@@ -10,61 +10,6 @@ import (
 	"time"
 )
 
-const findCandlesAll = `-- name: FindCandlesAll :many
-SELECT symbol_code, "interval", "time", open, high, low, close, volume
-FROM candles
-WHERE symbol_code = $1 AND "interval" = $2
-ORDER BY "time" DESC
-`
-
-type FindCandlesAllParams struct {
-	SymbolCode string
-	Interval   string
-}
-
-type FindCandlesAllRow struct {
-	SymbolCode string
-	Interval   string
-	Time       time.Time
-	Open       float64
-	High       float64
-	Low        float64
-	Close      float64
-	Volume     int64
-}
-
-func (q *Queries) FindCandlesAll(ctx context.Context, arg FindCandlesAllParams) ([]FindCandlesAllRow, error) {
-	rows, err := q.db.QueryContext(ctx, findCandlesAll, arg.SymbolCode, arg.Interval)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FindCandlesAllRow{}
-	for rows.Next() {
-		var i FindCandlesAllRow
-		if err := rows.Scan(
-			&i.SymbolCode,
-			&i.Interval,
-			&i.Time,
-			&i.Open,
-			&i.High,
-			&i.Low,
-			&i.Close,
-			&i.Volume,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const findCandlesLimit = `-- name: FindCandlesLimit :many
 SELECT symbol_code, "interval", "time", open, high, low, close, volume
 FROM candles

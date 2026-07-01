@@ -65,35 +65,15 @@ func (r *dbRepository) UpsertBatch(ctx context.Context, candles []Candle) error 
 }
 
 // Find は指定された銘柄とインターバルのローソク足データを取得します。
-// 結果は時間の降順でソートされ、outputsize > 0 のときのみ件数で制限されます。
+// 結果は時間の降順でソートされ、outputsize 件で制限されます。
 func (r *dbRepository) Find(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
-	if outputsize > 0 {
-		rows, err := r.q.FindCandlesLimit(ctx, candlessqlc.FindCandlesLimitParams{
-			SymbolCode: symbol,
-			Interval:   interval,
-			Limit:      int32(outputsize),
-		})
-		if err != nil {
-			return nil, err
-		}
-		out := make([]Candle, 0, len(rows))
-		for _, row := range rows {
-			out = append(out, Candle{
-				SymbolCode: row.SymbolCode,
-				Interval:   row.Interval,
-				Time:       row.Time,
-				Open:       row.Open,
-				High:       row.High,
-				Low:        row.Low,
-				Close:      row.Close,
-				Volume:     row.Volume,
-			})
-		}
-		return out, nil
+	if outputsize <= 0 || outputsize > MaxOutputSize {
+		return nil, fmt.Errorf("find candles: %w", ErrInvalidOutputSize)
 	}
-	rows, err := r.q.FindCandlesAll(ctx, candlessqlc.FindCandlesAllParams{
+	rows, err := r.q.FindCandlesLimit(ctx, candlessqlc.FindCandlesLimitParams{
 		SymbolCode: symbol,
 		Interval:   interval,
+		Limit:      int32(outputsize),
 	})
 	if err != nil {
 		return nil, err

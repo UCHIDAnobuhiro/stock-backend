@@ -161,6 +161,7 @@ func TestCandleRepository_Find(t *testing.T) {
 		symbol       string
 		interval     string
 		outputsize   int
+		wantErr      error
 		setupFunc    func(t *testing.T, db *sql.DB)
 		validateFunc func(t *testing.T, candles []Candle)
 	}{
@@ -214,17 +215,6 @@ func TestCandleRepository_Find(t *testing.T) {
 			},
 		},
 		{
-			name: "success: outputsize 0 returns all", symbol: "AAPL", interval: "1day", outputsize: 0,
-			setupFunc: func(t *testing.T, db *sql.DB) {
-				for i := 0; i < 5; i++ {
-					seedCandle(t, db, "AAPL", "1day", baseTime.AddDate(0, 0, i))
-				}
-			},
-			validateFunc: func(t *testing.T, candles []Candle) {
-				assert.Len(t, candles, 5)
-			},
-		},
-		{
 			name: "success: results ordered by time descending", symbol: "AAPL", interval: "1day", outputsize: 10,
 			setupFunc: func(t *testing.T, db *sql.DB) {
 				seedCandle(t, db, "AAPL", "1day", baseTime)
@@ -235,6 +225,24 @@ func TestCandleRepository_Find(t *testing.T) {
 				assert.Len(t, candles, 3)
 				assert.True(t, candles[0].Time.After(candles[1].Time))
 				assert.True(t, candles[1].Time.After(candles[2].Time))
+			},
+		},
+		{
+			name: "error: outputsize zero returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: 0,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "error: negative outputsize returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: -1,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "error: outputsize exceeding MaxOutputSize returns ErrInvalidOutputSize", symbol: "AAPL", interval: "1day", outputsize: MaxOutputSize + 1,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name: "success: outputsize equal to MaxOutputSize is allowed", symbol: "AAPL", interval: "1day", outputsize: MaxOutputSize,
+			validateFunc: func(t *testing.T, candles []Candle) {
+				assert.Empty(t, candles)
 			},
 		},
 	}
@@ -248,6 +256,10 @@ func TestCandleRepository_Find(t *testing.T) {
 				tt.setupFunc(t, db)
 			}
 			candles, err := repo.Find(context.Background(), tt.symbol, tt.interval, tt.outputsize)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
 			require.NoError(t, err)
 			if tt.validateFunc != nil {
 				tt.validateFunc(t, candles)
