@@ -10,6 +10,8 @@ import (
 	"github.com/go-redis/redismock/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
 // okHandler はレートリミットを通過した場合に呼ばれる終端ハンドラーです。
@@ -85,6 +87,92 @@ func TestByIP_RateLimited(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "too many requests", body["error"])
 
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestByUser_Allowed はレートリミット内のリクエストがユーザーIDキーで判定され、
+// ハンドラーまで到達し200を返すことを検証します。
+func TestByUser_Allowed(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	setupEvalMock(mock, "rl:test:user:42", 1, 0) // allowed=1, count=0
+
+	limiter := NewLimiter(rdb)
+	cfg := UserRateLimitConfig{Prefix: "rl:test:user", Limit: 10, Window: time.Minute}
+
+	called := false
+	h := ByUser(limiter, cfg)(okHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req = req.WithContext(jwt.WithUserID(req.Context(), 42))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, called, "ハンドラーが呼ばれるべき")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestByUser_RateLimited はレートリミット超過時に429とRetry-Afterヘッダーが返され、
+// ハンドラーが呼ばれないことを検証します。
+func TestByUser_RateLimited(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	setupEvalMock(mock, "rl:test:user:42", 0, 10) // allowed=0, count=10 (at limit)
+
+	limiter := NewLimiter(rdb)
+	cfg := UserRateLimitConfig{Prefix: "rl:test:user", Limit: 10, Window: time.Minute}
+
+	handlerCalled := false
+	h := ByUser(limiter, cfg)(okHandler(&handlerCalled))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req = req.WithContext(jwt.WithUserID(req.Context(), 42))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.False(t, handlerCalled, "ハンドラーは呼ばれるべきではない")
+
+	// Retry-Afterヘッダーの検証
+	assert.Equal(t, "60", w.Header().Get("Retry-After"))
+
+	// レスポンスボディの検証
+	var body map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "too many requests", body["error"])
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestByUser_NoUserID_Allowed はcontextにユーザーIDが存在しない場合に、
+// Redisを呼ばずにリクエストを通過させることを検証します（グレースフルデグレード）。
+func TestByUser_NoUserID_Allowed(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	limiter := NewLimiter(rdb)
+	cfg := UserRateLimitConfig{Prefix: "rl:test:user", Limit: 10, Window: time.Minute}
+
+	called := false
+	h := ByUser(limiter, cfg)(okHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, called)
+	// モックに期待値を設定していないため、Redisが呼ばれていればここで失敗する
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

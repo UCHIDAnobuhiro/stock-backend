@@ -110,8 +110,22 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 
 			r.Get("/candles/{code}", h.Candles.GetCandlesHandler)
 			r.Get("/symbols", h.Symbol.List)
-			r.Post("/logo/detect", h.Logo.DetectLogos)
-			r.Post("/logo/analyze", h.Logo.AnalyzeCompany)
+
+			// Gemini/Vision API のコスト制御のため、logo 系エンドポイント合算で
+			// IP別・ユーザー別それぞれ 10回/日 に制限する。
+			// IP別はアカウント切り替えによる回避、ユーザー別はIP変更による回避を防ぐ。
+			logoIPRateLimit := httpratelimit.ByIP(cfg.Limiter, httpratelimit.IPRateLimitConfig{
+				Prefix: "rl:logo:ip",
+				Limit:  10,
+				Window: 24 * time.Hour,
+			})
+			logoUserRateLimit := httpratelimit.ByUser(cfg.Limiter, httpratelimit.UserRateLimitConfig{
+				Prefix: "rl:logo:user",
+				Limit:  10,
+				Window: 24 * time.Hour,
+			})
+			r.With(logoIPRateLimit, logoUserRateLimit).Post("/logo/detect", h.Logo.DetectLogos)
+			r.With(logoIPRateLimit, logoUserRateLimit).Post("/logo/analyze", h.Logo.AnalyzeCompany)
 			r.Get("/watchlist", h.Watchlist.List)
 			r.Post("/watchlist", h.Watchlist.Add)
 			r.Delete("/watchlist/{code}", h.Watchlist.Remove)
