@@ -169,7 +169,7 @@ paths:
       description: |
         プロバイダーから受け取ったcodeとstateを検証し、JWTとCSRFトークンをCookieにセットして
         フロントエンドURLへリダイレクトします。
-        同メールアドレスが既存ユーザーに存在する場合は自動リンクします。
+        同メールアドレスの既存アカウントが存在する場合は自動リンクせず 409 を返します。
       operationId: oauthCallback
       tags:
         - auth
@@ -196,6 +196,12 @@ paths:
           description: フロントエンドURLへリダイレクト（auth_token・csrf_token Cookieをセット）
         "400":
           description: stateが無効または期限切れ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
           content:
             application/json:
               schema:

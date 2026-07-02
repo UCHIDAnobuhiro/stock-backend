@@ -67,8 +67,9 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 // Callback はOAuth2コールバックを処理します。
-// stateの検証・コード交換・ユーザー作成/リンクを行い、JWTとCSRFトークンをCookieにセットして
+// stateの検証・コード交換・ユーザー作成を行い、JWTとCSRFトークンをCookieにセットして
 // フロントエンドURLへリダイレクトします。
+// 同メールの既存アカウントが存在する場合は自動リンクせず 409 を返します。
 func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	code := r.URL.Query().Get("code")
@@ -102,6 +103,11 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "cannot obtain verified email from provider"})
 		} else if errors.Is(err, auth.ErrUnknownProvider) {
 			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "unsupported provider"})
+		} else if errors.Is(err, auth.ErrOAuthEmailConflict) {
+			// 同メールの既存アカウントへの自動リンクは乗っ取りリスクがあるため拒否する。
+			// メールアドレス自体はログに残さない。
+			slog.Warn("oauth login rejected: email conflicts with existing account", "provider", provider)
+			httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "email already registered with a different login method"})
 		} else {
 			slog.Error("oauth callback failed", "provider", provider, "error", err)
 			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "oauth failed"})

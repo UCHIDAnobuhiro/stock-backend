@@ -18,6 +18,10 @@ var (
 	// ErrOAuthEmailUnavailable はOAuthプロバイダーから検証済みメールアドレスが取得できない場合に返されます。
 	ErrOAuthEmailUnavailable = errors.New("verified email not available from oauth provider")
 
+	// ErrOAuthEmailConflict はOAuthログインのメールアドレスが既存アカウントに登録済みで、
+	// 本人確認なしの自動リンクを拒否した場合に返されます。
+	ErrOAuthEmailConflict = errors.New("email already registered to an existing account")
+
 	// ErrUnknownProvider は未対応のOAuthプロバイダーが指定された場合に返されます。
 	ErrUnknownProvider = errors.New("unknown oauth provider")
 )

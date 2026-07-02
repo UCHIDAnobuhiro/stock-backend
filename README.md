@@ -11,7 +11,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 - **ユーザー認証**
 
   - メールアドレス/パスワードによるログイン
-  - OAuth2 ソーシャルログイン（Google / GitHub、PKCE 対応・既存ユーザーへの自動リンク）
+  - OAuth2 ソーシャルログイン（Google / GitHub、PKCE 対応。同メールの既存アカウントへの自動リンクは行わない）
   - JWTの発行（短期アクセストークン + リフレッシュトークン実装予定）
   - トークン検証ミドルウェアによる認可
 
@@ -178,7 +178,7 @@ go generate ./internal/api/...
 ### 現在の実装
 
 - JWTアクセストークンによる認証（`Authorization: Bearer <token>` ヘッダー）
-- **OAuth2 ソーシャルログイン**: Google / GitHub（PKCE 対応、state は Redis 管理、既存ユーザーへの自動リンク）。OAuth 環境変数が設定されている場合のみ有効
+- **OAuth2 ソーシャルログイン**: Google / GitHub（PKCE 対応、state は Redis 管理。同メールの既存アカウントへの自動リンクは行わず 409 を返す）。OAuth 環境変数が設定されている場合のみ有効
 - **CSRF保護**: Double Submit Cookieパターン（`csrf_token` Cookie + `X-CSRF-Token` ヘッダーの一致を検証）
 - **レートリミット**: Redisスライディングウィンドウ方式（signup: 5回/時、login: 10回/分、oauth callback: 20回/分）
 - **セキュリティヘッダー**: `X-Content-Type-Options`、`X-Frame-Options` 等を全レスポンスに付与
