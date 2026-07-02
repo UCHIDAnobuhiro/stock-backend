@@ -167,3 +167,26 @@ func TestOAuthHandler_Callback_StateNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// TestOAuthHandler_Callback_EmailConflict は同メールの既存アカウントが存在し
+// 自動リンクが拒否された場合に 409 を返し、認証 Cookie を設定しないことを検証します。
+func TestOAuthHandler_Callback_EmailConflict(t *testing.T) {
+	t.Parallel()
+
+	uc := &mockOAuthUsecase{
+		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
+			return "", auth.ErrOAuthEmailConflict
+		},
+	}
+	h := authhttp.NewOAuthHandler(uc, false, "http://localhost:3000")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=auth-code&state=abc", nil)
+	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})
+	w := httptest.NewRecorder()
+	newOAuthRouter(h).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "email already registered with a different login method")
+	assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on conflict")
+	assert.Empty(t, findCookie(w, "csrf_token"), "csrf_token must not be set on conflict")
+}
