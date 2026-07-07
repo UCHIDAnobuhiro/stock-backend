@@ -8,12 +8,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redis/redismock/v9"
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
 // runAuth はミドルウェアを実行し、レスポンスレコーダー・next が呼ばれたか・
 // next が受け取ったリクエストを返すテストヘルパーです。
 func runAuth(authHeader string, mutate func(r *http.Request)) (*httptest.ResponseRecorder, bool, *http.Request) {
+	return runAuthWithBlacklist(authHeader, nil, mutate)
+}
+
+// runAuthWithBlacklist はブラックリストを指定できる runAuth のバリエーションです。
+func runAuthWithBlacklist(authHeader string, blacklist *Blacklist, mutate func(r *http.Request)) (*httptest.ResponseRecorder, bool, *http.Request) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	if authHeader != "" {
@@ -31,7 +37,7 @@ func runAuth(authHeader string, mutate func(r *http.Request)) (*httptest.Respons
 	})
 	// シークレットは起動時注入に変更されたが、既存テストの t.Setenv パターンを維持するため
 	// ヘルパー内で env から読み取って注入する。
-	AuthRequired(os.Getenv(EnvKeyJWTSecret))(next).ServeHTTP(w, req)
+	AuthRequired(os.Getenv(EnvKeyJWTSecret), blacklist)(next).ServeHTTP(w, req)
 	return w, nextCalled, seen
 }
 
@@ -223,6 +229,59 @@ func TestAuthRequired_CookiePreferred(t *testing.T) {
 	}
 }
 
+// TestAuthRequired_RevokedToken はログアウトでブラックリストに登録済みのjtiを持つ
+// トークンが401で拒否されることを検証します（issue #263: ログアウト即時失効）。
+func TestAuthRequired_RevokedToken(t *testing.T) {
+	const testSecret = "test-secret-key-for-revoked"
+	t.Setenv(EnvKeyJWTSecret, testSecret)
+
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	const jti = "revoked-jti-123"
+	mock.ExpectExists(blacklistKey(jti)).SetVal(1)
+
+	token := createTokenWithJTI(testSecret, 1, time.Hour, jti)
+	blacklist := NewBlacklist(rdb)
+
+	w, nextCalled, _ := runAuthWithBlacklist("Bearer "+token, blacklist, nil)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status %d, got %d", http.StatusUnauthorized, w.Code)
+	}
+	if nextCalled {
+		t.Error("expected request to be aborted (next must not be called)")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestAuthRequired_NonRevokedToken はブラックリストに登録されていないトークンが
+// 通常どおり通過することを検証します。
+func TestAuthRequired_NonRevokedToken(t *testing.T) {
+	const testSecret = "test-secret-key-for-non-revoked"
+	t.Setenv(EnvKeyJWTSecret, testSecret)
+
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	const jti = "active-jti-456"
+	mock.ExpectExists(blacklistKey(jti)).SetVal(0)
+
+	token := createTokenWithJTI(testSecret, 1, time.Hour, jti)
+	blacklist := NewBlacklist(rdb)
+
+	w, nextCalled, _ := runAuthWithBlacklist("Bearer "+token, blacklist, nil)
+
+	if nextCalled != true {
+		t.Errorf("expected request to pass, response: %s", w.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
 // createTokenWithSecret はテスト用に指定されたシークレットとユーザーIDで署名済みJWTトークンを生成します。
 func createTokenWithSecret(secret string, userID int64, expiration time.Duration) string {
 	return createTokenWithSubject(secret, strconv.FormatInt(userID, 10), expiration)
@@ -231,6 +290,21 @@ func createTokenWithSecret(secret string, userID int64, expiration time.Duration
 // createLegacyTokenWithSecret は移行前と同じ数値subjectのトークンを生成します。
 func createLegacyTokenWithSecret(secret string, userID int64, expiration time.Duration) string {
 	return createTokenWithSubject(secret, float64(userID), expiration)
+}
+
+// createTokenWithJTI はブラックリスト検証テスト用に、指定したjtiクレームを含む
+// 署名済みJWTトークンを生成します。
+func createTokenWithJTI(secret string, userID int64, expiration time.Duration, jti string) string {
+	claims := gojwt.MapClaims{
+		"sub":   strconv.FormatInt(userID, 10),
+		"exp":   time.Now().Add(expiration).Unix(),
+		"iat":   time.Now().Unix(),
+		"email": "test@example.com",
+		"jti":   jti,
+	}
+	token := gojwt.NewWithClaims(gojwt.SigningMethodHS256, claims)
+	signed, _ := token.SignedString([]byte(secret))
+	return signed
 }
 
 func createTokenWithSubject(secret string, subject any, expiration time.Duration) string {

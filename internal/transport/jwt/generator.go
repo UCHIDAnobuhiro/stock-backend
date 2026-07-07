@@ -2,6 +2,8 @@
 package jwt
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
@@ -25,12 +27,20 @@ func NewGenerator(secret string, expiration time.Duration) *Generator {
 }
 
 // GenerateToken は標準クレームを含む署名済みJWTトークンを生成します。
+// jti（JWT ID）を付与することで、ログアウト時にRedisブラックリストへ登録して
+// 有効期限前でも個々のトークンを即時失効させられるようにします。
 func (g *Generator) GenerateToken(userID int64, email string) (string, error) {
+	jti, err := generateJTI()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate jti: %w", err)
+	}
+
 	claims := gojwt.MapClaims{
 		"sub":   strconv.FormatInt(userID, 10),
 		"exp":   time.Now().Add(g.expiration).Unix(),
 		"iat":   time.Now().Unix(),
 		"email": email,
+		"jti":   jti,
 	}
 
 	token := gojwt.NewWithClaims(gojwt.SigningMethodHS256, claims)
@@ -40,4 +50,13 @@ func (g *Generator) GenerateToken(userID int64, email string) (string, error) {
 	}
 
 	return signed, nil
+}
+
+// generateJTI は暗号学的に安全な32文字のhex文字列（jti）を生成します。
+func generateJTI() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-redis/redismock/v9"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
 // H は JSON ボディ構築用の簡易マップ型です。
@@ -159,7 +161,7 @@ func TestAuthHandler_Signup(t *testing.T) {
 			t.Parallel()
 
 			mockUC := &mockUsecase{SignupFunc: tt.mockSignupFunc}
-			h := authhttp.NewHandler(mockUC, nil, false)
+			h := authhttp.NewHandler(mockUC, nil, false, "", nil)
 
 			w := makeRequest(t, h.Signup, http.MethodPost, "/signup", tt.requestBody)
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
@@ -180,7 +182,7 @@ func TestAuthHandler_Signup_HookFailureIsNonFatal(t *testing.T) {
 			return errors.New("watchlist init failed")
 		},
 	}
-	h := authhttp.NewHandler(mockUC, nil, false, hook)
+	h := authhttp.NewHandler(mockUC, nil, false, "", nil, hook)
 
 	w := makeRequest(t, h.Signup, http.MethodPost, "/signup", H{
 		"email":    "test@example.com",
@@ -213,7 +215,7 @@ func TestAuthHandler_Login_RateLimited(t *testing.T) {
 			return "", errors.New("should not be called")
 		},
 	}
-	h := authhttp.NewHandler(mockUC, limiter, false)
+	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
 
 	w := makeRequest(t, h.Login, http.MethodPost, "/login", H{
 		"email":    "test@example.com",
@@ -290,7 +292,7 @@ func TestAuthHandler_Login(t *testing.T) {
 			t.Parallel()
 
 			mockUC := &mockUsecase{LoginFunc: tt.mockLoginFunc}
-			h := authhttp.NewHandler(mockUC, nil, tt.secureCookie)
+			h := authhttp.NewHandler(mockUC, nil, tt.secureCookie, "", nil)
 
 			w := makeRequest(t, h.Login, http.MethodPost, "/login", tt.requestBody)
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
@@ -317,7 +319,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := authhttp.NewHandler(&mockUsecase{}, nil, tt.secureCookie)
+			h := authhttp.NewHandler(&mockUsecase{}, nil, tt.secureCookie, "", nil)
 
 			w := makeRequest(t, h.Logout, http.MethodDelete, "/logout", H{})
 
@@ -350,4 +352,42 @@ func TestAuthHandler_Logout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAuthHandler_Logout_RevokesToken はログアウト時にリクエストが保持するJWTがブラックリストへ
+// 登録され、有効期限前でも即時失効することを検証します（issue #263）。
+func TestAuthHandler_Logout_RevokesToken(t *testing.T) {
+	t.Parallel()
+
+	const secret = "logout-revoke-secret"
+	gen := jwt.NewGenerator(secret, time.Hour)
+	token, err := gen.GenerateToken(1, "test@example.com")
+	require.NoError(t, err)
+
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	// ttlは処理にかかる時間だけ厳密一致しないため、失効登録キーの形式のみ検証する。
+	match := mock.CustomMatch(func(_, actual []interface{}) error {
+		if len(actual) < 2 {
+			t.Fatalf("unexpected SET args: %+v", actual)
+		}
+		key, ok := actual[1].(string)
+		if !ok || !strings.HasPrefix(key, "jwt:blacklist:") {
+			t.Errorf("unexpected blacklist key: %v", actual[1])
+		}
+		return nil
+	})
+	match.ExpectSet("ignored", "1", time.Hour).SetVal("OK")
+
+	blacklist := jwt.NewBlacklist(rdb)
+	h := authhttp.NewHandler(&mockUsecase{}, nil, false, secret, blacklist)
+
+	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.Logout(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

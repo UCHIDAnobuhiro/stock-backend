@@ -93,8 +93,9 @@ func run() int {
 	// Redisキャッシュでラップ（TTLはingest連続失敗時のセーフティネット、通常は日次ingestで上書き）
 	cachedCandleRepo := candles.NewCachingRepository(rdb, candles.DefaultCacheTTL, candleRepo, "candles")
 
-	// JWTジェネレータ
+	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
 	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, 1*time.Hour)
+	jwtBlacklist := jwt.NewBlacklist(rdb)
 
 	// Google Cloudクライアント初期化
 	visionDetector, err := vision.NewVisionLogoDetector(context.Background())
@@ -135,7 +136,7 @@ func run() int {
 	}
 
 	// ハンドラー
-	authH := authhttp.NewHandler(authUC, rateLimiter, cfg.Server.SecureCookie, watchlistUC)
+	authH := authhttp.NewHandler(authUC, rateLimiter, cfg.Server.SecureCookie, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
 	symbolH := symbollisthttp.NewHandler(symbolUC)
 	candlesH := candleshttp.NewHandler(candlesUC)
 	logoH := logodetectionhttp.NewHandler(logoUC)
@@ -160,6 +161,7 @@ func run() int {
 			AllowedOrigins:   cfg.Server.CORSOrigins,
 			GCPProjectID:     cfg.Server.GCPProjectID,
 			JWTSecret:        cfg.Server.JWTSecret,
+			Blacklist:        jwtBlacklist,
 			SecureCookie:     cfg.Server.SecureCookie,
 		},
 	)

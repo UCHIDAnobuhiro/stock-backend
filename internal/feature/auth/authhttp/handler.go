@@ -14,6 +14,7 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/csrf"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpx"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
 // setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
@@ -52,15 +53,18 @@ type Handler struct {
 	uc           Usecase
 	limiter      *httpratelimit.Limiter
 	secureCookie bool
+	jwtSecret    string
+	blacklist    *jwt.Blacklist
 	postHooks    []auth.UserCreatedHook
 }
 
 // NewHandler はHandlerの新しいインスタンスを生成します。
 // 依存性注入用のコンストラクタで、外部からUsecaseとレートリミッターを注入します。
 // secureCookie が true の場合、Secure属性付きのCookieを設定します（本番環境用）。
+// jwtSecret と blacklist はログアウト時のトークン即時失効（Logout）に使用します。
 // postHooks にはサインアップ後に実行するフックを任意で渡せます。
-func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, secureCookie bool, postHooks ...auth.UserCreatedHook) *Handler {
-	return &Handler{uc: uc, limiter: limiter, secureCookie: secureCookie, postHooks: postHooks}
+func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, secureCookie bool, jwtSecret string, blacklist *jwt.Blacklist, postHooks ...auth.UserCreatedHook) *Handler {
+	return &Handler{uc: uc, limiter: limiter, secureCookie: secureCookie, jwtSecret: jwtSecret, blacklist: blacklist, postHooks: postHooks}
 }
 
 // Signup はユーザー登録APIエンドポイントを処理します。
@@ -147,9 +151,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
-// Logout はauth_tokenとcsrf_tokenのCookieを削除してログアウトします。
+// Logout はリクエストのJWTを即時失効させたうえでauth_tokenとcsrf_tokenのCookieを削除します。
 // 期限切れトークンでも動作するよう認証不要のルートに配置します。
-func (h *Handler) Logout(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	// トークンが有効な場合のみjtiをブラックリストに登録し、有効期限前でも即時失効させる。
+	// Redis未接続時等は警告ログのみでログアウト自体は継続する（グレースフルデグレード）。
+	if err := jwt.RevokeRequestToken(r.Context(), r, h.jwtSecret, h.blacklist); err != nil {
+		slog.Warn("failed to revoke token on logout", "error", err)
+	}
+
 	// MaxAge=-1 は Max-Age=0 を出力し、ブラウザにCookieの即時削除を指示する。
 	setAuthCookie(w, "auth_token", "", -1, h.secureCookie, true)
 	setAuthCookie(w, "csrf_token", "", -1, h.secureCookie, false)

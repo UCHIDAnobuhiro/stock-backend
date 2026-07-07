@@ -37,6 +37,8 @@ type Config struct {
 	AllowedOrigins   []string
 	GCPProjectID     string
 	JWTSecret        string
+	// Blacklist はログアウト済みJWT（jti）の即時失効チェックに使用する。nil可（未失効扱い）。
+	Blacklist *jwt.Blacklist
 	// SecureCookie が true（本番・TLS終端）のとき HSTS ヘッダーを有効化する。
 	SecureCookie bool
 }
@@ -104,7 +106,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 		// バリデーションは認証・CSRF の後に行う（未認証/CSRF 不正は 401/403 を優先し、
 		// 認証済みリクエストのボディ/パラメータのみ spec 準拠で検証する）。
 		r.Group(func(r chi.Router) {
-			r.Use(jwt.AuthRequired(cfg.JWTSecret))
+			r.Use(jwt.AuthRequired(cfg.JWTSecret, cfg.Blacklist))
 			r.Use(csrfmw.Protect())
 			r.Use(cfg.OpenAPIValidator)
 
