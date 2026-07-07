@@ -4,7 +4,6 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | bigint | nextval('candles_id_seq'::regclass) | false |  |  |  |
 | symbol_code | varchar(20) |  | false |  | [public.symbols](public.symbols.md) |  |
 | interval | varchar(16) |  | false |  |  |  |
 | time | timestamp with time zone |  | false |  |  |  |
@@ -20,22 +19,20 @@
 | ---- | ---- | ---------- |
 | candles_close_not_null | n | NOT NULL close |
 | candles_high_not_null | n | NOT NULL high |
-| candles_id_not_null | n | NOT NULL id |
 | candles_interval_not_null | n | NOT NULL "interval" |
 | candles_low_not_null | n | NOT NULL low |
 | candles_open_not_null | n | NOT NULL open |
 | candles_symbol_code_not_null | n | NOT NULL symbol_code |
 | candles_time_not_null | n | NOT NULL "time" |
 | candles_volume_not_null | n | NOT NULL volume |
+| candles_pkey | PRIMARY KEY | PRIMARY KEY (symbol_code, "interval", "time") |
 | fk_candles_symbol | FOREIGN KEY | FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT |
-| candles_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 
 ## Indexes
 
 | Name | Definition |
 | ---- | ---------- |
-| candles_pkey | CREATE UNIQUE INDEX candles_pkey ON public.candles USING btree (id) |
-| candle_sym_int_time | CREATE UNIQUE INDEX candle_sym_int_time ON public.candles USING btree (symbol_code, "interval", "time") |
+| candles_pkey | CREATE UNIQUE INDEX candles_pkey ON public.candles USING btree (symbol_code, "interval", "time") |
 
 ## Relations
 
@@ -45,7 +42,6 @@ erDiagram
 "public.candles" }o--|| "public.symbols" : "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT"
 
 "public.candles" {
-  bigint id ""
   varchar_20_ symbol_code FK ""
   varchar_16_ interval ""
   timestamp_with_time_zone time ""
@@ -56,7 +52,6 @@ erDiagram
   bigint volume ""
 }
 "public.symbols" {
-  bigint id ""
   varchar_20_ code ""
   varchar_255_ name ""
   varchar_100_ market ""
