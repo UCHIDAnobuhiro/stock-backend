@@ -80,7 +80,8 @@ func (uc *oauthUsecase) BeginAuth(ctx context.Context, providerName string) (aut
 }
 
 // HandleCallback はプロバイダーから返却されたcodeとstateを検証し、
-// JWTトークンを返します。同メールのユーザーが存在する場合は自動リンクします。
+// JWTトークンを返します。同メールの既存ユーザーが存在する場合は自動リンクせず
+// ErrOAuthEmailConflict を返します（アカウント乗っ取り防止）。
 func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, state string) (string, error) {
 	provider, ok := uc.providers[providerName]
 	if !ok {
@@ -98,7 +99,7 @@ func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, 
 	if err != nil {
 		return "", fmt.Errorf("oauth code exchange failed: %w", err)
 	}
-	// プロバイダー返却メールを正規化し、自動リンク・新規作成・JWT 生成を
+	// プロバイダー返却メールを正規化し、既存ユーザー検索・新規作成・JWT 生成を
 	// すべて正規化済みメールで行う（大小文字違いによる重複アカウントを防ぐ）。
 	info.Email = NormalizeEmail(info.Email)
 	if info.Email == "" {
@@ -118,7 +119,9 @@ func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, 
 	return tok, nil
 }
 
-// findOrCreateUser は既存OAuthAccountを探し、なければユーザーを作成・リンクします。
+// findOrCreateUser は既存OAuthAccountを探し、なければユーザーを新規作成します。
+// 同メールの既存ユーザーが存在する場合は ErrOAuthEmailConflict を返します
+// （本人確認なしの自動リンクはアカウント乗っ取りリスクがあるため行わない）。
 func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName string, info *OAuthUserInfo) (int64, error) {
 	// 既存OAuthAccountで検索
 	acct, err := uc.oauthAccts.FindByProvider(ctx, providerName, info.ProviderUID)
@@ -136,15 +139,12 @@ func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName strin
 	}
 
 	if user != nil {
-		// 自動リンク: 既存ユーザーにOAuthAccountを紐付け
-		if linkErr := uc.oauthAccts.Create(ctx, &OAuthAccount{
-			UserID:      user.ID,
-			Provider:    providerName,
-			ProviderUID: info.ProviderUID,
-		}); linkErr != nil {
-			return 0, fmt.Errorf("failed to link oauth account: %w", linkErr)
-		}
-		return user.ID, nil
+		// 同メールの既存アカウントへの自動リンクは行わない。
+		// プロバイダーの検証済みメールであっても、メールアドレスの再割当て
+		// （例: 退職者メールの別人への再利用）が起こり得るため、メール一致だけを
+		// 根拠にリンクするとアカウント乗っ取りが成立してしまう。
+		// 明示的な本人確認を伴うリンク承認フローが実装されるまでは一律拒否する。
+		return 0, ErrOAuthEmailConflict
 	}
 
 	// 新規ユーザー作成（OAuth専用: Password = nil）
@@ -155,6 +155,11 @@ func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName strin
 		Provider:    providerName,
 		ProviderUID: info.ProviderUID,
 	}); err != nil {
+		// FindByEmail の後に同メールのユーザーが作成された並行レースでは
+		// email のユニーク制約違反となるため、上と同じ理由で拒否として扱う。
+		if errors.Is(err, ErrEmailAlreadyExists) {
+			return 0, ErrOAuthEmailConflict
+		}
 		return 0, fmt.Errorf("failed to create user with oauth account: %w", err)
 	}
 

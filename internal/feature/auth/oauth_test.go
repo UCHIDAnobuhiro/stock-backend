@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -55,77 +56,146 @@ func (m *mockOAuthUserCreator) CreateUserWithOAuthAccount(ctx context.Context, u
 	return m.CreateUserWithOAuthAccountFunc(ctx, user, account)
 }
 
-// TestOAuthUsecase_HandleCallback_NormalizesEmailForAutoLink は、プロバイダーが
-// 既存ユーザーと大小文字違いのメールを返した場合でも、正規化済みメールで検索され
-// 既存ユーザーへ自動リンクされる（新規作成されない）ことを検証します。
-func TestOAuthUsecase_HandleCallback_NormalizesEmailForAutoLink(t *testing.T) {
+// TestOAuthUsecase_HandleCallback_FindOrCreateUser は、OAuthAccount の有無と
+// 同メール既存ユーザーの有無に応じたログイン・拒否・新規作成の分岐を検証します。
+// 同メールの既存ユーザーへの自動リンクはアカウント乗っ取りリスクがあるため、
+// いかなる場合も OAuthAccount の自動リンク（Create）が行われないことを確認します。
+func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 	t.Parallel()
 
 	const providerName = "google"
-	existingUser := &auth.User{ID: 42, Email: "user@example.com"}
+	password := "hashed-password"
 
-	var lookupEmail string
-	var linkedUserID int64
-	creatorCalled := false
+	tests := []struct {
+		name              string
+		providerEmail     string // プロバイダーが返すメール
+		existingAccount   *auth.OAuthAccount
+		existingUser      *auth.User // 正規化済みメールで見つかる既存ユーザー（nilなら未検出）
+		creatorErr        error
+		wantErr           error
+		wantCreatorCalled bool
+		wantLookupEmail   string // FindByEmail に渡される正規化済みメール（空なら未検証）
+	}{
+		{
+			name:            "既存OAuthAccountあり: リンクせずログイン成功",
+			providerEmail:   "user@example.com",
+			existingAccount: &auth.OAuthAccount{ID: 1, UserID: 42, Provider: providerName, ProviderUID: "google-uid-1"},
+		},
+		{
+			name:          "同メールのパスワードユーザーあり: 自動リンクを拒否",
+			providerEmail: "user@example.com",
+			existingUser:  &auth.User{ID: 42, Email: "user@example.com", Password: &password},
+			wantErr:       auth.ErrOAuthEmailConflict,
+		},
+		{
+			name:          "同メールのOAuth専用ユーザーあり（別プロバイダー登録）: 自動リンクを拒否",
+			providerEmail: "user@example.com",
+			existingUser:  &auth.User{ID: 42, Email: "user@example.com", Password: nil},
+			wantErr:       auth.ErrOAuthEmailConflict,
+		},
+		{
+			name:              "既存ユーザーなし: 新規ユーザーを作成",
+			providerEmail:     "user@example.com",
+			wantCreatorCalled: true,
+		},
+		{
+			name:            "正規化済みメールで検索され拒否される（大小文字・空白違い）",
+			providerEmail:   "  User@Example.COM ",
+			existingUser:    &auth.User{ID: 42, Email: "user@example.com", Password: &password},
+			wantErr:         auth.ErrOAuthEmailConflict,
+			wantLookupEmail: "user@example.com",
+		},
+		{
+			name:              "作成時の並行レース（emailユニーク制約違反）: 拒否として扱う",
+			providerEmail:     "user@example.com",
+			creatorErr:        auth.ErrEmailAlreadyExists,
+			wantErr:           auth.ErrOAuthEmailConflict,
+			wantCreatorCalled: true,
+		},
+	}
 
-	users := &mockUserRepository{
-		FindByEmailFunc: func(ctx context.Context, email string) (*auth.User, error) {
-			lookupEmail = email
-			// 正規化済みメールで一致する既存ユーザーを返す
-			if email == existingUser.Email {
-				return existingUser, nil
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var lookupEmail string
+			linkCalled := false
+			creatorCalled := false
+
+			users := &mockUserRepository{
+				FindByEmailFunc: func(ctx context.Context, email string) (*auth.User, error) {
+					lookupEmail = email
+					if tt.existingUser != nil && email == tt.existingUser.Email {
+						return tt.existingUser, nil
+					}
+					return nil, auth.ErrUserNotFound
+				},
 			}
-			return nil, auth.ErrUserNotFound
-		},
-	}
-	oauthAccts := &mockOAuthAccountRepository{
-		FindByProviderFunc: func(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error) {
-			// 既存 OAuthAccount なし
-			return nil, auth.ErrUserNotFound
-		},
-		CreateFunc: func(ctx context.Context, account *auth.OAuthAccount) error {
-			linkedUserID = account.UserID
-			return nil
-		},
-	}
-	creator := &mockOAuthUserCreator{
-		CreateUserWithOAuthAccountFunc: func(ctx context.Context, user *auth.User, account *auth.OAuthAccount) error {
-			creatorCalled = true
-			return nil
-		},
-	}
-	stateStore := &mockOAuthStateStore{
-		ConsumeStateFunc: func(ctx context.Context, state string) (string, error) {
-			return "code-verifier", nil
-		},
-	}
-	provider := &mockOAuthProvider{
-		ExchangeCodeFunc: func(ctx context.Context, code, codeVerifier string) (*auth.OAuthUserInfo, error) {
-			// プロバイダーは大小文字・空白違いのメールを返す
-			return &auth.OAuthUserInfo{ProviderUID: "google-uid-1", Email: "  User@Example.COM "}, nil
-		},
-	}
+			oauthAccts := &mockOAuthAccountRepository{
+				FindByProviderFunc: func(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error) {
+					if tt.existingAccount != nil {
+						return tt.existingAccount, nil
+					}
+					return nil, auth.ErrUserNotFound
+				},
+				CreateFunc: func(ctx context.Context, account *auth.OAuthAccount) error {
+					linkCalled = true
+					return nil
+				},
+			}
+			creator := &mockOAuthUserCreator{
+				CreateUserWithOAuthAccountFunc: func(ctx context.Context, user *auth.User, account *auth.OAuthAccount) error {
+					creatorCalled = true
+					if tt.creatorErr != nil {
+						return tt.creatorErr
+					}
+					user.ID = 7
+					return nil
+				},
+			}
+			stateStore := &mockOAuthStateStore{
+				ConsumeStateFunc: func(ctx context.Context, state string) (string, error) {
+					return "code-verifier", nil
+				},
+			}
+			provider := &mockOAuthProvider{
+				ExchangeCodeFunc: func(ctx context.Context, code, codeVerifier string) (*auth.OAuthUserInfo, error) {
+					return &auth.OAuthUserInfo{ProviderUID: "google-uid-1", Email: tt.providerEmail}, nil
+				},
+			}
 
-	uc := auth.NewOAuthUsecase(
-		users, oauthAccts, creator, stateStore,
-		&mockJWTGenerator{},
-		map[string]auth.OAuthProvider{providerName: provider},
-	)
+			uc := auth.NewOAuthUsecase(
+				users, oauthAccts, creator, stateStore,
+				&mockJWTGenerator{},
+				map[string]auth.OAuthProvider{providerName: provider},
+			)
 
-	token, err := uc.HandleCallback(context.Background(), providerName, "code", "state")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if token == "" {
-		t.Error("token is empty")
-	}
-	if lookupEmail != existingUser.Email {
-		t.Errorf("FindByEmail called with %q, want %q", lookupEmail, existingUser.Email)
-	}
-	if creatorCalled {
-		t.Error("expected auto-link to existing user, but a new user was created")
-	}
-	if linkedUserID != existingUser.ID {
-		t.Errorf("linked OAuthAccount.UserID = %d, want %d", linkedUserID, existingUser.ID)
+			token, err := uc.HandleCallback(context.Background(), providerName, "code", "state")
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("HandleCallback error = %v, want %v", err, tt.wantErr)
+				}
+				if token != "" {
+					t.Errorf("token = %q, want empty on error", token)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if token == "" {
+					t.Error("token is empty")
+				}
+			}
+			if linkCalled {
+				t.Error("OAuthAccount auto-link (Create) must never be called")
+			}
+			if creatorCalled != tt.wantCreatorCalled {
+				t.Errorf("creator called = %v, want %v", creatorCalled, tt.wantCreatorCalled)
+			}
+			if tt.wantLookupEmail != "" && lookupEmail != tt.wantLookupEmail {
+				t.Errorf("FindByEmail called with %q, want %q", lookupEmail, tt.wantLookupEmail)
+			}
+		})
 	}
 }
