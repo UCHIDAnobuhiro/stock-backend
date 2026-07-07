@@ -138,7 +138,6 @@ func userFromSQLC(m authsqlc.User) User {
 // oauthAccountFromSQLC は sqlc 生成モデルをドメインエンティティに変換します。
 func oauthAccountFromSQLC(m authsqlc.OauthAccount) OAuthAccount {
 	return OAuthAccount{
-		ID:          m.ID,
 		UserID:      m.UserID,
 		Provider:    m.Provider,
 		ProviderUID: m.ProviderUid,

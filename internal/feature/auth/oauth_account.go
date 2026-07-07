@@ -5,8 +5,6 @@ import "time"
 // OAuthAccount はOAuth2プロバイダーとユーザーを紐付けるエンティティです。
 // (provider, provider_uid) の複合ユニーク制約でプロバイダー側IDの重複を防ぎます。
 type OAuthAccount struct {
-	ID int64
-
 	// UserID は紐付けられたユーザーのIDです。
 	UserID int64
 

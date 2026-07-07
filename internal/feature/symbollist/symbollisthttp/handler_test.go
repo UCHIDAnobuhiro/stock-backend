@@ -52,8 +52,8 @@ func TestSymbolHandler_List(t *testing.T) {
 			name: "success: returns list of symbols",
 			mockListActiveFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{ID: 1, Code: "7203.T", Name: "Toyota Motor", Market: "TSE", LogoURL: strPtr("https://api.twelvedata.com/logo/toyota.com"), IsActive: true},
-					{ID: 2, Code: "6758.T", Name: "Sony Group", Market: "TSE", IsActive: true},
+					{Code: "7203.T", Name: "Toyota Motor", Market: "TSE", LogoURL: strPtr("https://api.twelvedata.com/logo/toyota.com"), IsActive: true},
+					{Code: "6758.T", Name: "Sony Group", Market: "TSE", IsActive: true},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
@@ -71,7 +71,7 @@ func TestSymbolHandler_List(t *testing.T) {
 			name: "success: returns single symbol",
 			mockListActiveFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{ID: 1, Code: "9984.T", Name: "SoftBank Group", Market: "TSE", IsActive: true},
+					{Code: "9984.T", Name: "SoftBank Group", Market: "TSE", IsActive: true},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
@@ -119,12 +119,11 @@ func TestSymbolHandler_List(t *testing.T) {
 func TestSymbolHandler_List_DTOConversion(t *testing.T) {
 	t.Parallel()
 
-	// レスポンスに公開DTOフィールドのみが含まれることを検証（ID、Market、IsActiveは含まれない）
+	// レスポンスに公開DTOフィールドのみが含まれることを検証（Market、IsActiveは含まれない）
 	mockUC := &mockUsecase{
 		ListActiveSymbolsFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 			return []symbollist.Symbol{
 				{
-					ID:       999,
 					Code:     "TEST.T",
 					Name:     "Test Company",
 					Market:   "NYSE",
@@ -144,7 +143,6 @@ func TestSymbolHandler_List_DTOConversion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.JSONEq(t, `[{"code":"TEST.T","name":"Test Company","logo_url":"https://api.twelvedata.com/logo/test.com"}]`, w.Body.String())
 	// 内部フィールドが公開されていないことを検証
-	assert.NotContains(t, w.Body.String(), "999")
 	assert.NotContains(t, w.Body.String(), "NYSE")
 	assert.NotContains(t, w.Body.String(), "is_active")
 	assert.NotContains(t, w.Body.String(), "sort_key")

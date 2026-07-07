@@ -10,7 +10,6 @@ import (
 )
 
 type Candle struct {
-	ID         int64
 	SymbolCode string
 	Interval   string
 	Time       time.Time
@@ -22,7 +21,6 @@ type Candle struct {
 }
 
 type OauthAccount struct {
-	ID          int64
 	UserID      int64
 	Provider    string
 	ProviderUid string
@@ -30,7 +28,6 @@ type OauthAccount struct {
 }
 
 type Symbol struct {
-	ID            int64
 	Code          string
 	Name          string
 	Market        string

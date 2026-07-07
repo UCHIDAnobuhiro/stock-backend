@@ -7,7 +7,6 @@ package candlessqlc
 
 import (
 	"context"
-	"time"
 )
 
 const findCandlesLimit = `-- name: FindCandlesLimit :many
@@ -24,26 +23,15 @@ type FindCandlesLimitParams struct {
 	Limit      int32
 }
 
-type FindCandlesLimitRow struct {
-	SymbolCode string
-	Interval   string
-	Time       time.Time
-	Open       float64
-	High       float64
-	Low        float64
-	Close      float64
-	Volume     int64
-}
-
-func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]FindCandlesLimitRow, error) {
+func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]Candle, error) {
 	rows, err := q.db.QueryContext(ctx, findCandlesLimit, arg.SymbolCode, arg.Interval, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []FindCandlesLimitRow{}
+	items := []Candle{}
 	for rows.Next() {
-		var i FindCandlesLimitRow
+		var i Candle
 		if err := rows.Scan(
 			&i.SymbolCode,
 			&i.Interval,

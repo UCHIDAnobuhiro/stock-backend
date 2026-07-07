@@ -321,7 +321,7 @@ func TestUserRepository_CreateUserWithOAuthAccount(t *testing.T) {
 		err := repo.CreateUserWithOAuthAccount(context.Background(), user, acct)
 		require.NoError(t, err)
 		assert.NotZero(t, user.ID)
-		assert.NotZero(t, acct.ID)
+		assert.False(t, acct.CreatedAt.IsZero())
 		assert.Equal(t, user.ID, acct.UserID)
 	})
 
@@ -336,6 +336,6 @@ func TestUserRepository_CreateUserWithOAuthAccount(t *testing.T) {
 		err := repo.CreateUserWithOAuthAccount(context.Background(), user, acct)
 		assert.ErrorIs(t, err, ErrEmailAlreadyExists)
 		assert.Zero(t, user.ID, "user should not be persisted")
-		assert.Zero(t, acct.ID, "account should not be persisted")
+		assert.True(t, acct.CreatedAt.IsZero(), "account should not be persisted")
 	})
 }
