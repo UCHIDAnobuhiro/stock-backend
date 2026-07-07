@@ -116,7 +116,7 @@ func TestProtect_BearerAuthSkipsCheck(t *testing.T) {
 	t.Parallel()
 
 	next, called := newRecordingHandler()
-	chain := jwt.AuthRequired(testSecret)(Protect()(next))
+	chain := jwt.AuthRequired(testSecret, nil)(Protect()(next))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -140,7 +140,7 @@ func TestProtect_CookieAuthWithForgedBearerStillRequiresCSRF(t *testing.T) {
 		t.Parallel()
 
 		next, called := newRecordingHandler()
-		chain := jwt.AuthRequired(testSecret)(Protect()(next))
+		chain := jwt.AuthRequired(testSecret, nil)(Protect()(next))
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -158,7 +158,7 @@ func TestProtect_CookieAuthWithForgedBearerStillRequiresCSRF(t *testing.T) {
 
 		const csrfToken = "valid-csrf-token"
 		next, called := newRecordingHandler()
-		chain := jwt.AuthRequired(testSecret)(Protect()(next))
+		chain := jwt.AuthRequired(testSecret, nil)(Protect()(next))
 
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/", nil)

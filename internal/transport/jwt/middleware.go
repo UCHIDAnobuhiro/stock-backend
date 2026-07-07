@@ -13,11 +13,38 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpx"
 )
 
+// ExtractToken はリクエストからJWT文字列を取り出します。
+// Cookie（auth_token）を優先し、存在しない場合はAuthorizationヘッダー（Bearer）に
+// フォールバックします。トークンが見つからない場合は空文字列を返します。
+func ExtractToken(r *http.Request) (tokenStr, authSource string) {
+	// 1. auth_token Cookie を優先（Next.jsブラウザクライアント用）
+	if cookie, err := r.Cookie("auth_token"); err == nil && cookie.Value != "" {
+		return cookie.Value, AuthSourceCookie
+	}
+	// 2. Authorization: Bearer ヘッダーにフォールバック（APIクライアント・curl等）
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer "), AuthSourceBearer
+	}
+	return "", ""
+}
+
+// parseToken はJWT署名を検証し、HMACアルゴリズムで署名されたトークンのみを受理します。
+func parseToken(secret, tokenStr string) (*gojwt.Token, error) {
+	return gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
+			return nil, gojwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	})
+}
+
 // AuthRequired はJWTトークンを検証し、認証済みユーザーのみにアクセスを制限するミドルウェアを返します。
 // 認証はCookie（auth_token）を優先し、存在しない場合はAuthorizationヘッダーにフォールバックします。
 // 署名シークレットは起動時に注入されます（環境変数の読み込みは internal/app/config に集約）。
 // secret が空の場合は全リクエストを 500（サーバー設定ミス）として扱います。
-func AuthRequired(secret string) func(http.Handler) http.Handler {
+// blacklist はログアウト済みトークン（jti）の即時失効チェックに使用します。nil可（未失効扱い）。
+func AuthRequired(secret string, blacklist *Blacklist) func(http.Handler) http.Handler {
 	if secret == "" {
 		// サーバー設定ミス（JWT_SECRETが未設定）。通常は LoadAPI が起動時に必須を
 		// 強制するため到達しないが、多層防御として全リクエストを 500 にする。
@@ -29,33 +56,14 @@ func AuthRequired(secret string) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 1. auth_token Cookie を優先（Next.jsブラウザクライアント用）
-			var tokenStr string
-			authSource := ""
-			if cookie, err := r.Cookie("auth_token"); err == nil && cookie.Value != "" {
-				tokenStr = cookie.Value
-				authSource = AuthSourceCookie
-			} else {
-				// 2. Authorization: Bearer ヘッダーにフォールバック（APIクライアント・curl等）
-				auth := r.Header.Get("Authorization")
-				if strings.HasPrefix(auth, "Bearer ") {
-					tokenStr = strings.TrimPrefix(auth, "Bearer ")
-					authSource = AuthSourceBearer
-				}
-			}
+			tokenStr, authSource := ExtractToken(r)
 			if tokenStr == "" {
 				httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "missing authentication token"})
 				return
 			}
 
 			// 3. JWT署名をパースして検証
-			token, err := gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
-				// 署名アルゴリズムを確認（HMACのみ許可）
-				if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
-					return nil, gojwt.ErrSignatureInvalid
-				}
-				return []byte(secret), nil
-			})
+			token, err := parseToken(secret, tokenStr)
 			if err != nil || !token.Valid {
 				// 検証エラーまたは無効なトークン
 				httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid token"})
@@ -74,7 +82,14 @@ func AuthRequired(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// 5. ユーザーIDと認証方式を context に格納し、次のハンドラーへ制御を渡す
+			// 5. ログアウトにより失効済みのトークンでないか確認
+			jti, _ := claims["jti"].(string)
+			if blacklist.IsRevoked(r.Context(), jti) {
+				httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "token has been revoked"})
+				return
+			}
+
+			// 6. ユーザーIDと認証方式を context に格納し、次のハンドラーへ制御を渡す
 			ctx := WithUserID(r.Context(), userID)
 			ctx = withAuthSource(ctx, authSource)
 			next.ServeHTTP(w, r.WithContext(ctx))
