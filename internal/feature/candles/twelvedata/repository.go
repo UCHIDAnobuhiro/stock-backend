@@ -42,7 +42,6 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 	q.Set("symbol", symbol)
 	q.Set("interval", interval)
 	q.Set("outputsize", strconv.Itoa(outputsize))
-	q.Set("apikey", t.cfg.TwelveDataAPIKey)
 
 	// URLを生成
 	u := fmt.Sprintf("%s/time_series?%s", t.cfg.BaseURL, q.Encode())
@@ -137,6 +136,7 @@ func (t *TwelveDataMarket) doRequestWithRetry(ctx context.Context, method, urlSt
 		if err != nil {
 			return nil, err
 		}
+		req.Header.Set("Authorization", "apikey "+t.cfg.TwelveDataAPIKey)
 
 		res, err := t.client.Do(req)
 		if err != nil {

@@ -20,7 +20,6 @@ type logoResponse struct {
 func (t *TwelveDataMarket) GetLogoURL(ctx context.Context, symbol string) (string, error) {
 	q := url.Values{}
 	q.Set("symbol", symbol)
-	q.Set("apikey", t.cfg.TwelveDataAPIKey)
 
 	u := fmt.Sprintf("%s/logo?%s", t.cfg.BaseURL, q.Encode())
 	res, err := t.doRequestWithRetry(ctx, http.MethodGet, u)

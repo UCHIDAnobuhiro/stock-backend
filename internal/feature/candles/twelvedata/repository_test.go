@@ -58,6 +58,12 @@ func TestTwelveDataMarket_GetTimeSeries_Success(t *testing.T) {
 		if r.URL.Query().Get("outputsize") != "100" {
 			t.Errorf("expected outputsize 100, got %s", r.URL.Query().Get("outputsize"))
 		}
+		if r.Header.Get("Authorization") != "apikey test-key" {
+			t.Errorf("expected Authorization header 'apikey test-key', got %s", r.Header.Get("Authorization"))
+		}
+		if r.URL.Query().Get("apikey") != "" {
+			t.Errorf("expected apikey not present in query, got %s", r.URL.Query().Get("apikey"))
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
