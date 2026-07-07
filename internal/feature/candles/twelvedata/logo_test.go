@@ -18,8 +18,11 @@ func TestTwelveDataMarket_GetLogoURL_Success(t *testing.T) {
 		if r.URL.Query().Get("symbol") != "AAPL" {
 			t.Errorf("expected symbol AAPL, got %s", r.URL.Query().Get("symbol"))
 		}
-		if r.URL.Query().Get("apikey") != "test-key" {
-			t.Errorf("expected apikey test-key, got %s", r.URL.Query().Get("apikey"))
+		if r.Header.Get("Authorization") != "apikey test-key" {
+			t.Errorf("expected Authorization header 'apikey test-key', got %s", r.Header.Get("Authorization"))
+		}
+		if r.URL.Query().Get("apikey") != "" {
+			t.Errorf("expected apikey not present in query, got %s", r.URL.Query().Get("apikey"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
