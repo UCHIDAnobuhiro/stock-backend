@@ -128,15 +128,23 @@ sequenceDiagram
 sequenceDiagram
     participant Client
     participant Handler as Handler
+    participant Blacklist as jwt.Blacklist<br/>(Redis)
 
     Client->>Handler: DELETE /v1/logout
+    Handler->>Handler: リクエストからJWT抽出（Cookie優先→Authorizationヘッダー）
+    alt トークンが有効（署名OK・未期限切れ）
+        Handler->>Blacklist: Revoke(jti, ttl=exp-now)
+        Note over Blacklist: jwt:blacklist:<jti> をttl付きでSET<br/>Redis未接続時は警告ログのみ（グレースフルデグレード）
+    end
     Handler->>Handler: Clear auth_token cookie (MaxAge -1)
     Handler->>Handler: Clear csrf_token cookie (MaxAge -1)
     Handler-->>Client: 200 OK {"message":"ok"}
     Note over Handler,Client: Set-Cookie: auth_token (Max-Age 0)<br/>Set-Cookie: csrf_token (Max-Age 0)
 ```
 
-**注意**: ログアウトは期限切れトークンでも動作するよう、認証不要のルートに配置されています。
+**注意**: ログアウトは期限切れトークンでも動作するよう、認証不要のルートに配置されています（失効させるべき有効なトークンがない場合、ブラックリスト登録はスキップされます）。
+
+**即時失効の仕組み（issue #263）**: JWTには生成時に`jti`（JWT ID）クレームを付与しており（`internal/transport/jwt/generator.go`）、ログアウト時に`jti`をRedisブラックリストへ登録します（`internal/transport/jwt/blacklist.go`）。認証ミドルウェア（`AuthRequired`）はリクエストごとにブラックリストを確認し、登録済みの`jti`を持つトークンを401で拒否します。ブラックリストのRedisエントリはトークンの残り有効期限と同じTTLで自動失効するため、際限なく肥大化しません。Redis未接続時は他のRedis依存コンポーネント（レートリミッター・キャッシュ）と同様にフェイルオープン（失効チェックをスキップ）します。
 
 ### OAuth2 認可開始フロー
 
@@ -346,6 +354,8 @@ sequenceDiagram
 ### DELETE /v1/logout
 
 ログアウトします（`auth_token` と `csrf_token` のCookieを削除）。認証不要です。
+リクエストが有効なJWTを保持している場合、その`jti`をRedisブラックリストへ登録し、
+有効期限（発行から1時間）を待たずに即時失効させます。
 
 **レスポンス**
 
@@ -770,7 +780,7 @@ GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
    - `auth_token`（httpOnly）: JavaScriptから読み取り不可のためXSS攻撃でトークン窃取不可
    - `csrf_token`（非httpOnly）: JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット → CSRF攻撃を防止
    - `SameSite=Lax` 設定でクロスサイトリクエストを制限
-4. **JWTの有効期限**: 1時間で自動的に失効
+4. **JWTの有効期限**: 1時間で自動的に失効。加えて、ログアウト時は`jti`をRedisブラックリストへ登録し有効期限前でも即時失効させる（issue #263）
 5. **認証方式フォールバック**: `auth_token` Cookieを優先、存在しない場合は `Authorization: Bearer <token>` ヘッダーにフォールバック（API/curlクライアント対応）
 6. **エラーメッセージの統一化**:
    - バリデーションエラー: 汎用 "invalid request" メッセージを返却
