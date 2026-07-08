@@ -25,6 +25,7 @@ type OauthAccount struct {
 	Provider    string
 	ProviderUid string
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Symbol struct {

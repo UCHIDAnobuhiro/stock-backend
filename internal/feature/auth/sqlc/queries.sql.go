@@ -13,7 +13,7 @@ import (
 const createOAuthAccount = `-- name: CreateOAuthAccount :one
 INSERT INTO oauth_accounts (user_id, provider, provider_uid)
 VALUES ($1, $2, $3)
-RETURNING user_id, provider, provider_uid, created_at
+RETURNING user_id, provider, provider_uid, created_at, updated_at
 `
 
 type CreateOAuthAccountParams struct {
@@ -30,6 +30,7 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 		&i.Provider,
 		&i.ProviderUid,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -59,7 +60,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const findOAuthAccountByProvider = `-- name: FindOAuthAccountByProvider :one
-SELECT user_id, provider, provider_uid, created_at
+SELECT user_id, provider, provider_uid, created_at, updated_at
 FROM oauth_accounts
 WHERE provider = $1 AND provider_uid = $2
 LIMIT 1
@@ -78,6 +79,7 @@ func (q *Queries) FindOAuthAccountByProvider(ctx context.Context, arg FindOAuthA
 		&i.Provider,
 		&i.ProviderUid,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

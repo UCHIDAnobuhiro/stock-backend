@@ -18,10 +18,10 @@ LIMIT 1;
 -- name: CreateOAuthAccount :one
 INSERT INTO oauth_accounts (user_id, provider, provider_uid)
 VALUES ($1, $2, $3)
-RETURNING user_id, provider, provider_uid, created_at;
+RETURNING user_id, provider, provider_uid, created_at, updated_at;
 
 -- name: FindOAuthAccountByProvider :one
-SELECT user_id, provider, provider_uid, created_at
+SELECT user_id, provider, provider_uid, created_at, updated_at
 FROM oauth_accounts
 WHERE provider = $1 AND provider_uid = $2
 LIMIT 1;

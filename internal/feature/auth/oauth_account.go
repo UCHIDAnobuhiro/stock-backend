@@ -16,4 +16,5 @@ type OAuthAccount struct {
 	ProviderUID string
 
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
