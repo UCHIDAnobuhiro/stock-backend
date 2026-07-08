@@ -156,7 +156,7 @@ func (u *usecase) Signup(ctx context.Context, email, password string) (int64, er
 		return 0, fmt.Errorf("failed to hash password: %w", err)
 	}
 	hashedStr := string(hashed)
-	user := &User{Email: email, Password: &hashedStr}
+	user := &User{Email: email, PasswordHash: &hashedStr}
 	if err := u.users.Create(ctx, user); err != nil {
 		return 0, err
 	}
@@ -183,8 +183,8 @@ func (u *usecase) Login(ctx context.Context, email, password string) (string, er
 	// ユーザーが存在しない場合のタイミング攻撃緩和用ダミーハッシュ
 	// bcrypt.CompareHashAndPasswordが常に呼ばれることを保証する
 	passwordHash := u.dummyHash
-	if err == nil && user.Password != nil {
-		passwordHash = *user.Password
+	if err == nil && user.PasswordHash != nil {
+		passwordHash = *user.PasswordHash
 	}
 
 	// タイミング攻撃防止のため、常にパスワードを検証

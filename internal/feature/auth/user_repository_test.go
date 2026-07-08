@@ -33,8 +33,8 @@ func seedUser(t *testing.T, db *sql.DB, email, password string) *User {
 	t.Helper()
 	repo := NewUserRepository(db)
 	user := &User{
-		Email:    email,
-		Password: &password,
+		Email:        email,
+		PasswordHash: &password,
 	}
 	err := repo.Create(context.Background(), user)
 	require.NoError(t, err, "failed to seed user")
@@ -65,8 +65,8 @@ func TestUserRepository_Create(t *testing.T) {
 		{
 			name: "success: user creation",
 			user: &User{
-				Email:    "test@example.com",
-				Password: ptrStr("hashed_password"),
+				Email:        "test@example.com",
+				PasswordHash: ptrStr("hashed_password"),
 			},
 			wantErr: false,
 			validateFunc: func(t *testing.T, user *User) {
@@ -78,8 +78,8 @@ func TestUserRepository_Create(t *testing.T) {
 		{
 			name: "failure: duplicate email returns ErrEmailAlreadyExists",
 			user: &User{
-				Email:    "duplicate@example.com",
-				Password: ptrStr("password2"),
+				Email:        "duplicate@example.com",
+				PasswordHash: ptrStr("password2"),
 			},
 			wantErr:     true,
 			expectedErr: ErrEmailAlreadyExists,
@@ -140,7 +140,7 @@ func TestUserRepository_FindByEmail(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, expected.Email, found.Email)
-				assert.Equal(t, expected.Password, found.Password)
+				assert.Equal(t, expected.PasswordHash, found.PasswordHash)
 			},
 		},
 		{
@@ -169,7 +169,7 @@ func TestUserRepository_FindByEmail(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, "user2@example.com", found.Email)
-				assert.Equal(t, ptrStr("pass2"), found.Password)
+				assert.Equal(t, ptrStr("pass2"), found.PasswordHash)
 			},
 		},
 	}
@@ -221,7 +221,7 @@ func TestUserRepository_FindByID(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, expected.Email, found.Email)
-				assert.Equal(t, expected.Password, found.Password)
+				assert.Equal(t, expected.PasswordHash, found.PasswordHash)
 			},
 		},
 		{
@@ -249,7 +249,7 @@ func TestUserRepository_FindByID(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, "user2@example.com", found.Email)
-				assert.Equal(t, ptrStr("pass2"), found.Password)
+				assert.Equal(t, ptrStr("pass2"), found.PasswordHash)
 			},
 		},
 	}
@@ -290,8 +290,8 @@ func TestUserRepository_Timestamps(t *testing.T) {
 	repo := NewUserRepository(db)
 
 	user := &User{
-		Email:    "timestamp@example.com",
-		Password: ptrStr("password"),
+		Email:        "timestamp@example.com",
+		PasswordHash: ptrStr("password"),
 	}
 	err := repo.Create(context.Background(), user)
 	require.NoError(t, err)

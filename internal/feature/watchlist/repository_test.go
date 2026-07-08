@@ -30,9 +30,9 @@ func setupTestDB(t *testing.T) (*sql.DB, userIDs) {
 	ctx := context.Background()
 	users := userIDs{}
 	require.NoError(t, db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password) VALUES ('u1@example.com', 'p') RETURNING id`).Scan(&users.u1))
+		`INSERT INTO users (email, password_hash) VALUES ('u1@example.com', 'p') RETURNING id`).Scan(&users.u1))
 	require.NoError(t, db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password) VALUES ('u2@example.com', 'p') RETURNING id`).Scan(&users.u2))
+		`INSERT INTO users (email, password_hash) VALUES ('u2@example.com', 'p') RETURNING id`).Scan(&users.u2))
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO symbols (code, name, market, timezone) VALUES

@@ -40,11 +40,11 @@ type Symbol struct {
 }
 
 type User struct {
-	ID        int64
-	Email     string
-	Password  sql.NullString
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           int64
+	Email        string
+	PasswordHash sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Watchlist struct {

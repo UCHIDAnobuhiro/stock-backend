@@ -12,10 +12,10 @@ type User struct {
 	// 全ユーザー間で一意である必要があります。
 	Email string
 
-	// Password はユーザーのハッシュ化されたパスワードです。
+	// PasswordHash はユーザーのハッシュ化されたパスワードです。
 	// 平文パスワードを保存してはなりません。
 	// OAuth専用ユーザーはパスワードを持たないため nil になります。
-	Password *string
+	PasswordHash *string
 
 	// CreatedAt はユーザーが作成された日時です。
 	CreatedAt time.Time
