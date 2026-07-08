@@ -25,8 +25,8 @@
 | candles_symbol_code_not_null | n | NOT NULL symbol_code |
 | candles_time_not_null | n | NOT NULL "time" |
 | candles_volume_not_null | n | NOT NULL volume |
-| fk_candles_symbol | FOREIGN KEY | FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT |
 | candles_pkey | PRIMARY KEY | PRIMARY KEY (symbol_code, "interval", "time") |
+| fk_candles_symbol | FOREIGN KEY | FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT |
 
 ## Indexes
 

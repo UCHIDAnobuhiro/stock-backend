@@ -22,8 +22,8 @@
 | watchlists_updated_at_not_null | n | NOT NULL updated_at |
 | watchlists_user_id_not_null | n | NOT NULL user_id |
 | fk_watchlists_user | FOREIGN KEY | FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE |
-| fk_watchlists_symbol | FOREIGN KEY | FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT |
 | watchlists_pkey | PRIMARY KEY | PRIMARY KEY (id) |
+| fk_watchlists_symbol | FOREIGN KEY | FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT |
 
 ## Indexes
 
@@ -53,7 +53,7 @@ erDiagram
 "public.users" {
   bigint id ""
   varchar_255_ email ""
-  varchar_255_ password ""
+  varchar_255_ password_hash ""
   timestamp_with_time_zone created_at ""
   timestamp_with_time_zone updated_at ""
 }

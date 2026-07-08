@@ -17,7 +17,7 @@
           "nullable": false
         },
         {
-          "name": "password",
+          "name": "password_hash",
           "type": "varchar(255)",
           "nullable": true
         },
@@ -503,6 +503,18 @@
           ]
         },
         {
+          "name": "candles_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (symbol_code, \"interval\", \"time\")",
+          "table": "public.candles",
+          "referenced_table": "",
+          "columns": [
+            "symbol_code",
+            "interval",
+            "time"
+          ]
+        },
+        {
           "name": "fk_candles_symbol",
           "type": "FOREIGN KEY",
           "def": "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT",
@@ -513,18 +525,6 @@
           ],
           "referenced_columns": [
             "code"
-          ]
-        },
-        {
-          "name": "candles_pkey",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (symbol_code, \"interval\", \"time\")",
-          "table": "public.candles",
-          "referenced_table": "",
-          "columns": [
-            "symbol_code",
-            "interval",
-            "time"
           ]
         }
       ]
@@ -679,6 +679,16 @@
           ]
         },
         {
+          "name": "watchlists_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.watchlists",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
           "name": "fk_watchlists_symbol",
           "type": "FOREIGN KEY",
           "def": "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT",
@@ -689,16 +699,6 @@
           ],
           "referenced_columns": [
             "code"
-          ]
-        },
-        {
-          "name": "watchlists_pkey",
-          "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
-          "table": "public.watchlists",
-          "referenced_table": "",
-          "columns": [
-            "id"
           ]
         }
       ]
