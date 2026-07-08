@@ -35,23 +35,23 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, password)
+INSERT INTO users (email, password_hash)
 VALUES ($1, $2)
-RETURNING id, email, password, created_at, updated_at
+RETURNING id, email, password_hash, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	Email    string
-	Password sql.NullString
+	Email        string
+	PasswordHash sql.NullString
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRowContext(ctx, createUser, arg.Email, arg.Password)
+	row := q.db.QueryRowContext(ctx, createUser, arg.Email, arg.PasswordHash)
 	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.Password,
+		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -83,7 +83,7 @@ func (q *Queries) FindOAuthAccountByProvider(ctx context.Context, arg FindOAuthA
 }
 
 const findUserByEmail = `-- name: FindUserByEmail :one
-SELECT id, email, password, created_at, updated_at
+SELECT id, email, password_hash, created_at, updated_at
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -95,7 +95,7 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (User, erro
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.Password,
+		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -103,7 +103,7 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (User, erro
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT id, email, password, created_at, updated_at
+SELECT id, email, password_hash, created_at, updated_at
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -115,7 +115,7 @@ func (q *Queries) FindUserByID(ctx context.Context, id int64) (User, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
-		&i.Password,
+		&i.PasswordHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

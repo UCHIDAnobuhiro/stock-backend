@@ -84,13 +84,13 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 		{
 			name:          "同メールのパスワードユーザーあり: 自動リンクを拒否",
 			providerEmail: "user@example.com",
-			existingUser:  &auth.User{ID: 42, Email: "user@example.com", Password: &password},
+			existingUser:  &auth.User{ID: 42, Email: "user@example.com", PasswordHash: &password},
 			wantErr:       auth.ErrOAuthEmailConflict,
 		},
 		{
 			name:          "同メールのOAuth専用ユーザーあり（別プロバイダー登録）: 自動リンクを拒否",
 			providerEmail: "user@example.com",
-			existingUser:  &auth.User{ID: 42, Email: "user@example.com", Password: nil},
+			existingUser:  &auth.User{ID: 42, Email: "user@example.com", PasswordHash: nil},
 			wantErr:       auth.ErrOAuthEmailConflict,
 		},
 		{
@@ -101,7 +101,7 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 		{
 			name:            "正規化済みメールで検索され拒否される（大小文字・空白違い）",
 			providerEmail:   "  User@Example.COM ",
-			existingUser:    &auth.User{ID: 42, Email: "user@example.com", Password: &password},
+			existingUser:    &auth.User{ID: 42, Email: "user@example.com", PasswordHash: &password},
 			wantErr:         auth.ErrOAuthEmailConflict,
 			wantLookupEmail: "user@example.com",
 		},

@@ -37,8 +37,8 @@ func (r *userRepository) Create(ctx context.Context, u *User) error {
 		return errors.New("user is nil")
 	}
 	row, err := r.q.CreateUser(ctx, authsqlc.CreateUserParams{
-		Email:    u.Email,
-		Password: toNullString(u.Password),
+		Email:        u.Email,
+		PasswordHash: toNullString(u.PasswordHash),
 	})
 	if err != nil {
 		return mapEmailUniqueErr(err)
@@ -93,8 +93,8 @@ func (r *userRepository) CreateUserWithOAuthAccount(ctx context.Context, user *U
 
 	qtx := r.q.WithTx(tx)
 	userRow, err := qtx.CreateUser(ctx, authsqlc.CreateUserParams{
-		Email:    user.Email,
-		Password: toNullString(user.Password),
+		Email:        user.Email,
+		PasswordHash: toNullString(user.PasswordHash),
 	})
 	if err != nil {
 		return mapEmailUniqueErr(err)
@@ -122,16 +122,16 @@ func (r *userRepository) CreateUserWithOAuthAccount(ctx context.Context, user *U
 // userFromSQLC は sqlc 生成モデルをドメインエンティティに変換します。
 func userFromSQLC(m authsqlc.User) User {
 	var pwd *string
-	if m.Password.Valid {
-		s := m.Password.String
+	if m.PasswordHash.Valid {
+		s := m.PasswordHash.String
 		pwd = &s
 	}
 	return User{
-		ID:        m.ID,
-		Email:     m.Email,
-		Password:  pwd,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
+		ID:           m.ID,
+		Email:        m.Email,
+		PasswordHash: pwd,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
 	}
 }
 

@@ -6,7 +6,7 @@
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | id | bigint | nextval('users_id_seq'::regclass) | false | [public.oauth_accounts](public.oauth_accounts.md) [public.watchlists](public.watchlists.md) |  |  |
 | email | varchar(255) |  | false |  |  |  |
-| password | varchar(255) |  | true |  |  |  |
+| password_hash | varchar(255) |  | true |  |  |  |
 | created_at | timestamp with time zone | now() | false |  |  |  |
 | updated_at | timestamp with time zone | now() | false |  |  |  |
 
@@ -38,7 +38,7 @@ erDiagram
 "public.users" {
   bigint id ""
   varchar_255_ email ""
-  varchar_255_ password ""
+  varchar_255_ password_hash ""
   timestamp_with_time_zone created_at ""
   timestamp_with_time_zone updated_at ""
 }

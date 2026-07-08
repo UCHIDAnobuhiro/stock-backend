@@ -147,7 +147,7 @@ func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName strin
 		return 0, ErrOAuthEmailConflict
 	}
 
-	// 新規ユーザー作成（OAuth専用: Password = nil）
+	// 新規ユーザー作成（OAuth専用: PasswordHash = nil）
 	// UserとOAuthAccountをトランザクション内で原子的に作成し、
 	// 片方だけ残る不整合を防ぐ。
 	newUser := &User{Email: info.Email}
