@@ -32,6 +32,7 @@
 | Name | Definition |
 | ---- | ---------- |
 | symbols_pkey | CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (code) |
+| idx_symbols_active | CREATE INDEX idx_symbols_active ON public.symbols USING btree (code) WHERE is_active |
 
 ## Relations
 

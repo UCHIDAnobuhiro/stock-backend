@@ -8,6 +8,7 @@
 | provider | varchar(32) |  | false |  |  |  |
 | provider_uid | varchar(255) |  | false |  |  |  |
 | created_at | timestamp with time zone | now() | false |  |  |  |
+| updated_at | timestamp with time zone | now() | false |  |  |  |
 
 ## Constraints
 
@@ -16,15 +17,18 @@
 | oauth_accounts_created_at_not_null | n | NOT NULL created_at |
 | oauth_accounts_provider_not_null | n | NOT NULL provider |
 | oauth_accounts_provider_uid_not_null | n | NOT NULL provider_uid |
+| oauth_accounts_updated_at_not_null | n | NOT NULL updated_at |
 | oauth_accounts_user_id_not_null | n | NOT NULL user_id |
 | fk_oauth_accounts_user | FOREIGN KEY | FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE |
 | oauth_accounts_pkey | PRIMARY KEY | PRIMARY KEY (provider, provider_uid) |
+| uq_oauth_accounts_user_provider | UNIQUE | UNIQUE (user_id, provider) |
 
 ## Indexes
 
 | Name | Definition |
 | ---- | ---------- |
 | oauth_accounts_pkey | CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (provider, provider_uid) |
+| uq_oauth_accounts_user_provider | CREATE UNIQUE INDEX uq_oauth_accounts_user_provider ON public.oauth_accounts USING btree (user_id, provider) |
 | idx_oauth_accounts_user_id | CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id) |
 
 ## Relations
@@ -39,6 +43,7 @@ erDiagram
   varchar_32_ provider ""
   varchar_255_ provider_uid ""
   timestamp_with_time_zone created_at ""
+  timestamp_with_time_zone updated_at ""
 }
 "public.users" {
   bigint id ""

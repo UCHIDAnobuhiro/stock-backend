@@ -47,6 +47,7 @@ erDiagram
   varchar_32_ provider ""
   varchar_255_ provider_uid ""
   timestamp_with_time_zone created_at ""
+  timestamp_with_time_zone updated_at ""
 }
 "public.watchlists" {
   bigint id ""

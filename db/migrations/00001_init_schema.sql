@@ -14,7 +14,9 @@ CREATE TABLE oauth_accounts (
     provider        VARCHAR(32)  NOT NULL,
     provider_uid    VARCHAR(255) NOT NULL,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT oauth_accounts_pkey PRIMARY KEY (provider, provider_uid),
+    CONSTRAINT uq_oauth_accounts_user_provider UNIQUE (user_id, provider),
     CONSTRAINT fk_oauth_accounts_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -31,6 +33,7 @@ CREATE TABLE symbols (
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+CREATE INDEX idx_symbols_active ON symbols (code) WHERE is_active;
 
 CREATE TABLE candles (
     symbol_code     VARCHAR(20)    NOT NULL,

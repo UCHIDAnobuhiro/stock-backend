@@ -142,6 +142,7 @@ func oauthAccountFromSQLC(m authsqlc.OauthAccount) OAuthAccount {
 		Provider:    m.Provider,
 		ProviderUID: m.ProviderUid,
 		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
 	}
 }
 

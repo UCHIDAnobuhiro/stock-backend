@@ -129,6 +129,12 @@
           "type": "timestamp with time zone",
           "nullable": false,
           "default": "now()"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
         }
       ],
       "indexes": [
@@ -139,6 +145,15 @@
           "columns": [
             "provider",
             "provider_uid"
+          ]
+        },
+        {
+          "name": "uq_oauth_accounts_user_provider",
+          "def": "CREATE UNIQUE INDEX uq_oauth_accounts_user_provider ON public.oauth_accounts USING btree (user_id, provider)",
+          "table": "public.oauth_accounts",
+          "columns": [
+            "user_id",
+            "provider"
           ]
         },
         {
@@ -182,6 +197,16 @@
           ]
         },
         {
+          "name": "oauth_accounts_updated_at_not_null",
+          "type": "n",
+          "def": "NOT NULL updated_at",
+          "table": "public.oauth_accounts",
+          "referenced_table": "",
+          "columns": [
+            "updated_at"
+          ]
+        },
+        {
           "name": "oauth_accounts_user_id_not_null",
           "type": "n",
           "def": "NOT NULL user_id",
@@ -213,6 +238,17 @@
           "columns": [
             "provider",
             "provider_uid"
+          ]
+        },
+        {
+          "name": "uq_oauth_accounts_user_provider",
+          "type": "UNIQUE",
+          "def": "UNIQUE (user_id, provider)",
+          "table": "public.oauth_accounts",
+          "referenced_table": "",
+          "columns": [
+            "user_id",
+            "provider"
           ]
         }
       ]
@@ -274,6 +310,14 @@
         {
           "name": "symbols_pkey",
           "def": "CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (code)",
+          "table": "public.symbols",
+          "columns": [
+            "code"
+          ]
+        },
+        {
+          "name": "idx_symbols_active",
+          "def": "CREATE INDEX idx_symbols_active ON public.symbols USING btree (code) WHERE is_active",
           "table": "public.symbols",
           "columns": [
             "code"
