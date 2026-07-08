@@ -27,13 +27,13 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return dbtest.OpenIsolatedDB(t)
 }
 
-// seedSymbol はテスト用の銘柄データをデータベースに作成し、ID 付きで返します。
+// seedSymbol はテスト用の銘柄データをデータベースに作成して返します。
 func seedSymbol(t *testing.T, db *sql.DB, code, name, market string, isActive bool) *Symbol {
 	t.Helper()
 	row := db.QueryRowContext(context.Background(),
 		`INSERT INTO symbols (code, name, market, timezone, is_active)
 		 VALUES ($1, $2, $3, 'Asia/Tokyo', $4)
-		 RETURNING id, created_at, updated_at`,
+		 RETURNING created_at, updated_at`,
 		code, name, market, isActive,
 	)
 	s := &Symbol{
@@ -43,9 +43,7 @@ func seedSymbol(t *testing.T, db *sql.DB, code, name, market string, isActive bo
 		Timezone: "Asia/Tokyo",
 		IsActive: isActive,
 	}
-	var id int64
-	require.NoError(t, row.Scan(&id, &s.CreatedAt, &s.UpdatedAt), "failed to seed symbol")
-	s.ID = id
+	require.NoError(t, row.Scan(&s.CreatedAt, &s.UpdatedAt), "failed to seed symbol")
 	return s
 }
 
@@ -63,19 +61,17 @@ func seedSymbolFull(t *testing.T, db *sql.DB, s *Symbol) {
 	row := db.QueryRowContext(context.Background(),
 		`INSERT INTO symbols (code, name, market, timezone, logo_url, logo_updated_at, is_active)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 RETURNING id, created_at, updated_at`,
+		 RETURNING created_at, updated_at`,
 		s.Code, s.Name, s.Market, s.Timezone, logoURL, logoAt, s.IsActive,
 	)
-	var id int64
-	require.NoError(t, row.Scan(&id, &s.CreatedAt, &s.UpdatedAt))
-	s.ID = id
+	require.NoError(t, row.Scan(&s.CreatedAt, &s.UpdatedAt))
 }
 
 // updateSymbolActive は銘柄の is_active フィールドを更新します。
 func updateSymbolActive(t *testing.T, db *sql.DB, symbol *Symbol, isActive bool) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(),
-		`UPDATE symbols SET is_active = $1 WHERE id = $2`, isActive, symbol.ID)
+		`UPDATE symbols SET is_active = $1 WHERE code = $2`, isActive, symbol.Code)
 	require.NoError(t, err, "failed to update symbol active status")
 }
 
@@ -167,13 +163,12 @@ func TestSymbolRepository_ListActive_FieldValues(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewRepository(db)
 
-	expected := seedSymbol(t, db, "7203.T", "Toyota Motor Corporation", "Tokyo Stock Exchange", true)
+	seedSymbol(t, db, "7203.T", "Toyota Motor Corporation", "Tokyo Stock Exchange", true)
 	symbols, err := repo.ListActive(context.Background())
 	require.NoError(t, err)
 	require.Len(t, symbols, 1)
 
 	got := symbols[0]
-	assert.Equal(t, expected.ID, got.ID)
 	assert.Equal(t, "7203.T", got.Code)
 	assert.Equal(t, "Toyota Motor Corporation", got.Name)
 	assert.Equal(t, "Tokyo Stock Exchange", got.Market)

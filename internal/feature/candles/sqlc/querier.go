@@ -9,7 +9,7 @@ import (
 )
 
 type Querier interface {
-	FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]FindCandlesLimitRow, error)
+	FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]Candle, error)
 }
 
 var _ Querier = (*Queries)(nil)

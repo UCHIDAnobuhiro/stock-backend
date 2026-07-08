@@ -79,7 +79,7 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 		{
 			name:            "既存OAuthAccountあり: リンクせずログイン成功",
 			providerEmail:   "user@example.com",
-			existingAccount: &auth.OAuthAccount{ID: 1, UserID: 42, Provider: providerName, ProviderUID: "google-uid-1"},
+			existingAccount: &auth.OAuthAccount{UserID: 42, Provider: providerName, ProviderUID: "google-uid-1"},
 		},
 		{
 			name:          "同メールのパスワードユーザーあり: 自動リンクを拒否",

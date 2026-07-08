@@ -4,7 +4,6 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | bigint | nextval('oauth_accounts_id_seq'::regclass) | false |  |  |  |
 | user_id | bigint |  | false |  | [public.users](public.users.md) |  |
 | provider | varchar(32) |  | false |  |  |  |
 | provider_uid | varchar(255) |  | false |  |  |  |
@@ -15,20 +14,18 @@
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
 | oauth_accounts_created_at_not_null | n | NOT NULL created_at |
-| oauth_accounts_id_not_null | n | NOT NULL id |
 | oauth_accounts_provider_not_null | n | NOT NULL provider |
 | oauth_accounts_provider_uid_not_null | n | NOT NULL provider_uid |
 | oauth_accounts_user_id_not_null | n | NOT NULL user_id |
 | fk_oauth_accounts_user | FOREIGN KEY | FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE |
-| oauth_accounts_pkey | PRIMARY KEY | PRIMARY KEY (id) |
+| oauth_accounts_pkey | PRIMARY KEY | PRIMARY KEY (provider, provider_uid) |
 
 ## Indexes
 
 | Name | Definition |
 | ---- | ---------- |
-| oauth_accounts_pkey | CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (id) |
 | idx_oauth_accounts_user_id | CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id) |
-| idx_oauth_provider_uid | CREATE UNIQUE INDEX idx_oauth_provider_uid ON public.oauth_accounts USING btree (provider, provider_uid) |
+| oauth_accounts_pkey | CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (provider, provider_uid) |
 
 ## Relations
 
@@ -38,7 +35,6 @@ erDiagram
 "public.oauth_accounts" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
 
 "public.oauth_accounts" {
-  bigint id ""
   bigint user_id FK ""
   varchar_32_ provider ""
   varchar_255_ provider_uid ""

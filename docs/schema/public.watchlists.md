@@ -58,7 +58,6 @@ erDiagram
   timestamp_with_time_zone updated_at ""
 }
 "public.symbols" {
-  bigint id ""
   varchar_20_ code ""
   varchar_255_ name ""
   varchar_100_ market ""

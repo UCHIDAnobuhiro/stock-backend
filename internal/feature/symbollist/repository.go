@@ -73,7 +73,6 @@ func symbolFromSQLC(m symbollistsqlc.Symbol) Symbol {
 		logoUpdatedAt = &t
 	}
 	return Symbol{
-		ID:            m.ID,
 		Code:          m.Code,
 		Name:          m.Name,
 		Market:        m.Market,

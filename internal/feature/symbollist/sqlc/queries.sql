@@ -1,5 +1,5 @@
 -- name: ListActiveSymbols :many
-SELECT id, code, name, market, timezone, logo_url, logo_updated_at, is_active, created_at, updated_at
+SELECT code, name, market, timezone, logo_url, logo_updated_at, is_active, created_at, updated_at
 FROM symbols
 WHERE is_active = TRUE
 ORDER BY code ASC;

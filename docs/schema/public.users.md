@@ -43,7 +43,6 @@ erDiagram
   timestamp_with_time_zone updated_at ""
 }
 "public.oauth_accounts" {
-  bigint id ""
   bigint user_id FK ""
   varchar_32_ provider ""
   varchar_255_ provider_uid ""

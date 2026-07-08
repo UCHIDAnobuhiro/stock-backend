@@ -4,7 +4,6 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | bigint | nextval('symbols_id_seq'::regclass) | false |  |  |  |
 | code | varchar(20) |  | false | [public.candles](public.candles.md) [public.watchlists](public.watchlists.md) |  |  |
 | name | varchar(255) |  | false |  |  |  |
 | market | varchar(100) |  | false |  |  |  |
@@ -21,20 +20,18 @@
 | ---- | ---- | ---------- |
 | symbols_code_not_null | n | NOT NULL code |
 | symbols_created_at_not_null | n | NOT NULL created_at |
-| symbols_id_not_null | n | NOT NULL id |
 | symbols_is_active_not_null | n | NOT NULL is_active |
 | symbols_market_not_null | n | NOT NULL market |
 | symbols_name_not_null | n | NOT NULL name |
 | symbols_timezone_not_null | n | NOT NULL timezone |
 | symbols_updated_at_not_null | n | NOT NULL updated_at |
-| symbols_pkey | PRIMARY KEY | PRIMARY KEY (id) |
+| symbols_pkey | PRIMARY KEY | PRIMARY KEY (code) |
 
 ## Indexes
 
 | Name | Definition |
 | ---- | ---------- |
-| symbols_pkey | CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (id) |
-| idx_symbols_code | CREATE UNIQUE INDEX idx_symbols_code ON public.symbols USING btree (code) |
+| symbols_pkey | CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (code) |
 
 ## Relations
 
@@ -45,7 +42,6 @@ erDiagram
 "public.watchlists" }o--|| "public.symbols" : "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT"
 
 "public.symbols" {
-  bigint id ""
   varchar_20_ code ""
   varchar_255_ name ""
   varchar_100_ market ""
@@ -57,7 +53,6 @@ erDiagram
   timestamp_with_time_zone updated_at ""
 }
 "public.candles" {
-  bigint id ""
   varchar_20_ symbol_code FK ""
   varchar_16_ interval ""
   timestamp_with_time_zone time ""

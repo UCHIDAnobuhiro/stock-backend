@@ -110,12 +110,6 @@
       "type": "BASE TABLE",
       "columns": [
         {
-          "name": "id",
-          "type": "bigint",
-          "nullable": false,
-          "default": "nextval('oauth_accounts_id_seq'::regclass)"
-        },
-        {
           "name": "user_id",
           "type": "bigint",
           "nullable": false
@@ -139,14 +133,6 @@
       ],
       "indexes": [
         {
-          "name": "oauth_accounts_pkey",
-          "def": "CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (id)",
-          "table": "public.oauth_accounts",
-          "columns": [
-            "id"
-          ]
-        },
-        {
           "name": "idx_oauth_accounts_user_id",
           "def": "CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id)",
           "table": "public.oauth_accounts",
@@ -155,8 +141,8 @@
           ]
         },
         {
-          "name": "idx_oauth_provider_uid",
-          "def": "CREATE UNIQUE INDEX idx_oauth_provider_uid ON public.oauth_accounts USING btree (provider, provider_uid)",
+          "name": "oauth_accounts_pkey",
+          "def": "CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (provider, provider_uid)",
           "table": "public.oauth_accounts",
           "columns": [
             "provider",
@@ -173,16 +159,6 @@
           "referenced_table": "",
           "columns": [
             "created_at"
-          ]
-        },
-        {
-          "name": "oauth_accounts_id_not_null",
-          "type": "n",
-          "def": "NOT NULL id",
-          "table": "public.oauth_accounts",
-          "referenced_table": "",
-          "columns": [
-            "id"
           ]
         },
         {
@@ -231,11 +207,12 @@
         {
           "name": "oauth_accounts_pkey",
           "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
+          "def": "PRIMARY KEY (provider, provider_uid)",
           "table": "public.oauth_accounts",
           "referenced_table": "",
           "columns": [
-            "id"
+            "provider",
+            "provider_uid"
           ]
         }
       ]
@@ -244,12 +221,6 @@
       "name": "public.symbols",
       "type": "BASE TABLE",
       "columns": [
-        {
-          "name": "id",
-          "type": "bigint",
-          "nullable": false,
-          "default": "nextval('symbols_id_seq'::regclass)"
-        },
         {
           "name": "code",
           "type": "varchar(20)",
@@ -302,15 +273,7 @@
       "indexes": [
         {
           "name": "symbols_pkey",
-          "def": "CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (id)",
-          "table": "public.symbols",
-          "columns": [
-            "id"
-          ]
-        },
-        {
-          "name": "idx_symbols_code",
-          "def": "CREATE UNIQUE INDEX idx_symbols_code ON public.symbols USING btree (code)",
+          "def": "CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (code)",
           "table": "public.symbols",
           "columns": [
             "code"
@@ -336,16 +299,6 @@
           "referenced_table": "",
           "columns": [
             "created_at"
-          ]
-        },
-        {
-          "name": "symbols_id_not_null",
-          "type": "n",
-          "def": "NOT NULL id",
-          "table": "public.symbols",
-          "referenced_table": "",
-          "columns": [
-            "id"
           ]
         },
         {
@@ -401,11 +354,11 @@
         {
           "name": "symbols_pkey",
           "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
+          "def": "PRIMARY KEY (code)",
           "table": "public.symbols",
           "referenced_table": "",
           "columns": [
-            "id"
+            "code"
           ]
         }
       ]
@@ -414,12 +367,6 @@
       "name": "public.candles",
       "type": "BASE TABLE",
       "columns": [
-        {
-          "name": "id",
-          "type": "bigint",
-          "nullable": false,
-          "default": "nextval('candles_id_seq'::regclass)"
-        },
         {
           "name": "symbol_code",
           "type": "varchar(20)",
@@ -465,15 +412,7 @@
       "indexes": [
         {
           "name": "candles_pkey",
-          "def": "CREATE UNIQUE INDEX candles_pkey ON public.candles USING btree (id)",
-          "table": "public.candles",
-          "columns": [
-            "id"
-          ]
-        },
-        {
-          "name": "candle_sym_int_time",
-          "def": "CREATE UNIQUE INDEX candle_sym_int_time ON public.candles USING btree (symbol_code, \"interval\", \"time\")",
+          "def": "CREATE UNIQUE INDEX candles_pkey ON public.candles USING btree (symbol_code, \"interval\", \"time\")",
           "table": "public.candles",
           "columns": [
             "symbol_code",
@@ -501,16 +440,6 @@
           "referenced_table": "",
           "columns": [
             "high"
-          ]
-        },
-        {
-          "name": "candles_id_not_null",
-          "type": "n",
-          "def": "NOT NULL id",
-          "table": "public.candles",
-          "referenced_table": "",
-          "columns": [
-            "id"
           ]
         },
         {
@@ -589,11 +518,13 @@
         {
           "name": "candles_pkey",
           "type": "PRIMARY KEY",
-          "def": "PRIMARY KEY (id)",
+          "def": "PRIMARY KEY (symbol_code, \"interval\", \"time\")",
           "table": "public.candles",
           "referenced_table": "",
           "columns": [
-            "id"
+            "symbol_code",
+            "interval",
+            "time"
           ]
         }
       ]
