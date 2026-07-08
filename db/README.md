@@ -29,7 +29,7 @@ DB_USER=appuser DB_PASSWORD=apppass DB_NAME=app DB_HOST=localhost DB_PORT=5432 \
   go run ./cmd/migrate            # 引数省略時は `up`
 go run ./cmd/migrate status
 go run ./cmd/migrate down
-go run ./cmd/migrate up-to 3
+go run ./cmd/migrate up-to 1
 
 # Docker（本番 Cloud Run Job と同等のイメージ）
 docker compose -f docker/docker-compose.yml -p stock run --rm migrate         # up

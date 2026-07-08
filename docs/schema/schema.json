@@ -133,20 +133,20 @@
       ],
       "indexes": [
         {
-          "name": "idx_oauth_accounts_user_id",
-          "def": "CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id)",
-          "table": "public.oauth_accounts",
-          "columns": [
-            "user_id"
-          ]
-        },
-        {
           "name": "oauth_accounts_pkey",
           "def": "CREATE UNIQUE INDEX oauth_accounts_pkey ON public.oauth_accounts USING btree (provider, provider_uid)",
           "table": "public.oauth_accounts",
           "columns": [
             "provider",
             "provider_uid"
+          ]
+        },
+        {
+          "name": "idx_oauth_accounts_user_id",
+          "def": "CREATE INDEX idx_oauth_accounts_user_id ON public.oauth_accounts USING btree (user_id)",
+          "table": "public.oauth_accounts",
+          "columns": [
+            "user_id"
           ]
         }
       ],
