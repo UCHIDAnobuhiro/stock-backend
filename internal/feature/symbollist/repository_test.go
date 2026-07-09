@@ -75,21 +75,12 @@ func updateSymbolActive(t *testing.T, db *sql.DB, symbol *Symbol, isActive bool)
 	require.NoError(t, err, "failed to update symbol active status")
 }
 
-func TestNewSymbolRepository(t *testing.T) {
-	t.Parallel()
-	db := setupTestDB(t)
-	repo := NewRepository(db)
-	assert.NotNil(t, repo)
-	assert.NotNil(t, repo.db)
-}
-
 func TestSymbolRepository_ListActive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
 		setupFunc     func(t *testing.T, db *sql.DB)
-		expectedCount int
 		expectedCodes []string
 	}{
 		{
@@ -99,7 +90,6 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 				seedSymbol(t, db, "AAPL", "Apple Inc.", "NASDAQ", true)
 				seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 			},
-			expectedCount: 3,
 			expectedCodes: []string{"AAPL", "MSFT", "NVDA"},
 		},
 		{
@@ -110,13 +100,11 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 				updateSymbolActive(t, db, inactive, false)
 				seedSymbol(t, db, "NVDA", "NVIDIA Corporation", "NASDAQ", true)
 			},
-			expectedCount: 2,
 			expectedCodes: []string{"MSFT", "NVDA"},
 		},
 		{
 			name:          "success: returns empty list when no symbols",
 			setupFunc:     func(t *testing.T, db *sql.DB) {},
-			expectedCount: 0,
 			expectedCodes: []string{},
 		},
 		{
@@ -127,7 +115,6 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 				s2 := seedSymbol(t, db, "AAPL", "Apple Inc.", "NASDAQ", true)
 				updateSymbolActive(t, db, s2, false)
 			},
-			expectedCount: 0,
 			expectedCodes: []string{},
 		},
 		{
@@ -135,7 +122,6 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 			setupFunc: func(t *testing.T, db *sql.DB) {
 				seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 			},
-			expectedCount: 1,
 			expectedCodes: []string{"MSFT"},
 		},
 	}
@@ -150,10 +136,11 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 			}
 			symbols, err := repo.ListActive(context.Background())
 			require.NoError(t, err)
-			assert.Len(t, symbols, tt.expectedCount)
-			for i, expectedCode := range tt.expectedCodes {
-				assert.Equal(t, expectedCode, symbols[i].Code)
+			gotCodes := make([]string, 0, len(symbols))
+			for _, s := range symbols {
+				gotCodes = append(gotCodes, s.Code)
 			}
+			assert.Equal(t, tt.expectedCodes, gotCodes)
 		})
 	}
 }
@@ -290,7 +277,6 @@ func TestSymbolRepository_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := repo.ListActive(ctx)
-	if err != nil {
-		assert.ErrorIs(t, err, context.Canceled)
-	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
 }
