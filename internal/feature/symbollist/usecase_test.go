@@ -48,13 +48,13 @@ func TestSymbolUsecase_ListActiveSymbols(t *testing.T) {
 			name: "success: returns list of active symbols",
 			mockListActive: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{Code: "7203.T", Name: "Toyota Motor", Market: "TSE", IsActive: true},
-					{Code: "6758.T", Name: "Sony Group", Market: "TSE", IsActive: true},
+					{Code: "AAPL", Name: "Apple Inc.", Market: "NASDAQ", IsActive: true},
+					{Code: "MSFT", Name: "Microsoft Corporation", Market: "NASDAQ", IsActive: true},
 				}, nil
 			},
 			expectedSymbols: []symbollist.Symbol{
-				{Code: "7203.T", Name: "Toyota Motor", Market: "TSE", IsActive: true},
-				{Code: "6758.T", Name: "Sony Group", Market: "TSE", IsActive: true},
+				{Code: "AAPL", Name: "Apple Inc.", Market: "NASDAQ", IsActive: true},
+				{Code: "MSFT", Name: "Microsoft Corporation", Market: "NASDAQ", IsActive: true},
 			},
 			wantErr: false,
 		},
@@ -87,11 +87,11 @@ func TestSymbolUsecase_ListActiveSymbols(t *testing.T) {
 			name: "success: returns single symbol",
 			mockListActive: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{Code: "9984.T", Name: "SoftBank Group", Market: "TSE", IsActive: true},
+					{Code: "NVDA", Name: "NVIDIA Corporation", Market: "NASDAQ", IsActive: true},
 				}, nil
 			},
 			expectedSymbols: []symbollist.Symbol{
-				{Code: "9984.T", Name: "SoftBank Group", Market: "TSE", IsActive: true},
+				{Code: "NVDA", Name: "NVIDIA Corporation", Market: "NASDAQ", IsActive: true},
 			},
 			wantErr: false,
 		},
