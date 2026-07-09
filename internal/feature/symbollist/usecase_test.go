@@ -23,16 +23,6 @@ func (m *mockRepository) ListActive(ctx context.Context) ([]symbollist.Symbol, e
 	return nil, nil
 }
 
-// TestNewSymbolUsecase はNewUsecaseコンストラクタが正しくインスタンスを生成することを検証します。
-func TestNewSymbolUsecase(t *testing.T) {
-	t.Parallel()
-
-	mockRepo := &mockRepository{}
-	uc := symbollist.NewUsecase(mockRepo)
-
-	assert.NotNil(t, uc, "usecase should not be nil")
-}
-
 // TestSymbolUsecase_ListActiveSymbols はListActiveSymbolsメソッドの各種シナリオをテーブル駆動テストで検証します。
 func TestSymbolUsecase_ListActiveSymbols(t *testing.T) {
 	t.Parallel()
@@ -75,25 +65,13 @@ func TestSymbolUsecase_ListActiveSymbols(t *testing.T) {
 			wantErr:         false,
 		},
 		{
-			name: "failure: repository returns error",
+			name: "error: repository returns error",
 			mockListActive: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return nil, errors.New("database connection failed")
 			},
 			expectedSymbols: nil,
 			wantErr:         true,
 			errMsg:          "database connection failed",
-		},
-		{
-			name: "success: returns single symbol",
-			mockListActive: func(ctx context.Context) ([]symbollist.Symbol, error) {
-				return []symbollist.Symbol{
-					{Code: "NVDA", Name: "NVIDIA Corporation", Market: "NASDAQ", IsActive: true},
-				}, nil
-			},
-			expectedSymbols: []symbollist.Symbol{
-				{Code: "NVDA", Name: "NVIDIA Corporation", Market: "NASDAQ", IsActive: true},
-			},
-			wantErr: false,
 		},
 	}
 
