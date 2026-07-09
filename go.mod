@@ -1,6 +1,6 @@
 module github.com/UCHIDAnobuhiro/stock-backend
 
-go 1.26.4
+go 1.26.5
 
 require (
 	cloud.google.com/go/vision/v2 v2.14.0
