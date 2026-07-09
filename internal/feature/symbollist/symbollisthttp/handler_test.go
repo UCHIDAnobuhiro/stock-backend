@@ -13,10 +13,6 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/symbollist/symbollisthttp"
 )
 
-func strPtr(s string) *string {
-	return &s
-}
-
 // mockUsecase はUsecaseインターフェースのモック実装です。
 type mockUsecase struct {
 	ListActiveSymbolsFunc func(ctx context.Context) ([]symbollist.Symbol, error)
@@ -30,18 +26,10 @@ func (m *mockUsecase) ListActiveSymbols(ctx context.Context) ([]symbollist.Symbo
 	return nil, nil
 }
 
-// TestNewSymbolHandler はNewHandlerコンストラクタが正しくインスタンスを生成することを検証します。
-func TestNewSymbolHandler(t *testing.T) {
-	t.Parallel()
-
-	mockUC := &mockUsecase{}
-	h := symbollisthttp.NewHandler(mockUC)
-
-	assert.NotNil(t, h, "handler should not be nil")
-}
-
 // TestSymbolHandler_List はListハンドラーの各種シナリオをテーブル駆動テストで検証します。
 func TestSymbolHandler_List(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name               string
 		mockListActiveFunc func(ctx context.Context) ([]symbollist.Symbol, error)
@@ -49,15 +37,16 @@ func TestSymbolHandler_List(t *testing.T) {
 		expectedBody       string
 	}{
 		{
+			// expectedBodyとの完全一致検証により、内部フィールド（Market, IsActive）が公開されないことも担保する
 			name: "success: returns list of symbols",
 			mockListActiveFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{Code: "7203.T", Name: "Toyota Motor", Market: "TSE", LogoURL: strPtr("https://api.twelvedata.com/logo/toyota.com"), IsActive: true},
-					{Code: "6758.T", Name: "Sony Group", Market: "TSE", IsActive: true},
+					{Code: "AAPL", Name: "Apple Inc.", Market: "NASDAQ", LogoURL: new("https://api.twelvedata.com/logo/apple.com"), IsActive: true},
+					{Code: "MSFT", Name: "Microsoft Corporation", Market: "NASDAQ", IsActive: true},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[{"code":"7203.T","name":"Toyota Motor","logo_url":"https://api.twelvedata.com/logo/toyota.com"},{"code":"6758.T","name":"Sony Group","logo_url":null}]`,
+			expectedBody:   `[{"code":"AAPL","name":"Apple Inc.","logo_url":"https://api.twelvedata.com/logo/apple.com"},{"code":"MSFT","name":"Microsoft Corporation","logo_url":null}]`,
 		},
 		{
 			name: "success: returns empty list when no symbols",
@@ -71,14 +60,14 @@ func TestSymbolHandler_List(t *testing.T) {
 			name: "success: returns single symbol",
 			mockListActiveFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return []symbollist.Symbol{
-					{Code: "9984.T", Name: "SoftBank Group", Market: "TSE", IsActive: true},
+					{Code: "NVDA", Name: "NVIDIA Corporation", Market: "NASDAQ", IsActive: true},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[{"code":"9984.T","name":"SoftBank Group","logo_url":null}]`,
+			expectedBody:   `[{"code":"NVDA","name":"NVIDIA Corporation","logo_url":null}]`,
 		},
 		{
-			name: "failure: usecase returns error",
+			name: "error: usecase returns error",
 			mockListActiveFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
 				return nil, errors.New("database connection failed")
 			},
@@ -113,37 +102,4 @@ func TestSymbolHandler_List(t *testing.T) {
 			assert.JSONEq(t, tt.expectedBody, w.Body.String())
 		})
 	}
-}
-
-// TestSymbolHandler_List_DTOConversion はレスポンスに公開DTOフィールドのみが含まれ、内部フィールドが公開されないことを検証します。
-func TestSymbolHandler_List_DTOConversion(t *testing.T) {
-	t.Parallel()
-
-	// レスポンスに公開DTOフィールドのみが含まれることを検証（Market、IsActiveは含まれない）
-	mockUC := &mockUsecase{
-		ListActiveSymbolsFunc: func(ctx context.Context) ([]symbollist.Symbol, error) {
-			return []symbollist.Symbol{
-				{
-					Code:     "TEST.T",
-					Name:     "Test Company",
-					Market:   "NYSE",
-					LogoURL:  strPtr("https://api.twelvedata.com/logo/test.com"),
-					IsActive: true,
-				},
-			}, nil
-		},
-	}
-	h := symbollisthttp.NewHandler(mockUC)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/symbols", nil)
-
-	h.List(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.JSONEq(t, `[{"code":"TEST.T","name":"Test Company","logo_url":"https://api.twelvedata.com/logo/test.com"}]`, w.Body.String())
-	// 内部フィールドが公開されていないことを検証
-	assert.NotContains(t, w.Body.String(), "NYSE")
-	assert.NotContains(t, w.Body.String(), "is_active")
-	assert.NotContains(t, w.Body.String(), "sort_key")
 }

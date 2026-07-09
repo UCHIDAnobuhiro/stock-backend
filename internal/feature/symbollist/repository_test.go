@@ -32,7 +32,7 @@ func seedSymbol(t *testing.T, db *sql.DB, code, name, market string, isActive bo
 	t.Helper()
 	row := db.QueryRowContext(context.Background(),
 		`INSERT INTO symbols (code, name, market, timezone, is_active)
-		 VALUES ($1, $2, $3, 'Asia/Tokyo', $4)
+		 VALUES ($1, $2, $3, 'America/New_York', $4)
 		 RETURNING created_at, updated_at`,
 		code, name, market, isActive,
 	)
@@ -40,7 +40,7 @@ func seedSymbol(t *testing.T, db *sql.DB, code, name, market string, isActive bo
 		Code:     code,
 		Name:     name,
 		Market:   market,
-		Timezone: "Asia/Tokyo",
+		Timezone: "America/New_York",
 		IsActive: isActive,
 	}
 	require.NoError(t, row.Scan(&s.CreatedAt, &s.UpdatedAt), "failed to seed symbol")
@@ -75,68 +75,54 @@ func updateSymbolActive(t *testing.T, db *sql.DB, symbol *Symbol, isActive bool)
 	require.NoError(t, err, "failed to update symbol active status")
 }
 
-func TestNewSymbolRepository(t *testing.T) {
-	t.Parallel()
-	db := setupTestDB(t)
-	repo := NewRepository(db)
-	assert.NotNil(t, repo)
-	assert.NotNil(t, repo.db)
-}
-
 func TestSymbolRepository_ListActive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
 		setupFunc     func(t *testing.T, db *sql.DB)
-		expectedCount int
 		expectedCodes []string
 	}{
 		{
 			name: "success: returns active symbols sorted by code",
 			setupFunc: func(t *testing.T, db *sql.DB) {
-				seedSymbol(t, db, "9984.T", "SoftBank Group", "TSE", true)
-				seedSymbol(t, db, "6758.T", "Sony Group", "TSE", true)
-				seedSymbol(t, db, "7203.T", "Toyota Motor", "TSE", true)
+				seedSymbol(t, db, "NVDA", "NVIDIA Corporation", "NASDAQ", true)
+				seedSymbol(t, db, "AAPL", "Apple Inc.", "NASDAQ", true)
+				seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 			},
-			expectedCount: 3,
-			expectedCodes: []string{"6758.T", "7203.T", "9984.T"},
+			expectedCodes: []string{"AAPL", "MSFT", "NVDA"},
 		},
 		{
 			name: "success: excludes inactive symbols",
 			setupFunc: func(t *testing.T, db *sql.DB) {
-				seedSymbol(t, db, "7203.T", "Toyota Motor", "TSE", true)
-				inactive := seedSymbol(t, db, "6758.T", "Sony Group", "TSE", true)
+				seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
+				inactive := seedSymbol(t, db, "AAPL", "Apple Inc.", "NASDAQ", true)
 				updateSymbolActive(t, db, inactive, false)
-				seedSymbol(t, db, "9984.T", "SoftBank Group", "TSE", true)
+				seedSymbol(t, db, "NVDA", "NVIDIA Corporation", "NASDAQ", true)
 			},
-			expectedCount: 2,
-			expectedCodes: []string{"7203.T", "9984.T"},
+			expectedCodes: []string{"MSFT", "NVDA"},
 		},
 		{
 			name:          "success: returns empty list when no symbols",
 			setupFunc:     func(t *testing.T, db *sql.DB) {},
-			expectedCount: 0,
 			expectedCodes: []string{},
 		},
 		{
 			name: "success: returns empty list when all symbols are inactive",
 			setupFunc: func(t *testing.T, db *sql.DB) {
-				s1 := seedSymbol(t, db, "7203.T", "Toyota Motor", "TSE", true)
+				s1 := seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 				updateSymbolActive(t, db, s1, false)
-				s2 := seedSymbol(t, db, "6758.T", "Sony Group", "TSE", true)
+				s2 := seedSymbol(t, db, "AAPL", "Apple Inc.", "NASDAQ", true)
 				updateSymbolActive(t, db, s2, false)
 			},
-			expectedCount: 0,
 			expectedCodes: []string{},
 		},
 		{
 			name: "success: returns single active symbol",
 			setupFunc: func(t *testing.T, db *sql.DB) {
-				seedSymbol(t, db, "7203.T", "Toyota Motor", "TSE", true)
+				seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 			},
-			expectedCount: 1,
-			expectedCodes: []string{"7203.T"},
+			expectedCodes: []string{"MSFT"},
 		},
 	}
 
@@ -150,10 +136,11 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 			}
 			symbols, err := repo.ListActive(context.Background())
 			require.NoError(t, err)
-			assert.Len(t, symbols, tt.expectedCount)
-			for i, expectedCode := range tt.expectedCodes {
-				assert.Equal(t, expectedCode, symbols[i].Code)
+			gotCodes := make([]string, 0, len(symbols))
+			for _, s := range symbols {
+				gotCodes = append(gotCodes, s.Code)
 			}
+			assert.Equal(t, tt.expectedCodes, gotCodes)
 		})
 	}
 }
@@ -163,16 +150,16 @@ func TestSymbolRepository_ListActive_FieldValues(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewRepository(db)
 
-	seedSymbol(t, db, "7203.T", "Toyota Motor Corporation", "Tokyo Stock Exchange", true)
+	seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 	symbols, err := repo.ListActive(context.Background())
 	require.NoError(t, err)
 	require.Len(t, symbols, 1)
 
 	got := symbols[0]
-	assert.Equal(t, "7203.T", got.Code)
-	assert.Equal(t, "Toyota Motor Corporation", got.Name)
-	assert.Equal(t, "Tokyo Stock Exchange", got.Market)
-	assert.Equal(t, "Asia/Tokyo", got.Timezone)
+	assert.Equal(t, "MSFT", got.Code)
+	assert.Equal(t, "Microsoft Corporation", got.Name)
+	assert.Equal(t, "NASDAQ", got.Market)
+	assert.Equal(t, "America/New_York", got.Timezone)
 	assert.Nil(t, got.LogoURL)
 	assert.Nil(t, got.LogoUpdatedAt)
 	assert.True(t, got.IsActive)
@@ -285,12 +272,11 @@ func TestSymbolRepository_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
-	seedSymbol(t, db, "7203.T", "Toyota Motor", "TSE", true)
+	seedSymbol(t, db, "MSFT", "Microsoft Corporation", "NASDAQ", true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := repo.ListActive(ctx)
-	if err != nil {
-		assert.ErrorIs(t, err, context.Canceled)
-	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
 }
