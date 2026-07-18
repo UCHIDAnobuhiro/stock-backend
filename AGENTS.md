@@ -183,7 +183,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 ### 認証
 - JWT認証（`transport/jwt/AuthRequired()`）
-- 公開: `/healthz`, `/v1/signup`, `/v1/login` / 保護: その他すべて
+- 公開: `/healthz`, `/v1/signup`, `/v1/login`, `/v1/logout`, `/v1/auth/oauth/{provider}`（+ `/callback`） / 保護: その他すべて
 
 ### テストに関する注意事項
 

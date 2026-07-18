@@ -236,7 +236,7 @@ go test ./internal/feature/symbollist/symbollisthttp/... -v
 
 #### リポジトリテスト ([repository_test.go](../../internal/feature/symbollist/repository_test.go))
 
-**インメモリSQLiteデータベース**を使用して結合テストを実施します。
+**testcontainers-go による実 PostgreSQL**（`dbtest.OpenIsolatedDB`）を使用して結合テストを実施します。
 
 **実行コマンド:**
 ```bash

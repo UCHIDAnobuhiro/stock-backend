@@ -94,5 +94,5 @@ bash db/seed/seed.sh
 go tool sqlc generate
 ```
 
-各 feature の `internal/feature/<name>/adapters/sqlc/queries.sql` を編集 →
+各 feature の `internal/feature/<name>/sqlc/queries.sql` を編集 →
 同ディレクトリに型安全コードが生成されます。

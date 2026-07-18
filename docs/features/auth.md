@@ -41,7 +41,7 @@ sequenceDiagram
     end
 
     Handler->>Usecase: Signup(email, password)
-    Usecase->>Usecase: Validate password (min 8 chars)
+    Usecase->>Usecase: Validate password (min 12 chars)
     Usecase->>Usecase: Apply pepper (HMAC-SHA256) and hash with bcrypt
     Usecase->>Repository: Create(user)
     Repository->>DB: INSERT user
@@ -699,7 +699,7 @@ go test ./internal/feature/auth/authhttp/... -v
 
 #### リポジトリテスト（[user_repository_test.go](../../internal/feature/auth/user_repository_test.go)）
 
-統合テストに**インメモリSQLiteデータベース**を使用します。
+統合テストに **testcontainers-go による実 PostgreSQL**（`dbtest.OpenIsolatedDB`）を使用します。
 
 **テストケース構造:**
 ```go
