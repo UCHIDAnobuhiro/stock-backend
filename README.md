@@ -50,7 +50,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 
 | カテゴリ        | 技術                                                                |
 | --------------- | ------------------------------------------------------------------- |
-| 言語            | Go (1.26.4)                                                          |
+| 言語            | Go (1.26.5)                                                          |
 | Webフレームワーク | net/http（標準ライブラリ）+ chi（ルーター）                         |
 | DB アクセス     | sqlc + database/sql + pgx/v5 stdlib                                 |
 | DB マイグレーション | goose（埋め込み SQL ベース）                                      |
@@ -132,6 +132,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │   ├── Dockerfile.batch        # バッチ統合用Dockerfile（本番・job_idでcandles/logo切替）
 │   ├── Dockerfile.api          # APIサーバー用Dockerfile（本番）
 │   ├── Dockerfile.api.dev      # APIサーバー用Dockerfile（ローカル開発）
+│   ├── Dockerfile.migrate      # マイグレーション用Dockerfile（Cloud Run Job で実行）
 │   ├── docker-compose.yml      # ローカル開発用 compose 定義（サービス・ネットワーク設定）
 │   ├── air.toml                # Air（ホットリロード）設定
 │   ├── example.env             # 環境変数テンプレート（compose 変数置換 + コンテナにロード）

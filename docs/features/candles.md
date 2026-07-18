@@ -33,7 +33,7 @@ sequenceDiagram
     Usecase->>Cache: Find(symbol, interval, outputsize)
 
     alt Redis Available
-        Cache->>Redis: GET candles:AAPL:1day:200
+        Cache->>Redis: GET candles:AAPL:1day
         alt Cache HIT
             Redis-->>Cache: JSON data
             Cache->>Cache: Unmarshal JSON
@@ -44,7 +44,7 @@ sequenceDiagram
             Repository->>DB: SELECT * FROM candles WHERE symbol_code=? AND interval=? ORDER BY time DESC LIMIT ?
             DB-->>Repository: Rows
             Repository-->>Cache: []Candle
-            Cache->>Redis: SET candles:AAPL:1day:200 (TTL)
+            Cache->>Redis: SET candles:AAPL:1day (TTL)
             Cache-->>Usecase: []Candle
         end
     else Redis Unavailable
@@ -323,7 +323,7 @@ graph TB
 - **CachingRepository**（[caching_repository.go](../../internal/feature/candles/caching_repository.go)）: Redisキャッシュデコレータ
   - Repositoryをラップするデコレータパターンを実装
   - `Repository`（読み取り）と`WriteRepository`（書き込み）の両インターフェースを実装
-  - キャッシュキー形式: `candles:{symbol}:{interval}:{outputsize}`
+  - キャッシュキー形式: `candles:{symbol}:{interval}`（全データを保存し、取得時に outputsize 件にスライス）
   - UpsertBatch時の自動キャッシュ無効化
   - Redis利用不可時のグレースフルデグレード
 - **TwelveDataMarket**（[twelvedata/repository.go](../../internal/feature/candles/twelvedata/repository.go)）: TwelveData APIクライアント
@@ -461,7 +461,7 @@ go test ./internal/feature/candles/candleshttp/... -v
 
 #### リポジトリテスト（[repository_test.go](../../internal/feature/candles/repository_test.go)）
 
-統合テストに**インメモリSQLiteデータベース**を使用します。
+統合テストに **testcontainers-go による実 PostgreSQL**（`dbtest.OpenIsolatedDB`）を使用します。
 
 **テストケース構造:**
 ```go
@@ -477,7 +477,7 @@ tests := []struct {
 ```
 
 **主な特徴:**
-- 各テストは新しいインメモリSQLiteデータベースを使用
+- 各テストは分離された PostgreSQL データベースを使用（`dbtest.OpenIsolatedDB`）
 - `setupFunc`: テスト実行前にテストデータを準備
 - `validateFunc`: 成功ケースのカスタムバリデーションロジック
 - Upsert動作のテスト（挿入 vs 更新）
@@ -530,8 +530,8 @@ go test ./internal/feature/candles/... -v -race -cover
 
 2. **書き込みパス（UpsertBatch）**
    - まずPostgreSQLに書き込み
-   - パターンマッチングで関連するキャッシュエントリを無効化
-   - パターン: `candles:{symbol}:{interval}:*`
+   - 影響を受ける symbol+interval のキャッシュキーを削除（`DEL candles:{symbol}:{interval}`）
+   - 削除後、最新データで再生成（ウォームアップ、ベストエフォート）
 
 ### グレースフルデグレード
 
