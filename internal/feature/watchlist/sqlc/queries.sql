@@ -22,3 +22,10 @@ UPDATE watchlists
 SET sort_key = $3,
     updated_at = now()
 WHERE user_id = $1 AND symbol_code = $2;
+
+-- name: LockWatchlistByUser :many
+SELECT id
+FROM watchlists
+WHERE user_id = $1
+ORDER BY id
+FOR UPDATE;

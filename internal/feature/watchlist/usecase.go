@@ -21,6 +21,8 @@ type Repository interface {
 	Remove(ctx context.Context, userID int64, symbolCode string) error
 	// UpdateSortKeys は entries の SortKey でウォッチリストの並び順を一括更新します。
 	// 全更新は原子的に適用され、途中で失敗した場合はいずれの並び順も変更されません。
+	// トランザクション内でユーザーの全行をロックして件数を検証し、一致しない場合や
+	// 並行削除等で更新行数が0件になった場合は ErrReorderCodesMismatch を返します。
 	UpdateSortKeys(ctx context.Context, userID int64, entries []UserSymbol) error
 }
 

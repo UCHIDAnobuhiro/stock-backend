@@ -186,6 +186,62 @@ func TestWatchlistRepository_UpdateSortKeys(t *testing.T) {
 	assert.Equal(t, "GOOGL", list[2].SymbolCode)
 }
 
+func TestWatchlistRepository_UpdateSortKeys_TargetRowMissing(t *testing.T) {
+	t.Parallel()
+	db, ids := setupTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Add(ctx, UserSymbol{UserID: ids.u1, SymbolCode: "AAPL", SortKey: 0}))
+	require.NoError(t, repo.Add(ctx, UserSymbol{UserID: ids.u1, SymbolCode: "GOOGL", SortKey: 1}))
+
+	// entries の件数（2件）は DB の件数（2件）と一致するが、GOOGL の代わりに
+	// 存在しない MSFT を指定することでロック件数チェックを素通りさせ、
+	// UpdateWatchlistSortKey の更新行数0件チェックを踏ませる。
+	err := repo.UpdateSortKeys(ctx, ids.u1, []UserSymbol{
+		{SymbolCode: "AAPL", SortKey: 0},
+		{SymbolCode: "MSFT", SortKey: 1},
+	})
+	assert.ErrorIs(t, err, ErrReorderCodesMismatch)
+
+	// ロールバックされ、既存行の sort_key が変更されていないことを確認する。
+	list, err := repo.ListByUser(ctx, ids.u1)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "AAPL", list[0].SymbolCode)
+	assert.Equal(t, 0, list[0].SortKey)
+	assert.Equal(t, "GOOGL", list[1].SymbolCode)
+	assert.Equal(t, 1, list[1].SortKey)
+}
+
+func TestWatchlistRepository_UpdateSortKeys_CountMismatch(t *testing.T) {
+	t.Parallel()
+	db, ids := setupTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, repo.Add(ctx, UserSymbol{UserID: ids.u1, SymbolCode: "AAPL", SortKey: 0}))
+	require.NoError(t, repo.Add(ctx, UserSymbol{UserID: ids.u1, SymbolCode: "GOOGL", SortKey: 1}))
+	require.NoError(t, repo.Add(ctx, UserSymbol{UserID: ids.u1, SymbolCode: "MSFT", SortKey: 2}))
+
+	// DB には3件あるが entries は2件のみ（並行削除等を想定した不一致ケース）。
+	err := repo.UpdateSortKeys(ctx, ids.u1, []UserSymbol{
+		{SymbolCode: "AAPL", SortKey: 0},
+		{SymbolCode: "GOOGL", SortKey: 1},
+	})
+	assert.ErrorIs(t, err, ErrReorderCodesMismatch)
+
+	list, err := repo.ListByUser(ctx, ids.u1)
+	require.NoError(t, err)
+	require.Len(t, list, 3)
+	assert.Equal(t, "AAPL", list[0].SymbolCode)
+	assert.Equal(t, 0, list[0].SortKey)
+	assert.Equal(t, "GOOGL", list[1].SymbolCode)
+	assert.Equal(t, 1, list[1].SortKey)
+	assert.Equal(t, "MSFT", list[2].SymbolCode)
+	assert.Equal(t, 2, list[2].SortKey)
+}
+
 func TestWatchlistRepository_ListByUser_Isolation(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)

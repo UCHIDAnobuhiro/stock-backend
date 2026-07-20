@@ -77,8 +77,12 @@ func (r *repository) Remove(ctx context.Context, userID int64, symbolCode string
 }
 
 // UpdateSortKeys はウォッチリストの sort_key をトランザクション内で一括更新します。
+// 冒頭でユーザーの全レコードを ORDER BY id で取得順にロックし、件数が entries と
+// 一致しなければ ErrReorderCodesMismatch を返します（ListByUser との TOCTOU 競合対策。
+// 取得順ロックにより並行 Reorder 同士のデッドロックも防ぎます）。
 // (user_id, sort_key) のユニーク制約が一時的に違反しないよう、まず全レコードを
-// 負値（-(i+1)）にシフトしてから最終値に更新します。
+// 負値（-(i+1)）にシフトしてから最終値に更新します。各更新の更新行数が1でない場合
+// （並行削除等で対象行が消えている場合）も ErrReorderCodesMismatch を返します。
 func (r *repository) UpdateSortKeys(ctx context.Context, userID int64, entries []UserSymbol) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -92,24 +96,43 @@ func (r *repository) UpdateSortKeys(ctx context.Context, userID int64, entries [
 	}()
 	qtx := r.q.WithTx(tx)
 
+	// ユーザーの全レコードをロックし、entries と件数が一致するか検証する。
+	// これにより ListByUser（呼び出し元）から本トランザクション開始までの間の
+	// 並行変更を検出する。
+	locked, err := qtx.LockWatchlistByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if len(locked) != len(entries) {
+		return ErrReorderCodesMismatch
+	}
+
 	// Phase 1: 負値にシフト
 	for i, e := range entries {
-		if _, err := qtx.UpdateWatchlistSortKey(ctx, watchlistsqlc.UpdateWatchlistSortKeyParams{
+		rowsAffected, err := qtx.UpdateWatchlistSortKey(ctx, watchlistsqlc.UpdateWatchlistSortKeyParams{
 			UserID:     userID,
 			SymbolCode: e.SymbolCode,
 			SortKey:    int64(-(i + 1)),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
+		}
+		if rowsAffected != 1 {
+			return ErrReorderCodesMismatch
 		}
 	}
 	// Phase 2: 最終値に更新
 	for _, e := range entries {
-		if _, err := qtx.UpdateWatchlistSortKey(ctx, watchlistsqlc.UpdateWatchlistSortKeyParams{
+		rowsAffected, err := qtx.UpdateWatchlistSortKey(ctx, watchlistsqlc.UpdateWatchlistSortKeyParams{
 			UserID:     userID,
 			SymbolCode: e.SymbolCode,
 			SortKey:    int64(e.SortKey),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
+		}
+		if rowsAffected != 1 {
+			return ErrReorderCodesMismatch
 		}
 	}
 	if err := tx.Commit(); err != nil {

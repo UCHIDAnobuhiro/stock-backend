@@ -80,6 +80,37 @@ func (q *Queries) ListWatchlistByUser(ctx context.Context, userID int64) ([]Watc
 	return items, nil
 }
 
+const lockWatchlistByUser = `-- name: LockWatchlistByUser :many
+SELECT id
+FROM watchlists
+WHERE user_id = $1
+ORDER BY id
+FOR UPDATE
+`
+
+func (q *Queries) LockWatchlistByUser(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, lockWatchlistByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const maxWatchlistSortKey = `-- name: MaxWatchlistSortKey :one
 SELECT COALESCE(MAX(sort_key), -1)::bigint AS max_key
 FROM watchlists
