@@ -23,12 +23,13 @@ func setupEvalMock(mock redismock.ClientMock, key string, allowed int64, count i
 }
 
 // setupEvalErrorMock はAllow()のLuaスクリプト実行がエラーを返すように設定します。
+// ARGV分のダミー引数を無視するCustomMatchでラップした上で、testhelper.goのExpectAllowError
+// （外部テストパッケージ向けヘルパー）に処理を委譲し、実装の重複を避けます。
 func setupEvalErrorMock(mock redismock.ClientMock, key string, err error) {
 	match := mock.CustomMatch(func(expected, actual []interface{}) error {
 		return nil
 	})
-	match.ExpectEvalSha(rateLimitScript.Hash(), []string{key},
-		"_", "_", "_", "_", "_").SetErr(err)
+	ExpectAllowError(match, key, err)
 }
 
 // TestLimiter_Allow_NilRedis はRedisクライアントがnilの場合のPolicy別の挙動を検証します。
