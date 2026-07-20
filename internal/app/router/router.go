@@ -74,14 +74,14 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(cfg.OpenAPIValidator)
 
-			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.IPRateLimitConfig{
+			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 				Prefix: "rl:signup:ip",
 				Limit:  5,
 				Window: 1 * time.Hour,
 				Policy: httpratelimit.FailClosed,
 			})).Post("/signup", h.Auth.Signup)
 
-			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.IPRateLimitConfig{
+			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 				Prefix: "rl:login:ip",
 				Limit:  10,
 				Window: 1 * time.Minute,
@@ -95,7 +95,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 			if h.OAuth != nil {
 				r.Route("/auth/oauth", func(r chi.Router) {
 					r.Get("/{provider}", h.OAuth.BeginAuth)
-					r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.IPRateLimitConfig{
+					r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 						Prefix: "rl:oauth:callback:ip",
 						Limit:  20,
 						Window: 1 * time.Minute,
@@ -115,8 +115,21 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 
 			r.Get("/candles/{code}", h.Candles.GetCandlesHandler)
 			r.Get("/symbols", h.Symbol.List)
-			r.Post("/logo/detect", h.Logo.DetectLogos)
-			r.Post("/logo/analyze", h.Logo.AnalyzeCompany)
+
+			// Vision/Gemini API は従量課金のため、ユーザー単位で1日あたりの呼び出し回数を制限する。
+			r.With(httpratelimit.ByUserID(cfg.Limiter, httpratelimit.RateLimitConfig{
+				Prefix: "rl:logo:detect:user",
+				Limit:  10,
+				Window: 24 * time.Hour,
+				Policy: httpratelimit.FailClosed,
+			})).Post("/logo/detect", h.Logo.DetectLogos)
+
+			r.With(httpratelimit.ByUserID(cfg.Limiter, httpratelimit.RateLimitConfig{
+				Prefix: "rl:logo:analyze:user",
+				Limit:  10,
+				Window: 24 * time.Hour,
+				Policy: httpratelimit.FailClosed,
+			})).Post("/logo/analyze", h.Logo.AnalyzeCompany)
 			r.Get("/watchlist", h.Watchlist.List)
 			r.Post("/watchlist", h.Watchlist.Add)
 			r.Delete("/watchlist/{code}", h.Watchlist.Remove)
