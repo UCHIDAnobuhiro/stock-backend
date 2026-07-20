@@ -106,6 +106,47 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"invalid symbol code"}`,
 		},
+		{
+			name:           "error: outputsize zero returns 400",
+			url:            "/candles/7203.T?outputsize=0",
+			mockGetCandles: nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"outputsize must be between 1 and 5000"}`,
+		},
+		{
+			name:           "error: negative outputsize returns 400",
+			url:            "/candles/7203.T?outputsize=-1",
+			mockGetCandles: nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"outputsize must be between 1 and 5000"}`,
+		},
+		{
+			name:           "error: outputsize exceeding max returns 400",
+			url:            "/candles/7203.T?outputsize=5001",
+			mockGetCandles: nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"outputsize must be between 1 and 5000"}`,
+		},
+		{
+			name: "success: outputsize lower boundary (1)",
+			url:  "/candles/7203.T?outputsize=1",
+			mockGetCandles: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+				assert.Equal(t, 1, outputsize)
+				return []candles.Candle{}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `[]`,
+		},
+		{
+			name: "success: outputsize upper boundary (5000)",
+			url:  "/candles/7203.T?outputsize=5000",
+			mockGetCandles: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+				assert.Equal(t, 5000, outputsize)
+				return []candles.Candle{}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `[]`,
+		},
 	}
 
 	for _, tt := range tests {
