@@ -13,8 +13,9 @@ import (
 
 // GoogleProvider はOAuthProviderインターフェースのGoogle実装です。
 type GoogleProvider struct {
-	cfg *oauth2.Config
-	hc  *http.Client
+	cfg         *oauth2.Config
+	hc          *http.Client
+	userinfoURL string
 }
 
 var _ OAuthProvider = (*GoogleProvider)(nil)
@@ -29,7 +30,8 @@ func NewGoogleProvider(clientID, clientSecret, redirectURL string, hc *http.Clie
 			Scopes:       []string{"openid", "email"},
 			Endpoint:     google.Endpoint,
 		},
-		hc: hc,
+		hc:          hc,
+		userinfoURL: "https://www.googleapis.com/oauth2/v3/userinfo",
 	}
 }
 
@@ -46,6 +48,11 @@ func (p *GoogleProvider) AuthorizationURL(state, codeChallenge string) string {
 // ExchangeCode はauthorization codeをユーザー情報に交換します。
 // Googleの /oauth2/v3/userinfo エンドポイントでメールアドレスを取得します。
 func (p *GoogleProvider) ExchangeCode(ctx context.Context, code, codeVerifier string) (*OAuthUserInfo, error) {
+	// oauth2ライブラリはcontextのoauth2.HTTPClientキー経由でHTTPクライアントを取得するため、
+	// ここで注入しないとp.hcのタイムアウトがトークン交換に適用されない。
+	if p.hc != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.hc)
+	}
 	tok, err := p.cfg.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
 	)
@@ -54,7 +61,7 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code, codeVerifier st
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://www.googleapis.com/oauth2/v3/userinfo", nil)
+		p.userinfoURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("google: failed to build userinfo request: %w", err)
 	}
