@@ -17,21 +17,6 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
-// setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
-// auth_token / csrf_token の設定・削除に共通利用します。
-// maxAge は秒数（削除時は -1）です。
-func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   maxAge,
-		Secure:   secure,
-		HttpOnly: httpOnly,
-		SameSite: http.SameSiteLaxMode,
-	})
-}
-
 // Usecase は認証操作のユースケースを定義します。
 // Goの慣例に従い、インターフェースはプロバイダー（usecase）ではなくコンシューマー（handler）が定義します。
 type Usecase interface {
@@ -177,4 +162,19 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	setAuthCookie(w, "csrf_token", "", -1, h.secureCookie, false)
 
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
+}
+
+// setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
+// auth_token / csrf_token の設定・削除に共通利用します。
+// maxAge は秒数（削除時は -1）です。
+func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   maxAge,
+		Secure:   secure,
+		HttpOnly: httpOnly,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

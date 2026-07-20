@@ -77,6 +77,40 @@ func NewIngestUsecase(market MarketRepository, candle WriteRepository, symbol Sy
 	return &IngestUsecase{market: market, candle: candle, symbol: symbol, rateLimiter: rateLimiter}
 }
 
+// IngestAll はアクティブな全銘柄の時系列データを取得し、
+// 日足・週足・月足をデータベースに永続化します。
+// APIレート制限を遵守し、必要に応じてリクエスト間で待機します。
+//
+// 銘柄単位の失敗は IngestResult に集約され処理は継続します。
+// 致命的エラー（symbol 一覧取得失敗、ctx キャンセル、rateLimiter 失敗）は
+// それまでの部分集計と共に error を返します。
+func (iu *IngestUsecase) IngestAll(ctx context.Context) (IngestResult, error) {
+	symbols, err := iu.symbol.ListActiveSymbols(ctx)
+	if err != nil {
+		return IngestResult{}, err
+	}
+
+	result := IngestResult{Total: len(symbols)}
+	for _, s := range symbols {
+		// WaitIfNeeded は limit 未到達なら cancelled ctx でも nil を返すため、
+		// ループごとに明示的に ctx をチェックして早期離脱する。
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		if err := iu.rateLimiter.WaitIfNeeded(ctx); err != nil {
+			return result, err
+		}
+		if err := iu.ingestOne(ctx, s, ingestOutputSize); err != nil {
+			// 1銘柄のエラーで処理を停止せず、エラーをログに記録して続行
+			slog.Error("failed to ingest data", "symbol", s.Code, "error", err)
+			result.Failed++
+			continue
+		}
+		result.Succeeded++
+	}
+	return result, nil
+}
+
 // ingestOne は指定された銘柄の日足データを外部リポジトリから取得し、
 // 週足・月足を集計して3種まとめてデータベースにバッチ挿入（または更新）します。
 // sym.Timezone は IANA タイムゾーン文字列で、外部 API レスポンスの解釈および
@@ -135,38 +169,4 @@ func dedupCandles(candles []Candle) []Candle {
 		}
 	}
 	return out
-}
-
-// IngestAll はアクティブな全銘柄の時系列データを取得し、
-// 日足・週足・月足をデータベースに永続化します。
-// APIレート制限を遵守し、必要に応じてリクエスト間で待機します。
-//
-// 銘柄単位の失敗は IngestResult に集約され処理は継続します。
-// 致命的エラー（symbol 一覧取得失敗、ctx キャンセル、rateLimiter 失敗）は
-// それまでの部分集計と共に error を返します。
-func (iu *IngestUsecase) IngestAll(ctx context.Context) (IngestResult, error) {
-	symbols, err := iu.symbol.ListActiveSymbols(ctx)
-	if err != nil {
-		return IngestResult{}, err
-	}
-
-	result := IngestResult{Total: len(symbols)}
-	for _, s := range symbols {
-		// WaitIfNeeded は limit 未到達なら cancelled ctx でも nil を返すため、
-		// ループごとに明示的に ctx をチェックして早期離脱する。
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		if err := iu.rateLimiter.WaitIfNeeded(ctx); err != nil {
-			return result, err
-		}
-		if err := iu.ingestOne(ctx, s, ingestOutputSize); err != nil {
-			// 1銘柄のエラーで処理を停止せず、エラーをログに記録して続行
-			slog.Error("failed to ingest data", "symbol", s.Code, "error", err)
-			result.Failed++
-			continue
-		}
-		result.Succeeded++
-	}
-	return result, nil
 }

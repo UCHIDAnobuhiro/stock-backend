@@ -81,19 +81,6 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// quotePGValue は libpq の key=value 形式で安全に値を埋め込めるようエスケープします。
-// 値に空白・'='・シングルクオート・バックスラッシュが含まれる場合、または空値の場合は
-// シングルクオートで囲み、内部の '\' と '\” をエスケープします。
-// 参考: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-KEYWORD-VALUE
-func quotePGValue(v string) string {
-	if v == "" || strings.ContainsAny(v, " \t\n\r='\\") {
-		escaped := strings.ReplaceAll(v, `\`, `\\`)
-		escaped = strings.ReplaceAll(escaped, `'`, `\'`)
-		return "'" + escaped + "'"
-	}
-	return v
-}
-
 // BuildDSN は設定からPostgreSQL DSN文字列を構築します。
 // InstanceNameが設定されている場合はCloud SQL Unixソケット接続を作成します。
 // それ以外の場合はHostとPortを使用してTCP接続を作成します。
@@ -118,4 +105,17 @@ func BuildDSN(cfg Config) string {
 		quotePGValue(string(cfg.Password)),
 		quotePGValue(cfg.Name),
 		quotePGValue(sslMode))
+}
+
+// quotePGValue は libpq の key=value 形式で安全に値を埋め込めるようエスケープします。
+// 値に空白・'='・シングルクオート・バックスラッシュが含まれる場合、または空値の場合は
+// シングルクオートで囲み、内部の '\' と '\” をエスケープします。
+// 参考: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING-KEYWORD-VALUE
+func quotePGValue(v string) string {
+	if v == "" || strings.ContainsAny(v, " \t\n\r='\\") {
+		escaped := strings.ReplaceAll(v, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `'`, `\'`)
+		return "'" + escaped + "'"
+	}
+	return v
 }

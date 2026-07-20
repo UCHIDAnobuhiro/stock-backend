@@ -23,28 +23,6 @@ type RateLimitConfig struct {
 	Policy Policy
 }
 
-// writeRateLimitResult は Allow() の結果に応じて 503/429 レスポンスを書き込む共通処理です。
-// ログ属性はキー方式ごとに異なるため、呼び出し側から logType と追加の slog 属性を受け取ります。
-// 許可された場合は何も書き込みません（呼び出し側が next.ServeHTTP を続行します）。
-func writeRateLimitResult(w http.ResponseWriter, result Result, logType string, logArgs ...any) {
-	if result.ServiceUnavailable {
-		slog.Error("rate limiter unavailable, rejecting request",
-			append([]any{"type", logType}, logArgs...)...,
-		)
-		httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{
-			Error: "service temporarily unavailable",
-		})
-		return
-	}
-	slog.Warn("rate limit exceeded",
-		append([]any{"type", logType}, logArgs...)...,
-	)
-	w.Header().Set("Retry-After", strconv.Itoa(int(result.RetryAfter.Seconds())))
-	httpx.WriteJSON(w, http.StatusTooManyRequests, api.ErrorResponse{
-		Error: "too many requests",
-	})
-}
-
 // ByIP はIPアドレスベースのレートリミットミドルウェアを返します。
 func ByIP(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -89,4 +67,26 @@ func ByUserID(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Han
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// writeRateLimitResult は Allow() の結果に応じて 503/429 レスポンスを書き込む共通処理です。
+// ログ属性はキー方式ごとに異なるため、呼び出し側から logType と追加の slog 属性を受け取ります。
+// 許可された場合は何も書き込みません（呼び出し側が next.ServeHTTP を続行します）。
+func writeRateLimitResult(w http.ResponseWriter, result Result, logType string, logArgs ...any) {
+	if result.ServiceUnavailable {
+		slog.Error("rate limiter unavailable, rejecting request",
+			append([]any{"type", logType}, logArgs...)...,
+		)
+		httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{
+			Error: "service temporarily unavailable",
+		})
+		return
+	}
+	slog.Warn("rate limit exceeded",
+		append([]any{"type", logType}, logArgs...)...,
+	)
+	w.Header().Set("Retry-After", strconv.Itoa(int(result.RetryAfter.Seconds())))
+	httpx.WriteJSON(w, http.StatusTooManyRequests, api.ErrorResponse{
+		Error: "too many requests",
+	})
 }

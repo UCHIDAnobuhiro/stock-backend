@@ -159,6 +159,20 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 **注意**: Goの慣例に従い、**リポジトリインターフェースは利用者側のファイル**（`usecase.go` / `<name>http/handler.go`）で定義します。別途 domain/repository ディレクトリには配置しません。
 
+### ファイル内の関数の並び順（トップダウン整列）
+
+同一ファイル内の関数は、Go の慣例（新聞記事的なトップダウン）に従い、**呼ぶ側を先に・呼ばれる側を後に**、
+**公開（大文字始まり）を先に・非公開ヘルパー（小文字始まり）を後に**並べます。読み手が上から下へ
+読み進めれば理解できる順序にし、非公開ヘルパーを探して上へ戻らせないようにします。
+
+- 型定義・コンストラクタ（`New*`）→ 公開API（エントリポイント）→ それらが使う非公開ヘルパー、の順
+- 例: `internal/feature/auth/authhttp/handler.go` は
+  `NewHandler` → `Signup` → `Login` → `Logout` → `setAuthCookie`（ヘルパーは末尾）
+- 例: `internal/feature/candles/ingest.go` は
+  `NewIngestUsecase` → `IngestAll`（公開エントリ）→ `ingestOne` → `dedupCandles`
+- 例外: 複数の公開関数から共有される小さなキー生成ヘルパー等（`stateKey` / `blacklistKey` 等）は、
+  コンストラクタ直後に置く定石を許容します
+
 ### 依存関係ルール（go-arch-lint で強制）
 
 `.go-arch-lint.yml` で**デフォルト拒否**の宣言式に強制します（`go tool go-arch-lint check`）。

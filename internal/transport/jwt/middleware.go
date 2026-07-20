@@ -29,16 +29,6 @@ func ExtractToken(r *http.Request) (tokenStr, authSource string) {
 	return "", ""
 }
 
-// parseToken はJWT署名を検証し、HMACアルゴリズムで署名されたトークンのみを受理します。
-func parseToken(secret, tokenStr string) (*gojwt.Token, error) {
-	return gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
-			return nil, gojwt.ErrSignatureInvalid
-		}
-		return []byte(secret), nil
-	})
-}
-
 // AuthRequired はJWTトークンを検証し、認証済みユーザーのみにアクセスを制限するミドルウェアを返します。
 // 認証はCookie（auth_token）を優先し、存在しない場合はAuthorizationヘッダーにフォールバックします。
 // 署名シークレットは起動時に注入されます（環境変数の読み込みは internal/app/config に集約）。
@@ -95,6 +85,16 @@ func AuthRequired(secret string, blacklist *Blacklist) func(http.Handler) http.H
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// parseToken はJWT署名を検証し、HMACアルゴリズムで署名されたトークンのみを受理します。
+func parseToken(secret, tokenStr string) (*gojwt.Token, error) {
+	return gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
+			return nil, gojwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	})
 }
 
 // parseSubject はJWT subjectをユーザーIDへ変換します。
