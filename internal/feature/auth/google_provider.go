@@ -46,6 +46,11 @@ func (p *GoogleProvider) AuthorizationURL(state, codeChallenge string) string {
 // ExchangeCode はauthorization codeをユーザー情報に交換します。
 // Googleの /oauth2/v3/userinfo エンドポイントでメールアドレスを取得します。
 func (p *GoogleProvider) ExchangeCode(ctx context.Context, code, codeVerifier string) (*OAuthUserInfo, error) {
+	// oauth2ライブラリはcontextのoauth2.HTTPClientキー経由でHTTPクライアントを取得するため、
+	// ここで注入しないとp.hcのタイムアウトがトークン交換に適用されない。
+	if p.hc != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.hc)
+	}
 	tok, err := p.cfg.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
 	)

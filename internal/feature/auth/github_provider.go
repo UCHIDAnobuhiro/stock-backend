@@ -43,6 +43,11 @@ func (p *GitHubProvider) AuthorizationURL(state, _ string) string {
 // ExchangeCode はauthorization codeをユーザー情報に交換します。
 // GitHub APIの /user/emails で検証済みプライマリメールを、/user で数値IDを取得します。
 func (p *GitHubProvider) ExchangeCode(ctx context.Context, code, _ string) (*OAuthUserInfo, error) {
+	// oauth2ライブラリはcontextのoauth2.HTTPClientキー経由でHTTPクライアントを取得するため、
+	// ここで注入しないとp.hcのタイムアウトがトークン交換に適用されない。
+	if p.hc != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.hc)
+	}
 	tok, err := p.cfg.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("github: code exchange failed: %w", err)
