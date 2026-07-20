@@ -14,12 +14,31 @@ import (
 
 // Result はレートリミットチェックの結果を保持します。
 type Result struct {
-	Allowed    bool
+	Allowed bool
+	// RetryAfter はレートリミット超過（429）時の再試行までの推奨待機時間です。
+	// ServiceUnavailable が true の場合はゼロ値のままです（障害復旧時間は不明なため）。
 	RetryAfter time.Duration
+	// ServiceUnavailable はRedis未接続・障害により判定自体ができず、
+	// Policy=FailClosed によりリクエストを拒否したことを示します。
+	// 呼び出し側はこれを見て 429（レートリミット超過）と 503（基盤障害）を区別します。
+	ServiceUnavailable bool
 }
 
+// Policy はRedis未接続・障害時にレートリミット判定をどう扱うかを表します。
+type Policy int
+
+const (
+	// FailOpen はRedis障害時にリクエストを許可します（可用性優先）。
+	// candlesキャッシュ等、非クリティカルな用途向けのグレースフルデグレードです。
+	FailOpen Policy = iota
+	// FailClosed はRedis障害時にリクエストを拒否します（セキュリティ優先）。
+	// signup/login等、ブルートフォース対策が必須なクリティカルな用途向けです。
+	FailClosed
+)
+
 // Limiter はRedisソート済みセットを使用したスライディングウィンドウレートリミッターです。
-// rdbがnilの場合、すべてのリクエストを許可します（グレースフルデグレード）。
+// rdbがnilまたはRedis障害時の挙動はAllowに渡すPolicyにより切り替わります
+// （FailOpen: 許可してグレースフルデグレード / FailClosed: 503相当で拒否）。
 type Limiter struct {
 	rdb *redis.Client
 }
@@ -51,9 +70,15 @@ return {0, count}
 // Allow は指定されたキーに対してリクエストが許可されるかチェックします。
 // keyはレートリミットの識別子（例: "rl:login:ip:192.168.1.1"）、
 // limitはウィンドウ内の最大リクエスト数、windowはスライディングウィンドウの時間幅です。
+// policyはRedis未接続・障害時の挙動を指定します（FailOpen: 許可 / FailClosed: 拒否）。
 // Luaスクリプトにより判定と追加を原子的に実行し、レースコンディションを防止します。
-func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.Duration) Result {
+func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.Duration, policy Policy) Result {
 	if l == nil || l.rdb == nil {
+		if policy == FailClosed {
+			slog.Warn("rate limiter unavailable (no redis), rejecting request",
+				"prefix", keyPrefix(key))
+			return Result{Allowed: false, ServiceUnavailable: true}
+		}
 		return Result{Allowed: true}
 	}
 
@@ -79,6 +104,11 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.
 	).Int64Slice()
 
 	if err != nil || len(res) < 1 {
+		if policy == FailClosed {
+			slog.Error("rate limit check failed, rejecting request",
+				"prefix", keyPrefix(key), "error", err)
+			return Result{Allowed: false, ServiceUnavailable: true}
+		}
 		slog.Warn("rate limit check failed, allowing request",
 			"prefix", keyPrefix(key), "error", err)
 		return Result{Allowed: true}
