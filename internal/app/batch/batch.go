@@ -19,17 +19,6 @@ var jobs = map[string]func(*config.Config) int{
 	"logo":    runLogoIngest,   // ロゴURL取り込み
 }
 
-// supportedJobs は対応している job_id を辞書順で連結した文字列を返す（エラーメッセージ用）。
-// map のイテレーション順は非決定的なので、ソートして出力を安定させる。
-func supportedJobs() string {
-	keys := make([]string, 0, len(jobs))
-	for k := range jobs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, ", ")
-}
-
 // Run は job_id（コマンド引数）に応じてバッチを実行し、終了コードを返す。
 // candles: 株価取り込み、logo: ロゴURL取り込み。
 // 環境変数から読み込んだ設定は cfg として注入される。
@@ -45,4 +34,15 @@ func Run(cfg *config.Config, args []string) int {
 		return 2
 	}
 	return job(cfg)
+}
+
+// supportedJobs は対応している job_id を辞書順で連結した文字列を返す（エラーメッセージ用）。
+// map のイテレーション順は非決定的なので、ソートして出力を安定させる。
+func supportedJobs() string {
+	keys := make([]string, 0, len(jobs))
+	for k := range jobs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }

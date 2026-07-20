@@ -128,17 +128,6 @@ func (u *usecase) pepperPassword(password string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// validatePassword はパスワードがセキュリティ要件を満たしているかチェックします。
-func validatePassword(password string) error {
-	if len(password) < minPasswordLength {
-		return fmt.Errorf("password must be at least %d characters long", minPasswordLength)
-	}
-	if len(password) > maxPasswordLength {
-		return fmt.Errorf("password must be at most %d characters long", maxPasswordLength)
-	}
-	return nil
-}
-
 // Signup はハッシュ化されたパスワードで新規ユーザーを登録します。
 // 成功時に作成されたユーザーのIDを返します。
 func (u *usecase) Signup(ctx context.Context, email, password string) (int64, error) {
@@ -204,4 +193,15 @@ func (u *usecase) Login(ctx context.Context, email, password string) (string, er
 	}
 
 	return token, nil
+}
+
+// validatePassword はパスワードがセキュリティ要件を満たしているかチェックします。
+func validatePassword(password string) error {
+	if len(password) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters long", minPasswordLength)
+	}
+	if len(password) > maxPasswordLength {
+		return fmt.Errorf("password must be at most %d characters long", maxPasswordLength)
+	}
+	return nil
 }
