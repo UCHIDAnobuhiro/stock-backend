@@ -147,7 +147,17 @@ jobs:
       - name: Run tests
         env:
           TEST_DB_DSN: postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable
-        run: go test ./... -v -race -cover
+        run: go test ./... -v -race -coverprofile=coverage.out
+
+      - name: Check coverage threshold
+        env:
+          COVERAGE_THRESHOLD: "63.0"  # 実測65.1%の約2pt下。カバレッジ向上時に引き上げる
+        run: |
+          set -euo pipefail
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')"
+          echo "total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          awk -v t="${total}" -v th="${COVERAGE_THRESHOLD}" 'BEGIN { exit !(t+0 >= th+0) }' \
+            || { echo "::error::coverage ${total}% is below threshold ${COVERAGE_THRESHOLD}%"; exit 1; }
 
   # スキーマドキュメント（docs/schema/）がエンティティ変更と同期しているか検証
   schema-doc-check:
