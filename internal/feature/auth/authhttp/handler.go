@@ -88,8 +88,11 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	// 後処理フック呼び出し（例: ウォッチリスト初期化）
 	// フック失敗はユーザー作成自体には影響しないため非致命的とし、ログのみ記録する。
+	// ユーザー作成コミット後の後処理はクライアント切断（リクエストcontextのキャンセル）に
+	// 影響されてはならないため、キャンセルだけを切り離したcontextで実行する（valueは引き継ぐ）。
+	hookCtx := context.WithoutCancel(r.Context())
 	for _, hook := range h.postHooks {
-		if err := hook.OnUserCreated(r.Context(), userID); err != nil {
+		if err := hook.OnUserCreated(hookCtx, userID); err != nil {
 			slog.Error("post-signup hook failed", "error", err, "userID", userID)
 		}
 	}

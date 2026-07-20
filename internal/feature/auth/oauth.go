@@ -165,8 +165,11 @@ func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName strin
 
 	// 新規作成後フック呼び出し（例: ウォッチリスト初期化）
 	// フック失敗はユーザー作成自体には影響しないため非致命的とし、ログのみ記録する。
+	// ユーザー作成コミット後の後処理はクライアント切断（リクエストcontextのキャンセル）に
+	// 影響されてはならないため、キャンセルだけを切り離したcontextで実行する（valueは引き継ぐ）。
+	hookCtx := context.WithoutCancel(ctx)
 	for _, hook := range uc.hooks {
-		if err := hook.OnUserCreated(ctx, newUser.ID); err != nil {
+		if err := hook.OnUserCreated(hookCtx, newUser.ID); err != nil {
 			slog.Error("post-create hook failed", "user_id", newUser.ID, "error", err)
 		}
 	}
