@@ -25,15 +25,20 @@ type Result struct {
 }
 
 // Policy はRedis未接続・障害時にレートリミット判定をどう扱うかを表します。
+// ゼロ値は FailClosed です（secure by default）。呼び出し側が Policy の指定を忘れても
+// 安全側（拒否）に倒れるようにするための設計であり、FailOpen は非クリティカルな用途に対する
+// 明示的なオプトインとして扱います。
 type Policy int
 
 const (
-	// FailOpen はRedis障害時にリクエストを許可します（可用性優先）。
-	// candlesキャッシュ等、非クリティカルな用途向けのグレースフルデグレードです。
-	FailOpen Policy = iota
 	// FailClosed はRedis障害時にリクエストを拒否します（セキュリティ優先）。
 	// signup/login等、ブルートフォース対策が必須なクリティカルな用途向けです。
-	FailClosed
+	// ゼロ値であり、Policy未指定時のデフォルト挙動です。
+	FailClosed Policy = iota
+	// FailOpen はRedis障害時にリクエストを許可します（可用性優先）。
+	// candlesキャッシュ等、非クリティカルな用途向けのグレースフルデグレードです。
+	// secure by defaultの方針により、利用する場合は明示的に指定する必要があります。
+	FailOpen
 )
 
 // Limiter はRedisソート済みセットを使用したスライディングウィンドウレートリミッターです。

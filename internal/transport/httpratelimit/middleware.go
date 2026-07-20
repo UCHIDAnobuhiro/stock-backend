@@ -17,7 +17,8 @@ type IPRateLimitConfig struct {
 	Limit  int           // ウィンドウ内の最大リクエスト数
 	Window time.Duration // スライディングウィンドウの時間幅
 	// Policy はRedis未接続・障害時の挙動です（FailOpen: 許可 / FailClosed: 503で拒否）。
-	// ゼロ値はFailOpenになるため、既存呼び出しは明示指定しない限り従来どおり動作します。
+	// ゼロ値はFailClosed（secure by default）です。非クリティカルな用途でfail-openに
+	// したい場合はFailOpenを明示的に指定してください。
 	Policy Policy
 }
 
