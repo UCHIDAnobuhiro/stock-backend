@@ -32,6 +32,19 @@ GOOSE_DRIVER=postgres GOOSE_MIGRATION_DIR=db/migrations \
   go tool goose create <snake_case_name> sql
 ```
 
+### スキーマドキュメント再生成（tbls）
+`db/migrations/` を変更した際は**必ず** `./scripts/regen-schema-docs.sh` を実行して
+`docs/schema/`（ER図・テーブル定義書）を再生成し、同じ PR でコミットしてください。
+
+```bash
+./scripts/regen-schema-docs.sh
+```
+
+起動中の開発用DB（`stock-postgres`）に対して `tbls doc` を**直接実行しないでください**。
+使い回しDBでは制約（PRIMARY KEY / FOREIGN KEY）の表示順序が非決定になり、CIの
+`Schema Doc Drift` ジョブが失敗します。詳細な理由はスクリプト冒頭のコメントおよび
+ルート `README.md` の「ER 図・テーブル定義書の生成（tbls）」を参照してください。
+
 ### sqlc コード生成
 クエリ追加・変更時に再生成します。
 

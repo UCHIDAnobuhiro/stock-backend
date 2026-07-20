@@ -378,30 +378,28 @@ docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps logo
 スキーマは [tbls](https://github.com/k1LoW/tbls) で稼働中の PostgreSQL から自動生成されます。
 生成物は [docs/schema/](docs/schema/) 配下にコミットされており、GitHub 上で Mermaid ER 図としてレンダリングされます。
 
-`db/migrations/` 配下のスキーマを変更したときは以下の手順で再生成します。
+`db/migrations/` 配下のスキーマを変更したときは、以下の1コマンドで再生成します。
 
 ```bash
-# 1) backend を起動（依存する db / migrate / seed が順に立ち上がり、最新スキーマが適用される）
-#    フォアグラウンドで起動し続けるので、手順 2)・3) は別ターミナルで実行する
-docker compose -f docker/docker-compose.yml -p stock up backend
-
-# 2) ER 図・テーブル定義書を再生成（docs/schema/ を上書き）
-docker compose -f docker/docker-compose.yml -p stock --profile on-demand run --rm tbls doc --config /work/docs/tbls.yml --force
-
-# 3) 差分が残っていないか確認（CI でも同じ内容をチェックしている）
-docker compose -f docker/docker-compose.yml -p stock --profile on-demand run --rm tbls diff --config /work/docs/tbls.yml
+./scripts/regen-schema-docs.sh
 ```
 
-`backend` は `.env` や GCP ADC 等の環境が必要です。認証情報を持たない環境では、手順 1) を以下の軽量バイナリ (`cmd/migrate`) に置き換えられます（引数なしで `up` が適用されます）。
+前提: Docker（`docker` コマンドが使えること）とホストの Go（`go run ./cmd/migrate` を実行するため）。
+`.env` や GCP ADC は不要です。
 
-```bash
-# 1') db だけ起動してローカルの cmd/migrate でスキーマを反映（GCP 認証不要）
-docker compose -f docker/docker-compose.yml -p stock up -d db
-DB_HOST=localhost DB_PORT=5432 DB_USER=appuser DB_PASSWORD=apppass DB_NAME=app \
-  go run ./cmd/migrate
-```
+このスクリプトは使い捨てのPostgreSQLコンテナ（`postgres:18`）を一時起動し、
+そこにマイグレーションを一括適用してから `tbls doc --force` → `tbls diff` を実行し、
+最後に一時コンテナ・ネットワークを削除します。稼働中の開発用DB（`stock-postgres`）や
+そのボリュームには一切触れません。
 
-CI の `Schema Doc Drift` ジョブでスキーマと `docs/schema/` の乖離を検出するため、スキーマを変更した PR では必ず再生成してコミットしてください。
+**なぜフレッシュDBが必要か**: tblsは制約（PRIMARY KEY / FOREIGN KEY）をインデックスのOID順で
+取得するため、up/downを繰り返した使い回しの開発用DBではOIDの配置が異なり、論理的に同一の
+スキーマでも制約の表示順序が変わってしまいます。その状態で生成すると、毎回フレッシュなDBで
+検証している CI の `Schema Doc Drift` ジョブと意図せず食い違って失敗します。
+
+スクリプト実行後は `git diff` で `docs/schema/` の差分を確認し、意図した変更であれば
+そのままコミットしてください。CI の `Schema Doc Drift` ジョブでスキーマと `docs/schema/` の
+乖離を検出するため、スキーマを変更した PR では必ず再生成してコミットしてください。
 
 ### 補足
 

@@ -66,6 +66,10 @@ go tool goose down
 4. ローカル PostgreSQL で `go tool goose up` → `go tool goose down` → `go tool goose up` を試し、可逆性を確認
 5. PR に含める
 
+`db/migrations/` を変更したら、`./scripts/regen-schema-docs.sh` で `docs/schema/`
+（ER図・テーブル定義書）を再生成し、同じ PR でコミットしてください。手順の詳細は
+ルート [README.md](../README.md) の「ER 図・テーブル定義書の生成（tbls）」を参照してください。
+
 ## 本番・ステージング環境での適用
 
 `docker/Dockerfile.migrate` でビルドした `migrate` バイナリを Cloud Run Job などで起動し、
