@@ -3,6 +3,7 @@ package candleshttp_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -70,6 +71,15 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   `{"error":"internal server error"}`,
+		},
+		{
+			name: "error: usecase returns wrapped ErrInvalidOutputSize",
+			url:  "/candles/7203.T?outputsize=200",
+			mockGetCandles: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+				return nil, fmt.Errorf("failed to fetch candles: %w", candles.ErrInvalidOutputSize)
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"outputsize must be between 1 and 5000"}`,
 		},
 		{
 			name:           "error: invalid outputsize string returns 400",

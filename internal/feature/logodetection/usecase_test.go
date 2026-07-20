@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/logodetection"
@@ -53,6 +54,7 @@ func TestLogoDetectionUsecase_DetectLogos(t *testing.T) {
 		mockFunc      func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error)
 		expectedLogos []logodetection.DetectedLogo
 		expectedErr   string
+		expectedIs    error
 	}{
 		{
 			name:      "success: logos detected",
@@ -63,14 +65,14 @@ func TestLogoDetectionUsecase_DetectLogos(t *testing.T) {
 			expectedLogos: expectedLogos,
 		},
 		{
-			name:        "error: empty image data",
-			imageData:   []byte{},
-			expectedErr: "image data is empty",
+			name:       "error: empty image data",
+			imageData:  []byte{},
+			expectedIs: logodetection.ErrEmptyImage,
 		},
 		{
-			name:        "error: image too large",
-			imageData:   make([]byte, logodetection.MaxImageSize+1),
-			expectedErr: "image size exceeds maximum",
+			name:       "error: image too large",
+			imageData:  make([]byte, logodetection.MaxImageSize+1),
+			expectedIs: logodetection.ErrImageTooLarge,
 		},
 		{
 			name:      "error: api returns error",
@@ -90,6 +92,13 @@ func TestLogoDetectionUsecase_DetectLogos(t *testing.T) {
 			uc := logodetection.NewUsecase(detector, analyzer)
 
 			logos, err := uc.DetectLogos(ctx, tc.imageData)
+
+			if tc.expectedIs != nil {
+				if !errors.Is(err, tc.expectedIs) {
+					t.Fatalf("expected error to be %v, got %v", tc.expectedIs, err)
+				}
+				return
+			}
 
 			if tc.expectedErr != "" {
 				if err == nil {
@@ -120,6 +129,7 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 		mockFunc        func(ctx context.Context, prompt string) (string, error)
 		expectedSummary string
 		expectedErr     string
+		expectedIs      error
 	}{
 		{
 			name:        "success: analysis generated",
@@ -132,7 +142,17 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 		{
 			name:        "error: empty company name",
 			companyName: "",
-			expectedErr: "company name is required",
+			expectedIs:  logodetection.ErrEmptyCompanyName,
+		},
+		{
+			name:        "error: company name too long",
+			companyName: strings.Repeat("あ", logodetection.MaxCompanyNameLength+1),
+			expectedIs:  logodetection.ErrCompanyNameTooLong,
+		},
+		{
+			name:        "error: company name contains invalid characters",
+			companyName: "任天堂<script>",
+			expectedIs:  logodetection.ErrInvalidCompanyName,
 		},
 		{
 			name:        "error: api returns error",
@@ -151,6 +171,13 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 			uc := logodetection.NewUsecase(detector, analyzer)
 
 			result, err := uc.AnalyzeCompany(ctx, tc.companyName)
+
+			if tc.expectedIs != nil {
+				if !errors.Is(err, tc.expectedIs) {
+					t.Fatalf("expected error to be %v, got %v", tc.expectedIs, err)
+				}
+				return
+			}
 
 			if tc.expectedErr != "" {
 				if err == nil {

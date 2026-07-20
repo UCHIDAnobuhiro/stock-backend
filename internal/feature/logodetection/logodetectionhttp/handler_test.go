@@ -100,6 +100,30 @@ func TestLogoDetectionHandler_DetectLogos(t *testing.T) {
 			expectedStatus: http.StatusBadGateway,
 			expectedBody:   `{"error":"logo detection failed"}`,
 		},
+		{
+			name: "error: usecase returns empty image error",
+			setupRequest: func(t *testing.T) *http.Request {
+				req, _ := createMultipartRequest(t, "image", "test.jpg", []byte("fake-image"))
+				return req
+			},
+			mockFunc: func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error) {
+				return nil, logodetection.ErrEmptyImage
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"image data is empty"}`,
+		},
+		{
+			name: "error: usecase returns image too large error",
+			setupRequest: func(t *testing.T) *http.Request {
+				req, _ := createMultipartRequest(t, "image", "test.jpg", []byte("fake-image"))
+				return req
+			},
+			mockFunc: func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error) {
+				return nil, logodetection.ErrImageTooLarge
+			},
+			expectedStatus: http.StatusRequestEntityTooLarge,
+			expectedBody:   `{"error":"image size exceeds maximum of 10485760 bytes"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -159,6 +183,33 @@ func TestLogoDetectionHandler_AnalyzeCompany(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadGateway,
 			expectedBody:   `{"error":"company analysis failed"}`,
+		},
+		{
+			name:        "error: usecase returns empty company name error",
+			requestBody: `{"company_name":"テスト企業"}`,
+			mockFunc: func(ctx context.Context, companyName string) (*logodetection.CompanyAnalysis, error) {
+				return nil, logodetection.ErrEmptyCompanyName
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"company name is required"}`,
+		},
+		{
+			name:        "error: usecase returns company name too long error",
+			requestBody: `{"company_name":"テスト企業"}`,
+			mockFunc: func(ctx context.Context, companyName string) (*logodetection.CompanyAnalysis, error) {
+				return nil, logodetection.ErrCompanyNameTooLong
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"company name exceeds maximum length of 100 characters"}`,
+		},
+		{
+			name:        "error: usecase returns invalid company name error",
+			requestBody: `{"company_name":"テスト企業"}`,
+			mockFunc: func(ctx context.Context, companyName string) (*logodetection.CompanyAnalysis, error) {
+				return nil, logodetection.ErrInvalidCompanyName
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"error":"company name contains invalid characters"}`,
 		},
 	}
 

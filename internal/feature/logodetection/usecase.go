@@ -55,10 +55,10 @@ func NewUsecase(ld LogoDetector, ca CompanyAnalyzer) *usecase {
 // DetectLogos は画像データからロゴを検出します。
 func (u *usecase) DetectLogos(ctx context.Context, imageData []byte) ([]DetectedLogo, error) {
 	if len(imageData) == 0 {
-		return nil, fmt.Errorf("image data is empty")
+		return nil, ErrEmptyImage
 	}
 	if len(imageData) > MaxImageSize {
-		return nil, fmt.Errorf("image size exceeds maximum of %d bytes", MaxImageSize)
+		return nil, ErrImageTooLarge
 	}
 	return u.logoDetector.DetectLogos(ctx, imageData)
 }
@@ -66,13 +66,13 @@ func (u *usecase) DetectLogos(ctx context.Context, imageData []byte) ([]Detected
 // AnalyzeCompany は企業名から分析サマリーを生成します。
 func (u *usecase) AnalyzeCompany(ctx context.Context, companyName string) (*CompanyAnalysis, error) {
 	if companyName == "" {
-		return nil, fmt.Errorf("company name is required")
+		return nil, ErrEmptyCompanyName
 	}
 	if utf8.RuneCountInString(companyName) > MaxCompanyNameLength {
-		return nil, fmt.Errorf("company name exceeds maximum length of %d characters", MaxCompanyNameLength)
+		return nil, ErrCompanyNameTooLong
 	}
 	if !validCompanyName.MatchString(companyName) {
-		return nil, fmt.Errorf("company name contains invalid characters")
+		return nil, ErrInvalidCompanyName
 	}
 	prompt := fmt.Sprintf(AnalysisPromptTemplate, companyName)
 	summary, err := u.companyAnalyzer.Analyze(ctx, prompt)
