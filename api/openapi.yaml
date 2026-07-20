@@ -544,6 +544,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: リクエスト過多（レートリミット超過）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: サーバーエラー
           content:
@@ -590,6 +607,23 @@ paths:
           $ref: "#/components/responses/UnauthorizedError"
         "403":
           description: CSRFトークン不一致
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: リクエスト過多（レートリミット超過）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
           content:
             application/json:
               schema:
