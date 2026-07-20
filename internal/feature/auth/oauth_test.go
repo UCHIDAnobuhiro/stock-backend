@@ -56,6 +56,20 @@ func (m *mockOAuthUserCreator) CreateUserWithOAuthAccount(ctx context.Context, u
 	return m.CreateUserWithOAuthAccountFunc(ctx, user, account)
 }
 
+// mockPostHook は UserCreatedHook インターフェースのモック実装です。
+type mockPostHook struct {
+	OnUserCreatedFunc func(ctx context.Context, userID int64) error
+	called            bool
+}
+
+func (m *mockPostHook) OnUserCreated(ctx context.Context, userID int64) error {
+	m.called = true
+	if m.OnUserCreatedFunc != nil {
+		return m.OnUserCreatedFunc(ctx, userID)
+	}
+	return nil
+}
+
 // TestOAuthUsecase_HandleCallback_FindOrCreateUser は、OAuthAccount の有無と
 // 同メール既存ユーザーの有無に応じたログイン・拒否・新規作成の分岐を検証します。
 // 同メールの既存ユーザーへの自動リンクはアカウント乗っ取りリスクがあるため、
@@ -197,5 +211,73 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 				t.Errorf("FindByEmail called with %q, want %q", lookupEmail, tt.wantLookupEmail)
 			}
 		})
+	}
+}
+
+// TestOAuthUsecase_HandleCallback_HookRunsWithoutCancelOnClientDisconnect は、
+// 新規ユーザー作成後に呼び出される後処理フック（ウォッチリスト初期化等）が、
+// 呼び出し元contextが既にキャンセルされていてもキャンセルの影響を受けずに
+// 実行されることを検証します（issue #272）。
+func TestOAuthUsecase_HandleCallback_HookRunsWithoutCancelOnClientDisconnect(t *testing.T) {
+	t.Parallel()
+
+	const providerName = "google"
+
+	users := &mockUserRepository{
+		FindByEmailFunc: func(ctx context.Context, email string) (*auth.User, error) {
+			return nil, auth.ErrUserNotFound
+		},
+	}
+	oauthAccts := &mockOAuthAccountRepository{
+		FindByProviderFunc: func(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error) {
+			return nil, auth.ErrUserNotFound
+		},
+		CreateFunc: func(ctx context.Context, account *auth.OAuthAccount) error { return nil },
+	}
+	creator := &mockOAuthUserCreator{
+		CreateUserWithOAuthAccountFunc: func(ctx context.Context, user *auth.User, account *auth.OAuthAccount) error {
+			user.ID = 7
+			return nil
+		},
+	}
+	stateStore := &mockOAuthStateStore{
+		ConsumeStateFunc: func(ctx context.Context, state string) (string, error) {
+			return "code-verifier", nil
+		},
+	}
+	provider := &mockOAuthProvider{
+		ExchangeCodeFunc: func(ctx context.Context, code, codeVerifier string) (*auth.OAuthUserInfo, error) {
+			return &auth.OAuthUserInfo{ProviderUID: "google-uid-1", Email: "user@example.com"}, nil
+		},
+	}
+	hook := &mockPostHook{
+		OnUserCreatedFunc: func(ctx context.Context, userID int64) error {
+			if ctx.Err() != nil {
+				t.Errorf("フックのcontextはリクエストcontextのキャンセルに影響されないこと: ctx.Err() = %v", ctx.Err())
+			}
+			return nil
+		},
+	}
+
+	uc := auth.NewOAuthUsecase(
+		users, oauthAccts, creator, stateStore,
+		&mockJWTGenerator{},
+		map[string]auth.OAuthProvider{providerName: provider},
+		hook,
+	)
+
+	// クライアント切断を模擬するため、HandleCallback呼び出し前にcontextをキャンセルする。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	token, err := uc.HandleCallback(ctx, providerName, "code", "state")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token == "" {
+		t.Error("token is empty")
+	}
+	if !hook.called {
+		t.Error("後処理フックが呼ばれること")
 	}
 }

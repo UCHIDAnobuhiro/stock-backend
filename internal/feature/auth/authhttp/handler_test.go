@@ -193,6 +193,39 @@ func TestAuthHandler_Signup_HookFailureIsNonFatal(t *testing.T) {
 	assert.True(t, hook.called, "後処理フックが呼ばれること")
 }
 
+// TestAuthHandler_Signup_HookRunsWithoutCancelOnClientDisconnect はリクエストcontextが
+// クライアント切断等で既にキャンセルされていても、後処理フック（ウォッチリスト初期化等）が
+// キャンセルの影響を受けずに実行されることを検証します（issue #272）。
+func TestAuthHandler_Signup_HookRunsWithoutCancelOnClientDisconnect(t *testing.T) {
+	t.Parallel()
+
+	mockUC := &mockUsecase{
+		SignupFunc: func(ctx context.Context, email, password string) (int64, error) { return 1, nil },
+	}
+	hook := &mockPostHook{
+		OnUserCreatedFunc: func(ctx context.Context, userID int64) error {
+			assert.NoError(t, ctx.Err(), "フックのcontextはリクエストcontextのキャンセルに影響されないこと")
+			return nil
+		},
+	}
+	h := authhttp.NewHandler(mockUC, nil, false, "", nil, hook)
+
+	bodyBytes, err := json.Marshal(H{"email": "test@example.com", "password": "password12345"})
+	require.NoError(t, err)
+
+	// クライアント切断を模擬するため、ハンドラー呼び出し前にリクエストcontextをキャンセルする。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/signup", bytes.NewBuffer(bodyBytes)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	h.Signup(w, req)
+
+	assertJSONResponse(t, w, http.StatusCreated, H{"message": "ok"})
+	assert.True(t, hook.called, "後処理フックが呼ばれること")
+}
+
 // TestAuthHandler_Login_RateLimited はメールベースのレートリミット超過時に429が返されることを検証します。
 func TestAuthHandler_Login_RateLimited(t *testing.T) {
 	t.Parallel()
