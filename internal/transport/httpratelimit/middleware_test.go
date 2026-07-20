@@ -2,6 +2,7 @@ package httpratelimit
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,7 +37,7 @@ func TestByIP_Allowed(t *testing.T) {
 	setupEvalMock(mock, "rl:test:ip:192.0.2.1", 1, 0) // allowed=1, count=0
 
 	limiter := NewLimiter(rdb)
-	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: window}
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: window, Policy: FailOpen}
 
 	called := false
 	h := ByIP(limiter, cfg)(okHandler(&called))
@@ -63,7 +64,7 @@ func TestByIP_RateLimited(t *testing.T) {
 	setupEvalMock(mock, "rl:test:ip:192.0.2.1", 0, 10) // allowed=0, count=10 (at limit)
 
 	limiter := NewLimiter(rdb)
-	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: window}
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: window, Policy: FailOpen}
 
 	handlerCalled := false
 	h := ByIP(limiter, cfg)(okHandler(&handlerCalled))
@@ -88,12 +89,13 @@ func TestByIP_RateLimited(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestByIP_NilRedis_Allowed はRedisクライアントがnilの場合にミドルウェアがリクエストを通過させることを検証します。
+// TestByIP_NilRedis_Allowed はRedisクライアントがnilかつPolicy=FailOpenを明示指定した場合に
+// ミドルウェアがリクエストを通過させることを検証します。
 func TestByIP_NilRedis_Allowed(t *testing.T) {
 	t.Parallel()
 
 	limiter := NewLimiter(nil)
-	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: time.Minute}
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: time.Minute, Policy: FailOpen}
 
 	called := false
 	h := ByIP(limiter, cfg)(okHandler(&called))
@@ -105,4 +107,93 @@ func TestByIP_NilRedis_Allowed(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, called)
+}
+
+// TestByIP_NilRedis_FailClosed_ServiceUnavailable はRedisクライアントがnilかつ
+// Policy=FailClosedの場合、ハンドラーを呼ばずに503を返すことを検証します。
+func TestByIP_NilRedis_FailClosed_ServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	limiter := NewLimiter(nil)
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: time.Minute, Policy: FailClosed}
+
+	called := false
+	h := ByIP(limiter, cfg)(okHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req.RemoteAddr = "192.0.2.1:12345"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.False(t, called, "ハンドラーは呼ばれるべきではない")
+	assert.Empty(t, w.Header().Get("Retry-After"), "Retry-Afterヘッダーは付与しない")
+
+	var body map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "service temporarily unavailable", body["error"])
+}
+
+// TestByIP_DefaultPolicy_FailClosed はIPRateLimitConfig.Policyを未指定（ゼロ値）のまま
+// Redisクライアントがnilの場合に、secure by defaultの方針によりゼロ値がFailClosedとして
+// 扱われ、ハンドラーを呼ばずに503を返すことを検証します。Policyの指定漏れが安全側（拒否）に
+// 倒れることそのものが主眼です。
+func TestByIP_DefaultPolicy_FailClosed(t *testing.T) {
+	t.Parallel()
+
+	limiter := NewLimiter(nil)
+	// Policyフィールドを意図的に指定しない（ゼロ値のまま）。
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: time.Minute}
+
+	called := false
+	h := ByIP(limiter, cfg)(okHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req.RemoteAddr = "192.0.2.1:12345"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code, "Policy未指定でもゼロ値=FailClosedとして拒否されるべき")
+	assert.False(t, called, "ハンドラーは呼ばれるべきではない")
+	assert.Empty(t, w.Header().Get("Retry-After"), "Retry-Afterヘッダーは付与しない")
+
+	var body map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "service temporarily unavailable", body["error"])
+}
+
+// TestByIP_RedisError_FailClosed_ServiceUnavailable はRedisエラー時、Policy=FailClosedの
+// 場合にハンドラーを呼ばずに503を返すことを検証します。
+func TestByIP_RedisError_FailClosed_ServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	window := time.Minute
+	setupEvalErrorMock(mock, "rl:test:ip:192.0.2.1", fmt.Errorf("connection refused"))
+
+	limiter := NewLimiter(rdb)
+	cfg := IPRateLimitConfig{Prefix: "rl:test:ip", Limit: 10, Window: window, Policy: FailClosed}
+
+	handlerCalled := false
+	h := ByIP(limiter, cfg)(okHandler(&handlerCalled))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", nil)
+	req.RemoteAddr = "192.0.2.1:12345"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.False(t, handlerCalled, "ハンドラーは呼ばれるべきではない")
+	assert.Empty(t, w.Header().Get("Retry-After"), "Retry-Afterヘッダーは付与しない")
+
+	var body map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "service temporarily unavailable", body["error"])
+
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

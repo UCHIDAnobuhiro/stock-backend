@@ -58,3 +58,4 @@ Claude Code の `/adr` スキルを使用してください：
 | [ADR-0005](0005-twelvedata-タイムスタンプを市場ローカル時刻として保存する.md)         | TwelveData タイムスタンプを市場ローカル時刻として解釈・集計する | Accepted   |
 | [ADR-0006](0006-db操作をgormからsqlcとgooseへ移行.md)                                 | DB 操作を GORM から sqlc と goose へ移行 | Accepted   |
 | [ADR-0007](0007-webフレームワークをginからnet-httpとchiへ移行.md)                     | Web フレームワークを Gin から net/http + chi へ移行 | Accepted   |
+| [ADR-0008](0008-レートリミット障害時のfail-open-fail-closed方針.md)                   | レートリミット障害時の fail-open / fail-closed 方針 | Accepted   |

@@ -20,3 +20,10 @@ func ExpectAllow(mock redismock.ClientMock, key string, allowed bool, count int6
 	mock.ExpectEvalSha(scriptHash(), []string{key}, "_", "_", "_", "_", "_").
 		SetVal([]interface{}{allowedInt, count})
 }
+
+// ExpectAllowError は redismock に対して Allow() 呼び出し時の Lua スクリプト実行がエラーになる
+// 状態を設定します。外部テストパッケージが Redis 障害時（FailClosedによる503等）の挙動を
+// 検証する用途に使います。
+func ExpectAllowError(mock redismock.ClientMock, key string, err error) {
+	mock.ExpectEvalSha(scriptHash(), []string{key}, "_", "_", "_", "_", "_").SetErr(err)
+}

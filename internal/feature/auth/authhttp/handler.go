@@ -116,8 +116,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// メールベースのレートリミットチェック
 	// 実際のユーザー検索（usecase）と同じ正規化を用い、バケットを一致させる。
 	key := fmt.Sprintf("rl:login:email:%s", auth.NormalizeEmail(req.Email))
-	result := h.limiter.Allow(r.Context(), key, loginEmailLimit, loginEmailWindow)
+	result := h.limiter.Allow(r.Context(), key, loginEmailLimit, loginEmailWindow, httpratelimit.FailClosed)
 	if !result.Allowed {
+		if result.ServiceUnavailable {
+			slog.Error("login rate limiter unavailable, rejecting request",
+				"type", "email",
+				"email_hash", logging.HashedEmail(req.Email),
+				"remote_addr", httpx.ClientIP(r),
+			)
+			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
+			return
+		}
 		slog.Warn("login rate limit exceeded",
 			"type", "email",
 			"email_hash", logging.HashedEmail(req.Email),
