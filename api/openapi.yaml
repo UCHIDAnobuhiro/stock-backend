@@ -64,6 +64,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: サーバーエラー
           content:
@@ -109,6 +115,12 @@ paths:
               description: 再試行までの秒数
               schema:
                 type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
           content:
             application/json:
               schema:
@@ -208,6 +220,12 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "502":
           description: プロバイダーAPIエラー（メールアドレス取得失敗等）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
           content:
             application/json:
               schema:

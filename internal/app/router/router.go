@@ -78,12 +78,14 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 				Prefix: "rl:signup:ip",
 				Limit:  5,
 				Window: 1 * time.Hour,
+				Policy: httpratelimit.FailClosed,
 			})).Post("/signup", h.Auth.Signup)
 
 			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.IPRateLimitConfig{
 				Prefix: "rl:login:ip",
 				Limit:  10,
 				Window: 1 * time.Minute,
+				Policy: httpratelimit.FailClosed,
 			})).Post("/login", h.Auth.Login)
 
 			// 期限切れトークンでもログアウトできるよう認証不要
@@ -97,6 +99,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 						Prefix: "rl:oauth:callback:ip",
 						Limit:  20,
 						Window: 1 * time.Minute,
+						Policy: httpratelimit.FailClosed,
 					})).Get("/{provider}/callback", h.OAuth.Callback)
 				})
 			}

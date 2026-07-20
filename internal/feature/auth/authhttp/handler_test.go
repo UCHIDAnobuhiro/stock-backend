@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
@@ -234,6 +236,67 @@ func TestAuthHandler_Login_RateLimited(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestAuthHandler_Login_RateLimiterUnavailable はメールベースのレートリミット判定がRedis障害で
+// 失敗した場合、fail-closed方針（issue #266）により503が返り、Usecaseが呼ばれないことを検証します。
+func TestAuthHandler_Login_RateLimiterUnavailable(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	// Luaスクリプトモック: Redis障害（EvalShaエラー）を再現する
+	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+		return nil
+	})
+	key := "rl:login:email:test@example.com"
+	httpratelimit.ExpectAllowError(match, key, errors.New("connection refused"))
+
+	limiter := httpratelimit.NewLimiter(rdb)
+	loginCalled := false
+	mockUC := &mockUsecase{
+		LoginFunc: func(ctx context.Context, email, password string) (string, error) {
+			loginCalled = true
+			return "", errors.New("should not be called")
+		},
+	}
+	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
+
+	w := makeRequest(t, h.Login, http.MethodPost, "/login", H{
+		"email":    "test@example.com",
+		"password": "password12345",
+	})
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Empty(t, w.Header().Get("Retry-After"), "Retry-Afterヘッダーは付与しない")
+
+	var body map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "service temporarily unavailable", body["error"])
+
+	assert.False(t, loginCalled, "レートリミッター障害時はUsecaseが呼ばれないこと")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// newAllowingLimiter はメールベースのレートリミット（rl:login:email:<email>）を常に許可する
+// モックLimiterを生成します。Loginハンドラーはメールベースレートリミットにfail-closed
+// （issue #266）を用いるため、nilを渡すと503（ServiceUnavailable）になってしまいます。
+// レートリミット判定そのものを検証しないテストではこのヘルパーで許可済みのLimiterを用意します。
+func newAllowingLimiter(t *testing.T, email string) *httpratelimit.Limiter {
+	t.Helper()
+
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+		return nil
+	})
+	key := fmt.Sprintf("rl:login:email:%s", auth.NormalizeEmail(email))
+	httpratelimit.ExpectAllow(match, key, true, 0)
+
+	return httpratelimit.NewLimiter(rdb)
+}
+
 // TestAuthHandler_Login はログインハンドラーのHTTPリクエスト/レスポンス処理をテストします。
 func TestAuthHandler_Login(t *testing.T) {
 	t.Parallel()
@@ -292,7 +355,9 @@ func TestAuthHandler_Login(t *testing.T) {
 			t.Parallel()
 
 			mockUC := &mockUsecase{LoginFunc: tt.mockLoginFunc}
-			h := authhttp.NewHandler(mockUC, nil, tt.secureCookie, "", nil)
+			email, _ := tt.requestBody["email"].(string)
+			limiter := newAllowingLimiter(t, email)
+			h := authhttp.NewHandler(mockUC, limiter, tt.secureCookie, "", nil)
 
 			w := makeRequest(t, h.Login, http.MethodPost, "/login", tt.requestBody)
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
