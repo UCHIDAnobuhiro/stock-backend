@@ -40,9 +40,12 @@ func NewUsecase(candle Repository) *usecase {
 }
 
 // GetCandles は指定された銘柄と時間間隔のローソク足データを取得します。
-// interval / outputsize の妥当性は OpenAPI バリデーションミドルウェアと handler が
-// 検証済みのため、ここでは丸めやデフォルト化は行わず受け取った値をそのまま使います。
-// （リポジトリ層は outputsize が 1〜MaxOutputSize の範囲外であることを不変条件違反として別途防御的に検証します）
+// interval / outputsize の範囲チェックは OpenAPI バリデーションミドルウェアと handler
+// （candleshttp.Handler.GetCandlesHandler）が担うため、ここでは丸めやデフォルト化は行わず
+// 受け取った値をそのまま使います。
+// （リポジトリ層（dbRepository / CachingRepository）は outputsize が 1〜MaxOutputSize の
+// 範囲外であることを不変条件違反として別途防御的に検証し、cache-hit/DB直読みで挙動が
+// 一致するようにしています）
 func (cu *usecase) GetCandles(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
 	cs, err := cu.candle.Find(ctx, symbol, interval, outputsize)
 	if err != nil {

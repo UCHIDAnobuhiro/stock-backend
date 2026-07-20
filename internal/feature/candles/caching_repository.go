@@ -87,6 +87,13 @@ func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) e
 // Find はローソク足データを取得します。まずキャッシュを確認し、なければデータベースにフォールバックします。
 // キャッシュには全データ（最大MaxOutputSize件）を保存し、outputsize件にスライスして返します。
 func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
+	// outputsize は本来 handler で 1〜MaxOutputSize の範囲に検証済みだが、
+	// cache-hit 経路と dbRepository.Find の挙動を一致させるため、
+	// リポジトリ自身の不変条件としても防御的に検証する。
+	if outputsize <= 0 || outputsize > MaxOutputSize {
+		return nil, fmt.Errorf("find candles: %w", ErrInvalidOutputSize)
+	}
+
 	// Redisが未設定の場合はキャッシュをバイパス
 	if c.rdb == nil {
 		return c.inner.Find(ctx, symbol, interval, outputsize)
@@ -122,8 +129,10 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 }
 
 // sliceCandles は全ローソク足データから先頭 outputsize 件を返します。
+// outputsize は呼び出し元の Find で 1〜MaxOutputSize であることが検証済みのため、
+// ここでは outputsize が件数以上の場合に全件返すことのみを扱います。
 func sliceCandles(all []Candle, outputsize int) []Candle {
-	if outputsize <= 0 || outputsize >= len(all) {
+	if outputsize >= len(all) {
 		return all
 	}
 	return all[:outputsize]

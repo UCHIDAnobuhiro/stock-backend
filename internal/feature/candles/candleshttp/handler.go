@@ -58,6 +58,12 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "outputsize must be an integer"})
 		return
 	}
+	// 範囲外の outputsize はキャッシュ有無で挙動が分かれてしまう（cache-hit は全件返し、
+	// DB直読みは500になる）ため、ここで一律に拒否しリポジトリ層まで到達させない。
+	if outputsize < 1 || outputsize > candles.MaxOutputSize {
+		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: candles.ErrInvalidOutputSize.Error()})
+		return
+	}
 
 	candles, err := h.uc.GetCandles(r.Context(), code, interval, outputsize)
 	if err != nil {

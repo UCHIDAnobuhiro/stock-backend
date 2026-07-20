@@ -182,6 +182,61 @@ func TestCachingCandleRepository_Find_CacheHit_Slices(t *testing.T) {
 	}
 }
 
+// TestCachingCandleRepository_Find_InvalidOutputSize は outputsize が範囲外（0以下・MaxOutputSize超）の場合に
+// キャッシュヒット状態であっても ErrInvalidOutputSize を返し、inner.Find を呼ばないことを検証します
+// （cache-hit経路とdbRepository.Find経路で挙動を一致させるための防御的バリデーション）。
+func TestCachingCandleRepository_Find_InvalidOutputSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		outputsize int
+	}{
+		{name: "zero", outputsize: 0},
+		{name: "negative", outputsize: -1},
+		{name: "exceeds max", outputsize: MaxOutputSize + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rdb, mock := redismock.NewClientMock()
+			defer func() { _ = rdb.Close() }()
+
+			cachedCandles := []Candle{
+				{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
+			}
+			cachedJSON, _ := json.Marshal(cachedCandles)
+
+			// キャッシュにヒットする状態をセットアップするが、outputsize検証は
+			// キャッシュ参照より前に行われるため Redis へのアクセスは発生しない。
+			mock.ExpectGet("candles:AAPL:1day").SetVal(string(cachedJSON))
+
+			innerCalled := false
+			inner := &mockReadWriteRepository{
+				findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
+					innerCalled = true
+					return nil, nil
+				},
+			}
+
+			repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+			candles, err := repo.Find(context.Background(), "AAPL", "1day", tt.outputsize)
+
+			if !errors.Is(err, ErrInvalidOutputSize) {
+				t.Errorf("expected ErrInvalidOutputSize, got %v", err)
+			}
+			if candles != nil {
+				t.Errorf("expected nil candles, got %v", candles)
+			}
+			if innerCalled {
+				t.Error("inner repository should not be called for invalid outputsize")
+			}
+		})
+	}
+}
+
 // TestCachingCandleRepository_Find_CacheMiss はキャッシュミス時にDBから全データを取得し、キャッシュに保存してoutputsize件を返すことを検証します。
 func TestCachingCandleRepository_Find_CacheMiss(t *testing.T) {
 	t.Parallel()
