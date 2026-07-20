@@ -73,7 +73,7 @@ func run() int {
 	// Redis接続
 	var rdb *redisv9.Client
 	if tmp, err := infraredis.NewRedisClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password); err != nil {
-		slog.Warn("Redis unavailable: running without cache; signup/login/OAuth callback will return 503 (fail-closed rate limiting)", "error", err)
+		slog.Warn("Redis unavailable: running without cache; signup/login will return 503 (fail-closed rate limiting)", "error", err)
 		rdb = nil
 	} else {
 		rdb = tmp
