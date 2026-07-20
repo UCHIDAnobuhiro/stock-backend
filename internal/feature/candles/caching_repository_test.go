@@ -196,8 +196,8 @@ func TestCachingCandleRepository_Find_CacheMiss(t *testing.T) {
 
 	// Cache miss
 	mock.ExpectGet("candles:AAPL:1day").RedisNil()
-	// Set cache after fetching from inner (全データで保存)
-	mock.ExpectSet("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal("OK")
+	// SetNXでキャッシュに保存（全データで保存）
+	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(true)
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
@@ -266,8 +266,46 @@ func TestCachingCandleRepository_Find_CorruptedCache(t *testing.T) {
 	mock.ExpectGet("candles:AAPL:1day").SetVal("invalid json")
 	// Delete corrupted cache
 	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
-	// Set new cache after fetching from inner
-	mock.ExpectSet("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal("OK")
+	// SetNXで新しいキャッシュを保存
+	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(true)
+
+	inner := &mockReadWriteRepository{
+		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
+			return expectedCandles, nil
+		},
+	}
+
+	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+	candles, err := repo.Find(context.Background(), "AAPL", "1day", 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candles) != 1 {
+		t.Errorf("expected 1 candle, got %d", len(candles))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestCachingCandleRepository_Find_CacheMiss_SetNXLosesRace はcache-miss後のSetNXが
+// false（他インスタンスが既に新データを書き込み済み）を返しても、Findはエラーにならず
+// inner.Findから取得したデータをそのまま返すことを検証します。
+func TestCachingCandleRepository_Find_CacheMiss_SetNXLosesRace(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	expectedCandles := []Candle{
+		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
+	}
+	expectedJSON, _ := json.Marshal(expectedCandles)
+
+	// Cache miss
+	mock.ExpectGet("candles:AAPL:1day").RedisNil()
+	// SetNXが false を返す（他インスタンスが先に書き込み済み = キーが既に存在）
+	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(false)
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
@@ -353,54 +391,14 @@ func TestCachingCandleRepository_UpsertBatch_EmptyCandles(t *testing.T) {
 	}
 }
 
-// TestCachingCandleRepository_UpsertBatch_CacheWarmUp はUpsertBatch後にキャッシュが削除され最新データで再生成されることを検証します。
-func TestCachingCandleRepository_UpsertBatch_CacheWarmUp(t *testing.T) {
+// TestCachingCandleRepository_UpsertBatch_InvalidatesCache はUpsertBatch後に
+// 対象キーのキャッシュが削除されるのみで、ウォームアップ（inner.Findの呼び出し）が
+// 行われないことを検証します（案A′: 再構築は次回Findのcache-miss経路に一本化）。
+func TestCachingCandleRepository_UpsertBatch_InvalidatesCache(t *testing.T) {
 	t.Parallel()
 
 	rdb, mock := redismock.NewClientMock()
 	defer func() { _ = rdb.Close() }()
-
-	warmCandles := []Candle{
-		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
-	}
-	warmJSON, _ := json.Marshal(warmCandles)
-
-	inner := &mockReadWriteRepository{
-		upsertBatchFn: func(ctx context.Context, candles []Candle) error {
-			return nil
-		},
-		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
-			return warmCandles, nil
-		},
-	}
-
-	// 既存キャッシュを削除してから最新データで再生成
-	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
-	mock.ExpectSet("candles:AAPL:1day", warmJSON, 5*time.Minute).SetVal("OK")
-
-	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
-	err := repo.UpsertBatch(context.Background(), []Candle{
-		{SymbolCode: "AAPL", Interval: "1day"},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled mock expectations: %v", err)
-	}
-}
-
-// TestCachingCandleRepository_UpsertBatch_DeduplicatesWarmUp は同一symbol+intervalのウォームアップが重複せず1回のみ実行されることを検証します。
-func TestCachingCandleRepository_UpsertBatch_DeduplicatesWarmUp(t *testing.T) {
-	t.Parallel()
-
-	rdb, mock := redismock.NewClientMock()
-	defer func() { _ = rdb.Close() }()
-
-	warmCandles := []Candle{
-		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0},
-	}
-	warmJSON, _ := json.Marshal(warmCandles)
 
 	findCallCount := 0
 	inner := &mockReadWriteRepository{
@@ -409,13 +407,45 @@ func TestCachingCandleRepository_UpsertBatch_DeduplicatesWarmUp(t *testing.T) {
 		},
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
 			findCallCount++
-			return warmCandles, nil
+			return nil, nil
 		},
 	}
 
-	// AAPL:1day が3件あっても DEL と SET は1回ずつのみ
+	// 既存キャッシュを削除するのみ（SETは発行されない）
 	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
-	mock.ExpectSet("candles:AAPL:1day", warmJSON, 5*time.Minute).SetVal("OK")
+
+	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+	err := repo.UpsertBatch(context.Background(), []Candle{
+		{SymbolCode: "AAPL", Interval: "1day"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if findCallCount != 0 {
+		t.Errorf("expected inner.Find not to be called (no warm-up), got %d calls", findCallCount)
+	}
+	// ExpectDel以外（Set等）が発行されていないことを担保
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestCachingCandleRepository_UpsertBatch_DeduplicatesDel は同一symbol+intervalの
+// キャッシュキーに対するDELが重複せず1回のみ実行されることを検証します。
+func TestCachingCandleRepository_UpsertBatch_DeduplicatesDel(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	inner := &mockReadWriteRepository{
+		upsertBatchFn: func(ctx context.Context, candles []Candle) error {
+			return nil
+		},
+	}
+
+	// AAPL:1day が3件あっても DEL は1回のみ
+	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
 
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
 	err := repo.UpsertBatch(context.Background(), []Candle{
@@ -425,9 +455,6 @@ func TestCachingCandleRepository_UpsertBatch_DeduplicatesWarmUp(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if findCallCount != 1 {
-		t.Errorf("expected inner.Find to be called once, got %d", findCallCount)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)

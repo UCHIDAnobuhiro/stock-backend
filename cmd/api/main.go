@@ -90,7 +90,8 @@ func run() int {
 	candleRepo := candles.NewRepository(sqlDB)
 	watchlistRepo := watchlist.NewRepository(sqlDB)
 
-	// Redisキャッシュでラップ（TTLはingest連続失敗時のセーフティネット、通常は日次ingestで上書き）
+	// Redisキャッシュでラップ（ingestのUpsertBatchは対象キーをDELするのみで、再構築は
+	// 次回Findのcache-miss時に行われる。TTLはDEL失敗時や競合による汚染時のセーフティネット）
 	cachedCandleRepo := candles.NewCachingRepository(rdb, candles.DefaultCacheTTL, candleRepo, "candles")
 
 	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
