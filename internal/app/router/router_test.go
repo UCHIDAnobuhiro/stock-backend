@@ -108,10 +108,16 @@ func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler) http.Handler {
 	return router.NewRouter(h, cfg)
 }
 
-// validToken は保護ルートを通過できる有効な JWT を生成します。
+// validToken は保護ルートを通過できる有効な JWT（userID=1）を生成します。
 func validToken(t *testing.T) string {
 	t.Helper()
-	tok, err := jwt.NewGenerator(testJWTSecret, time.Hour).GenerateToken(1, "user@example.com")
+	return tokenForUser(t, 1)
+}
+
+// tokenForUser は指定した userID で保護ルートを通過できる有効な JWT を生成します。
+func tokenForUser(t *testing.T, userID int64) string {
+	t.Helper()
+	tok, err := jwt.NewGenerator(testJWTSecret, time.Hour).GenerateToken(userID, "user@example.com")
 	require.NoError(t, err)
 	return tok
 }
@@ -242,4 +248,58 @@ func TestNewRouter_UnknownRoute(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestNewRouter_LogoRateLimit は /v1/logo/detect・/v1/logo/analyze がユーザーID単位で
+// 1日10回にレートリミットされること、エンドポイントごと・ユーザーごとに独立したバケットで
+// カウントされることを検証します。
+// 同一ルーターインスタンスへの逐次リクエストでカウント順序を検証するため、
+// リクエストを発行するサブテストは t.Parallel() を使わない。
+func TestNewRouter_LogoRateLimit(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRouter(t, nil)
+
+	postLogoDetect := func(t *testing.T, token string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/logo/detect", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	postLogoAnalyze := func(t *testing.T, token string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/logo/analyze", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	tokenUser1 := tokenForUser(t, 1)
+
+	t.Run("success: 10回までは429にならない", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			code := postLogoDetect(t, tokenUser1)
+			assert.NotEqual(t, http.StatusTooManyRequests, code, "リクエスト%d回目で429になってはいけない", i+1)
+		}
+	})
+
+	t.Run("error: 11回目は429になる", func(t *testing.T) {
+		code := postLogoDetect(t, tokenUser1)
+		assert.Equal(t, http.StatusTooManyRequests, code)
+	})
+
+	t.Run("success: 別ユーザーは独立したバケットで429にならない", func(t *testing.T) {
+		tokenUser2 := tokenForUser(t, 2)
+		code := postLogoDetect(t, tokenUser2)
+		assert.NotEqual(t, http.StatusTooManyRequests, code)
+	})
+
+	t.Run("success: エンドポイントごとに別バケットのため429にならない", func(t *testing.T) {
+		code := postLogoAnalyze(t, tokenUser1)
+		assert.NotEqual(t, http.StatusTooManyRequests, code)
+	})
 }
