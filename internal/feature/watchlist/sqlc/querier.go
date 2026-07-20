@@ -12,6 +12,7 @@ type Querier interface {
 	DeleteWatchlist(ctx context.Context, arg DeleteWatchlistParams) (int64, error)
 	InsertWatchlist(ctx context.Context, arg InsertWatchlistParams) error
 	ListWatchlistByUser(ctx context.Context, userID int64) ([]Watchlist, error)
+	LockWatchlistByUser(ctx context.Context, userID int64) ([]int64, error)
 	MaxWatchlistSortKey(ctx context.Context, userID int64) (int64, error)
 	UpdateWatchlistSortKey(ctx context.Context, arg UpdateWatchlistSortKeyParams) (int64, error)
 }
