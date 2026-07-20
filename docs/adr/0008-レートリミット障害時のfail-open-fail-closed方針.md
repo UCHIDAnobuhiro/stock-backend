@@ -2,7 +2,7 @@
 
 | 項目       | 内容       |
 | ---------- | ---------- |
-| ステータス | Proposed   |
+| ステータス | Accepted   |
 | 日付       | 2026-07-20 |
 
 ---
@@ -41,6 +41,10 @@ OAuth コールバック IP）は **fail-closed** とする。Redis 未接続・
 非クリティカルな Redis 利用（`candles.CachingRepository` のキャッシュ、JWT blacklist
 によるログアウト時の即時失効）は、可用性を優先し **fail-open**（グレースフルデグレード）
 を維持する。
+
+`Policy` のゼロ値は **FailClosed** とする（secure by default）。呼び出し側が `Policy` の
+指定を忘れた場合でも安全側（拒否）に倒れるようにするための設計であり、`FailOpen` は
+非クリティカルな用途に対する明示的なオプトインとして扱う。
 
 ### 使い分け基準
 
