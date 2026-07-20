@@ -2,6 +2,7 @@ package candleshttp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -65,16 +66,22 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	candles, err := h.uc.GetCandles(r.Context(), code, interval, outputsize)
+	result, err := h.uc.GetCandles(r.Context(), code, interval, outputsize)
 	if err != nil {
+		// リポジトリ/キャッシュ層がラップして ErrInvalidOutputSize を返す可能性があるため、
+		// 事前バリデーション（上記 outputsize チェック）と挙動を揃える防御的な分岐。
+		if errors.Is(err, candles.ErrInvalidOutputSize) {
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: candles.ErrInvalidOutputSize.Error()})
+			return
+		}
 		slog.Error("failed to get candles", "error", err, "code", code)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}
 
 	// データをフォーマット
-	out := make([]api.CandleResponse, 0, len(candles))
-	for _, x := range candles {
+	out := make([]api.CandleResponse, 0, len(result))
+	for _, x := range result {
 		out = append(out, api.CandleResponse{
 			Time:   x.Time.UTC().Format("2006-01-02"),
 			Open:   x.Open,

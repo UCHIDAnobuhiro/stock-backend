@@ -81,8 +81,17 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 
 	logos, err := h.uc.DetectLogos(r.Context(), imageData)
 	if err != nil {
-		slog.Error("ロゴ検出に失敗", "error", err)
-		httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "logo detection failed"})
+		switch {
+		case errors.Is(err, logodetection.ErrEmptyImage):
+			slog.Warn("ロゴ検出のバリデーションエラー", "error", err, "remote_addr", httpx.ClientIP(r))
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: err.Error()})
+		case errors.Is(err, logodetection.ErrImageTooLarge):
+			slog.Warn("画像ファイルサイズ超過", "error", err, "remote_addr", httpx.ClientIP(r))
+			httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, api.ErrorResponse{Error: err.Error()})
+		default:
+			slog.Error("ロゴ検出に失敗", "error", err)
+			httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "logo detection failed"})
+		}
 		return
 	}
 
@@ -110,8 +119,16 @@ func (h *Handler) AnalyzeCompany(w http.ResponseWriter, r *http.Request) {
 
 	analysis, err := h.uc.AnalyzeCompany(r.Context(), req.CompanyName)
 	if err != nil {
-		slog.Error("企業分析に失敗", "error", err, "company", req.CompanyName)
-		httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "company analysis failed"})
+		switch {
+		case errors.Is(err, logodetection.ErrEmptyCompanyName),
+			errors.Is(err, logodetection.ErrCompanyNameTooLong),
+			errors.Is(err, logodetection.ErrInvalidCompanyName):
+			slog.Warn("企業分析のバリデーションエラー", "error", err, "remote_addr", httpx.ClientIP(r))
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: err.Error()})
+		default:
+			slog.Error("企業分析に失敗", "error", err, "company", req.CompanyName)
+			httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "company analysis failed"})
+		}
 		return
 	}
 
