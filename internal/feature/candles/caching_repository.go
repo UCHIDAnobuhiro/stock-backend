@@ -10,10 +10,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// DefaultCacheTTL はingestの連続失敗時に古いデータが残り続けないためのセーフティネットTTL。
-// 通常運用ではingestのUpsertBatchによりキャッシュが日次で上書きされるため、
-// この値はフォールバックとしてのみ機能する。
-const DefaultCacheTTL = 7 * 24 * time.Hour
+// DefaultCacheTTL はキャッシュが汚染された場合やDEL失敗時に、古いデータが
+// 残り続けないためのセーフティネットTTL。通常運用ではingestのUpsertBatchが
+// 対象キーをDELし、次回Find時のcache-miss経路でキャッシュが再構築されるため、
+// このTTLはあくまでフォールバックとしてのみ機能する。
+const DefaultCacheTTL = 24 * time.Hour
 
 // readWriteRepository はCachingRepositoryが内部で必要とする読み書きインターフェースです。
 type readWriteRepository interface {
@@ -47,7 +48,14 @@ func NewCachingRepository(rdb *redis.Client, ttl time.Duration, inner readWriteR
 	}
 }
 
-// UpsertBatch はローソク足データを挿入または更新し、キャッシュを最新データで更新します。
+// UpsertBatch はローソク足データを挿入または更新し、対象キーのキャッシュを削除します。
+// ここでは削除のみを行い、キャッシュの再構築は行いません（ウォームアップの廃止）。
+//
+// ingestバッチとAPIサーバーは別インスタンスで動作するため、UpsertBatch完了直後に
+// inner.Findでウォームアップすると、他インスタンス上のFindが本コミット前の古いDBデータを
+// 読み取り、その古いデータでキャッシュをSETし直してウォームアップ結果を上書きしてしまう
+// 競合が起こり得る（「書くのは読み手だけ、消すのは書き手だけ」の原則）。
+// 再構築は次回Findのcache-miss経路に一本化し、書き込みはSetNXでベストエフォートに行う。
 func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) error {
 	// まず基盤リポジトリにUpsert
 	if err := c.inner.UpsertBatch(ctx, candles); err != nil {
@@ -68,18 +76,10 @@ func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) e
 		seen[symbolInterval{cd.SymbolCode, cd.Interval}] = struct{}{}
 	}
 
-	// 各 symbol+interval のキャッシュを削除し、最新データで再生成（ウォームアップ）
+	// 各 symbol+interval のキャッシュを削除するのみ（再構築は次回Findに委ねる）
 	for si := range seen {
 		key := c.cacheKey(si.symbol, si.interval)
 		_ = c.rdb.Del(ctx, key).Err() // ベストエフォート
-
-		data, err := c.inner.Find(ctx, si.symbol, si.interval, MaxOutputSize)
-		if err != nil {
-			continue // ベストエフォート: エラー時はウォームアップをスキップ
-		}
-		if b, err := json.Marshal(data); err == nil {
-			_ = c.rdb.Set(ctx, key, b, c.ttl).Err() // ベストエフォート
-		}
 	}
 	return nil
 }
@@ -111,8 +111,11 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 	}
 
 	// 3) キャッシュに保存（ベストエフォート）
+	// SetNX（SET key value EX <ttl> NX）を使い、キーが存在しない場合のみ書き込む。
+	// ingestのDELの直後に他インスタンスが新データで既にキャッシュを再構築している
+	// ケースで、本経路が読んだ（DEL前の）古いDBデータで上書きしてしまうのを防ぐ。
 	if b, err := json.Marshal(all); err == nil {
-		_ = c.rdb.Set(ctx, key, b, c.ttl).Err()
+		_ = c.rdb.SetNX(ctx, key, b, c.ttl).Err()
 	}
 
 	return sliceCandles(all, outputsize), nil

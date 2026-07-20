@@ -34,10 +34,10 @@ func runCandleIngest(cfg *config.Config) int {
 	ingestSymbolRepo := di.NewIngestSymbolAdapter(symbolRepo)
 	rateLimiter := clientratelimit.NewRateLimiter(rateLimitPerMinute, time.Minute)
 
-	// Redis接続（ベストエフォート: 接続失敗時はキャッシュウォームアップなしで続行）
+	// Redis接続（ベストエフォート: 接続失敗時はキャッシュ削除なしで続行）
 	var rdb *redisv9.Client
 	if tmp, err := infraredis.NewRedisClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password); err != nil {
-		slog.Warn("Redis unavailable, cache warm-up disabled", "error", err)
+		slog.Warn("Redis unavailable, cache invalidation disabled", "error", err)
 	} else {
 		rdb = tmp
 		defer func() {
@@ -47,7 +47,8 @@ func runCandleIngest(cfg *config.Config) int {
 		}()
 	}
 
-	// TTLはingest連続失敗時のセーフティネット、通常は UpsertBatch で日次上書き
+	// UpsertBatchは対象キーのキャッシュをDELするのみで、再構築は次回Findのcache-miss時に行われる。
+	// TTLはDEL失敗時や競合による汚染時に古いキャッシュが残り続けないためのセーフティネット。
 	cachedCandleRepo := candles.NewCachingRepository(rdb, candles.DefaultCacheTTL, candleRepo, "candles")
 
 	uc := candles.NewIngestUsecase(marketRepo, cachedCandleRepo, ingestSymbolRepo, rateLimiter)

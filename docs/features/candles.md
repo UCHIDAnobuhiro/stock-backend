@@ -44,7 +44,7 @@ sequenceDiagram
             Repository->>DB: SELECT * FROM candles WHERE symbol_code=? AND interval=? ORDER BY time DESC LIMIT ?
             DB-->>Repository: Rows
             Repository-->>Cache: []Candle
-            Cache->>Redis: SET candles:AAPL:1day (TTL)
+            Cache->>Redis: SET NX candles:AAPL:1day (TTL)
             Cache-->>Usecase: []Candle
         end
     else Redis Unavailable
@@ -516,7 +516,7 @@ go test ./internal/feature/candles/... -v -race -cover
 | 設定 | 値 | 説明 |
 |------|-----|------|
 | キー形式 | `candles:{symbol}:{interval}` | symbol+interval単位でキャッシュ（全データ最大5000件を保存） |
-| 本番TTL | 7日 | `candles.DefaultCacheTTL`。ingest連続失敗時のセーフティネット、通常は日次ingestで上書き |
+| 本番TTL | 24時間 | `candles.DefaultCacheTTL`。DEL失敗時や競合による汚染時に古いキャッシュが残り続けないためのセーフティネット |
 | デフォルトTTL | 5分 | コンストラクタにttl=0を渡した場合のフォールバック |
 | 名前空間 | `candles` | 分離のためのキープレフィックス |
 
@@ -525,13 +525,15 @@ go test ./internal/feature/candles/... -v -race -cover
 1. **読み取りパス（Find）**
    - Redisのキャッシュデータを確認
    - ヒット時: デシリアライズしたデータを返却
-   - ミス時: PostgreSQLにクエリ、結果をキャッシュして返却
+   - ミス時: PostgreSQLにクエリし、`SET NX`（キーが存在しない場合のみ書き込み、TTL 24h）でキャッシュしてから返却
    - Redisエラー時: キャッシュをバイパスし、PostgreSQLに直接クエリ
 
 2. **書き込みパス（UpsertBatch）**
    - まずPostgreSQLに書き込み
-   - 影響を受ける symbol+interval のキャッシュキーを削除（`DEL candles:{symbol}:{interval}`）
-   - 削除後、最新データで再生成（ウォームアップ、ベストエフォート）
+   - 影響を受ける symbol+interval のキャッシュキーを削除するのみ（`DEL candles:{symbol}:{interval}`、ウォームアップなし）
+   - 再構築は行わず、次回Findのcache-miss経路に委ねる（ingestバッチとAPIサーバーは別インスタンスで動作するため、
+     UpsertBatch直後にウォームアップすると、他インスタンスのFindが読んだ古いDBデータで上書きされる競合が
+     起こり得る。「書くのは読み手だけ、消すのは書き手だけ」の原則により、この競合を回避している）
 
 ### グレースフルデグレード
 
