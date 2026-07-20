@@ -13,8 +13,10 @@ import (
 
 // GitHubProvider はOAuthProviderインターフェースのGitHub実装です。
 type GitHubProvider struct {
-	cfg *oauth2.Config
-	hc  *http.Client
+	cfg       *oauth2.Config
+	hc        *http.Client
+	emailsURL string
+	userURL   string
 }
 
 var _ OAuthProvider = (*GitHubProvider)(nil)
@@ -29,7 +31,9 @@ func NewGitHubProvider(clientID, clientSecret, redirectURL string, hc *http.Clie
 			Scopes:       []string{"user:email"},
 			Endpoint:     githuboauth.Endpoint,
 		},
-		hc: hc,
+		hc:        hc,
+		emailsURL: "https://api.github.com/user/emails",
+		userURL:   "https://api.github.com/user",
 	}
 }
 
@@ -68,7 +72,7 @@ func (p *GitHubProvider) ExchangeCode(ctx context.Context, code, _ string) (*OAu
 
 func (p *GitHubProvider) fetchPrimaryEmail(ctx context.Context, token string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/user/emails", nil)
+		p.emailsURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("github: failed to build emails request: %w", err)
 	}
@@ -108,7 +112,7 @@ func (p *GitHubProvider) fetchPrimaryEmail(ctx context.Context, token string) (s
 
 func (p *GitHubProvider) fetchUserID(ctx context.Context, token string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.github.com/user", nil)
+		p.userURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("github: failed to build user request: %w", err)
 	}

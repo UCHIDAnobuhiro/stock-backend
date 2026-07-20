@@ -13,8 +13,9 @@ import (
 
 // GoogleProvider はOAuthProviderインターフェースのGoogle実装です。
 type GoogleProvider struct {
-	cfg *oauth2.Config
-	hc  *http.Client
+	cfg         *oauth2.Config
+	hc          *http.Client
+	userinfoURL string
 }
 
 var _ OAuthProvider = (*GoogleProvider)(nil)
@@ -29,7 +30,8 @@ func NewGoogleProvider(clientID, clientSecret, redirectURL string, hc *http.Clie
 			Scopes:       []string{"openid", "email"},
 			Endpoint:     google.Endpoint,
 		},
-		hc: hc,
+		hc:          hc,
+		userinfoURL: "https://www.googleapis.com/oauth2/v3/userinfo",
 	}
 }
 
@@ -59,7 +61,7 @@ func (p *GoogleProvider) ExchangeCode(ctx context.Context, code, codeVerifier st
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://www.googleapis.com/oauth2/v3/userinfo", nil)
+		p.userinfoURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("google: failed to build userinfo request: %w", err)
 	}
