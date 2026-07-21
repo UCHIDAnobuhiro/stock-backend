@@ -281,6 +281,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /v1/quotes:
+    get:
+      summary: 複数銘柄の最新終値・前日比・スパークライン用終値配列を一括取得
+      operationId: getQuotes
+      tags:
+        - quotes
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: codes
+          in: query
+          required: true
+          description: "カンマ区切りの銘柄コード（1〜50件、例: AAPL,GOOGL,7203.T）。重複は順序を保って除去される"
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9._-]{1,20}(,[A-Za-z0-9._-]{1,20}){0,49}$"
+        - name: interval
+          in: query
+          required: false
+          description: "時間間隔"
+          schema:
+            type: string
+            default: "1day"
+            enum:
+              - "1day"
+              - "1week"
+              - "1month"
+        - name: bars
+          in: query
+          required: false
+          description: "スパークライン用に含める直近終値の本数（0〜500）。0の場合はclosesを含めない"
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+            maximum: 500
+      responses:
+        "200":
+          description: 銘柄ごとの最新終値・前日比一覧（ローソク足2本未満の銘柄は除外。順序は保証しない）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuoteResponse"
+        "400":
+          description: バリデーションエラー（codes未指定/空/51件以上/パターン不一致、未対応のinterval、barsに整数以外/範囲外等）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "500":
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /v1/symbols:
     get:
       summary: アクティブ銘柄一覧取得
@@ -711,6 +771,46 @@ components:
           type: integer
           format: int64
           description: 出来高
+
+    QuoteResponse:
+      type: object
+      required:
+        - code
+        - time
+        - close
+        - prev_close
+        - change
+        - change_percent
+      properties:
+        code:
+          type: string
+          description: "銘柄コード（例: AAPL, 7203.T）"
+        time:
+          type: string
+          description: 最新足の日付（YYYY-MM-DD形式）
+          example: "2024-01-15"
+        close:
+          type: number
+          format: double
+          description: 最新終値
+        prev_close:
+          type: number
+          format: double
+          description: 前日終値
+        change:
+          type: number
+          format: double
+          description: "前日比（close - prev_close）"
+        change_percent:
+          type: number
+          format: double
+          description: "前日比率（%）。prev_closeが0の場合は0"
+        closes:
+          type: array
+          description: "スパークライン用の終値配列（古い→新しい順、最大bars本）。bars=0の場合は含まれない"
+          items:
+            type: number
+            format: double
 
     SymbolItem:
       type: object
