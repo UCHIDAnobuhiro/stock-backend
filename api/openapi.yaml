@@ -181,7 +181,8 @@ paths:
       description: |
         プロバイダーから受け取ったcodeとstateを検証し、JWTとCSRFトークンをCookieにセットして
         フロントエンドURLへリダイレクトします。
-        同メールアドレスの既存アカウントが存在する場合は自動リンクせず 409 を返します。
+        エラー時は自動リンクや JSON 応答は行わず、フロントエンドのログイン画面へ
+        `error` コード付きでリダイレクトします。
       operationId: oauthCallback
       tags:
         - auth
@@ -205,33 +206,15 @@ paths:
             type: string
       responses:
         "302":
-          description: フロントエンドURLへリダイレクト（auth_token・csrf_token Cookieをセット）
-        "400":
-          description: stateが無効または期限切れ
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "502":
-          description: プロバイダーAPIエラー（メールアドレス取得失敗等）
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+          description: |
+            成功時は `{FRONTEND_URL}` へリダイレクト（auth_token・csrf_token Cookieをセット）。
+            エラー時は `{FRONTEND_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）。
+            code は以下のいずれか:
+              - `account_conflict`: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
+              - `oauth_failed`: 上記以外のすべてのエラー（state不正・期限切れ、プロバイダーAPIエラー、
+                未サポートのプロバイダー、内部エラー等）
         "503":
           description: サービス一時利用不可（レートリミット基盤障害時）
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "500":
-          description: サーバーエラー
           content:
             application/json:
               schema:

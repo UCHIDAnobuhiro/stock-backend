@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -23,6 +24,13 @@ const oauthStateCookie = "oauth_state"
 // oauthStateCookieMaxAge は state Cookie の有効期限（秒）です。
 // 認可フロー完了までの猶予として usecase 側の state TTL（10分）と揃えます。
 const oauthStateCookieMaxAge = 600
+
+// oauthErrAccountConflict / oauthErrOAuthFailed はコールバックのエラー時に
+// フロントエンドへ渡す識別コードです。メッセージ本文はクエリに含めません。
+const (
+	oauthErrAccountConflict = "account_conflict"
+	oauthErrOAuthFailed     = "oauth_failed"
+)
 
 // OAuthUsecase はOAuth2認証フローのユースケースインターフェースです。
 // Goの慣例に従い、インターフェースはプロバイダー（usecase）ではなくコンシューマー（handler）が定義します。
@@ -69,14 +77,15 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 // Callback はOAuth2コールバックを処理します。
 // stateの検証・コード交換・ユーザー作成を行い、JWTとCSRFトークンをCookieにセットして
 // フロントエンドURLへリダイレクトします。
-// 同メールの既存アカウントが存在する場合は自動リンクせず 409 を返します。
+// エラー時はフロントエンドのログイン画面へ error コード付きでリダイレクトします。
 func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
 	if code == "" || state == "" {
-		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "missing code or state"})
+		slog.Warn("oauth callback: missing code or state", "provider", provider)
+		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
 
@@ -88,7 +97,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("oauth callback: state cookie mismatch", "provider", provider)
 		// 照合に失敗した場合でも state Cookie は不要になるため削除する。
 		setAuthCookie(w, oauthStateCookie, "", -1, h.secureCookie, true)
-		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid or expired state"})
+		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
 
@@ -97,20 +106,18 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.oauth.HandleCallback(r.Context(), provider, code, state)
 	if err != nil {
-		if errors.Is(err, auth.ErrStateNotFound) {
-			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid or expired state"})
-		} else if errors.Is(err, auth.ErrOAuthEmailUnavailable) {
-			httpx.WriteJSON(w, http.StatusBadGateway, api.ErrorResponse{Error: "cannot obtain verified email from provider"})
-		} else if errors.Is(err, auth.ErrUnknownProvider) {
-			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "unsupported provider"})
+		if errors.Is(err, auth.ErrStateNotFound) || errors.Is(err, auth.ErrOAuthEmailUnavailable) || errors.Is(err, auth.ErrUnknownProvider) {
+			// 期待されうる失敗（state期限切れ・プロバイダー起因等）は Warn に留める。
+			slog.Warn("oauth callback rejected", "provider", provider, "error", err)
+			h.redirectWithError(w, r, oauthErrOAuthFailed)
 		} else if errors.Is(err, auth.ErrOAuthEmailConflict) {
 			// 同メールの既存アカウントへの自動リンクは乗っ取りリスクがあるため拒否する。
 			// メールアドレス自体はログに残さない。
 			slog.Warn("oauth login rejected: email conflicts with existing account", "provider", provider)
-			httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "email already registered with a different login method"})
+			h.redirectWithError(w, r, oauthErrAccountConflict)
 		} else {
 			slog.Error("oauth callback failed", "provider", provider, "error", err)
-			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "oauth failed"})
+			h.redirectWithError(w, r, oauthErrOAuthFailed)
 		}
 		return
 	}
@@ -119,7 +126,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
 		slog.Error("failed to generate csrf token", "error", err)
-		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
+		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
 
@@ -130,4 +137,12 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	setAuthCookie(w, "csrf_token", csrfToken, 3600, h.secureCookie, false)
 
 	http.Redirect(w, r, h.frontendURL, http.StatusFound)
+}
+
+// redirectWithError はコールバックのユーザー向けエラーをフロントエンドの
+// ログイン画面へのリダイレクトで返します。コールバックはブラウザのトップレベル
+// 遷移で開かれるため、JSON を返すと生の JSON がユーザーに表示されてしまう。
+// クエリには識別コードのみを渡し、文言はフロントエンド側でマッピングする。
+func (h *OAuthHandler) redirectWithError(w http.ResponseWriter, r *http.Request, code string) {
+	http.Redirect(w, r, strings.TrimSuffix(h.frontendURL, "/")+"/login?error="+code, http.StatusFound)
 }
