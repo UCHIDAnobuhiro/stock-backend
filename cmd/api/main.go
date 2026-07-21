@@ -164,6 +164,7 @@ func run() int {
 			JWTSecret:        cfg.Server.JWTSecret,
 			Blacklist:        jwtBlacklist,
 			SecureCookie:     cfg.Server.SecureCookie,
+			TrustedProxyHops: cfg.Server.TrustedProxyHops,
 		},
 	)
 

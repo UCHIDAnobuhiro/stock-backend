@@ -71,6 +71,9 @@ type ServerConfig struct {
 	SecureCookie   bool
 	CORSOrigins    []string
 	GCPProjectID   string // GOOGLE_CLOUD_PROJECT。未設定可（トレース相関に使用）
+	// TrustedProxyHops は X-Forwarded-For を信頼するリバースプロキシの段数。
+	// middleware.RealIP に渡す。0（デフォルト）なら XFF を一切信頼しない。
+	TrustedProxyHops int
 }
 
 // BatchConfig はバッチ実行のタイムアウト・失敗率しきい値です。
@@ -207,12 +210,15 @@ func readServer(warn *[]string) (ServerConfig, error) {
 		corsOrigins = []string{defaultCORSOrigin}
 	}
 
+	trustedProxyHops := readNonNegativeInt("TRUSTED_PROXY_HOPS", warn)
+
 	return ServerConfig{
-		JWTSecret:      jwtSecret,
-		PasswordPepper: passwordPepper,
-		SecureCookie:   secureCookie,
-		CORSOrigins:    corsOrigins,
-		GCPProjectID:   os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		JWTSecret:        jwtSecret,
+		PasswordPepper:   passwordPepper,
+		SecureCookie:     secureCookie,
+		CORSOrigins:      corsOrigins,
+		GCPProjectID:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		TrustedProxyHops: trustedProxyHops,
 	}, nil
 }
 
@@ -300,6 +306,23 @@ func readInt(key string, warn *[]string) int {
 	n, err := strconv.Atoi(v)
 	if err != nil || n <= 0 {
 		*warn = append(*warn, fmt.Sprintf("invalid int for %s=%q, using default", key, v))
+		return 0
+	}
+	return n
+}
+
+// readNonNegativeInt は env の 0 以上の整数を読み取ります。未設定なら 0 を返します
+// （警告なし。TRUSTED_PROXY_HOPS 等、0 が正当なデフォルト値である項目向け）。
+// readInt は n<=0 を不正値として扱うため、0 を許容する本ヘルパーを別途用意しています。
+// 不正値（非整数・負数）の場合は警告を蓄積して 0 を返します。
+func readNonNegativeInt(key string, warn *[]string) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		*warn = append(*warn, fmt.Sprintf("invalid non-negative int for %s=%q, using default 0", key, v))
 		return 0
 	}
 	return n

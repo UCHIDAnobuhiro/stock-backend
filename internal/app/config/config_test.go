@@ -43,6 +43,44 @@ func TestReadInt(t *testing.T) {
 	}
 }
 
+// TestReadNonNegativeInt は readNonNegativeInt の未設定（0）・0・正常値・不正値
+// （警告蓄積して 0）の各ケースを検証します。
+func TestReadNonNegativeInt(t *testing.T) {
+	const key = "TEST_READ_NON_NEGATIVE_INT"
+
+	tests := []struct {
+		name     string
+		set      bool
+		value    string
+		want     int
+		wantWarn bool
+	}{
+		{name: "未設定なら 0", set: false, want: 0, wantWarn: false},
+		{name: "0 は正常値", set: true, value: "0", want: 0, wantWarn: false},
+		{name: "正の整数は正常値", set: true, value: "2", want: 2, wantWarn: false},
+		{name: "非整数は警告して 0", set: true, value: "abc", want: 0, wantWarn: true},
+		{name: "負数は警告して 0", set: true, value: "-1", want: 0, wantWarn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.set {
+				t.Setenv(key, tt.value)
+			} else {
+				t.Setenv(key, "")
+			}
+			var warn []string
+			got := readNonNegativeInt(key, &warn)
+			if got != tt.want {
+				t.Errorf("readNonNegativeInt = %d, want %d", got, tt.want)
+			}
+			if (len(warn) > 0) != tt.wantWarn {
+				t.Errorf("warn = %v, wantWarn %v", warn, tt.wantWarn)
+			}
+		})
+	}
+}
+
 // TestReadDuration は readDuration の未設定（0）・正常・不正値（警告蓄積して 0）の各ケースを検証します。
 func TestReadDuration(t *testing.T) {
 	const key = "TEST_READ_DURATION"

@@ -81,8 +81,14 @@ func (stubWatchlistUsecase) ReorderSymbols(_ context.Context, _ int64, _ []strin
 // newTestRouter は各テストごとに独立した miniredis インスタンスを使って router.NewRouter を構築します。
 // 公開ルートは httpratelimit.FailClosed のため実 Limiter（miniredis 接続）が必要であり、
 // OpenAPIValidator は nil だと router.go 側で panic するため no-op を明示的に渡す。
-func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler) http.Handler {
+// trustedHops は省略可（省略時は 0 = X-Forwarded-For を信頼しない）。
+func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler, trustedHops ...int) http.Handler {
 	t.Helper()
+
+	hops := 0
+	if len(trustedHops) > 0 {
+		hops = trustedHops[0]
+	}
 
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -104,6 +110,7 @@ func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler) http.Handler {
 		OpenAPIValidator: noopValidator,
 		AllowedOrigins:   []string{"http://localhost:3000"},
 		JWTSecret:        testJWTSecret,
+		TrustedProxyHops: hops,
 	}
 	return router.NewRouter(h, cfg)
 }
@@ -301,5 +308,81 @@ func TestNewRouter_LogoRateLimit(t *testing.T) {
 	t.Run("success: エンドポイントごとに別バケットのため429にならない", func(t *testing.T) {
 		code := postLogoAnalyze(t, tokenUser1)
 		assert.NotEqual(t, http.StatusTooManyRequests, code)
+	})
+}
+
+// TestNewRouter_OAuthBeginAuthRateLimit は issue #270 対応: /v1/auth/oauth/{provider}
+// （BeginAuth）が Callback と同じ IP 単位 20回/分でレートリミットされることを検証します。
+// 同一ルーターインスタンスへの逐次リクエストでカウント順序を検証するため、
+// リクエストを発行するサブテストは t.Parallel() を使わない。
+func TestNewRouter_OAuthBeginAuthRateLimit(t *testing.T) {
+	t.Parallel()
+
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+	r := newTestRouter(t, oauthHandler)
+
+	getBeginAuth := func(t *testing.T) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/google", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	t.Run("success: 20回までは429にならない", func(t *testing.T) {
+		for i := 0; i < 20; i++ {
+			code := getBeginAuth(t)
+			assert.NotEqual(t, http.StatusTooManyRequests, code, "リクエスト%d回目で429になってはいけない", i+1)
+		}
+	})
+
+	t.Run("error: 21回目は429になる", func(t *testing.T) {
+		code := getBeginAuth(t)
+		assert.Equal(t, http.StatusTooManyRequests, code)
+	})
+}
+
+// TestNewRouter_TrustedProxyHops は TrustedProxyHops の設定に応じて
+// httpmw.RealIP が X-Forwarded-For を解決し、レートリミッターのバケット分割
+// （httpx.ClientIP 経由のキー生成）に反映されることを検証します。
+func TestNewRouter_TrustedProxyHops(t *testing.T) {
+	t.Parallel()
+
+	postSignup := func(t *testing.T, r http.Handler, xff string) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/signup", nil)
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	t.Run("hops=0はXFFを無視しRemoteAddr単位で共有バケットになる", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, nil, 0)
+
+		for i := 0; i < 5; i++ {
+			code := postSignup(t, r, "203.0.113.1")
+			assert.NotEqual(t, http.StatusTooManyRequests, code)
+		}
+		// 別のXFF値でも RemoteAddr は同一（httptest既定値）のため同じバケットで429になる。
+		code := postSignup(t, r, "203.0.113.2")
+		assert.Equal(t, http.StatusTooManyRequests, code)
+	})
+
+	t.Run("hops=1はXFF末尾のIPごとに独立したバケットになる", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, nil, 1)
+
+		for i := 0; i < 5; i++ {
+			code := postSignup(t, r, "203.0.113.1")
+			assert.NotEqual(t, http.StatusTooManyRequests, code)
+		}
+		// 上限に達しているため同一IPはさらに429になる。
+		assert.Equal(t, http.StatusTooManyRequests, postSignup(t, r, "203.0.113.1"))
+		// 別のクライアントIPは独立したバケットのため429にならない。
+		assert.NotEqual(t, http.StatusTooManyRequests, postSignup(t, r, "203.0.113.2"))
 	})
 }
