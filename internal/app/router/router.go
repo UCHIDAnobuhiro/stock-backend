@@ -41,6 +41,9 @@ type Config struct {
 	Blacklist *jwt.Blacklist
 	// SecureCookie が true（本番・TLS終端）のとき HSTS ヘッダーを有効化する。
 	SecureCookie bool
+	// TrustedProxyHops は httpmw.RealIP に渡す、X-Forwarded-For を信頼するプロキシ段数。
+	// 0（デフォルト）なら XFF を信頼せず RemoteAddr のみを使用する。
+	TrustedProxyHops int
 }
 
 // NewRouter はすべてのアプリケーションルートを設定したHTTPハンドラー（chiルーター）を生成します。
@@ -48,6 +51,11 @@ type Config struct {
 // h.OAuth が nil の場合はOAuthルートを登録しません。
 func NewRouter(h Handlers, cfg Config) http.Handler {
 	r := chi.NewRouter()
+
+	// RealIP を最初に置き、X-Forwarded-For から解決したクライアントIPを
+	// 以降のミドルウェア（AccessLog のログ出力・レートリミッターのキー生成）が
+	// httpx.ClientIP 経由で参照できるようにする。
+	r.Use(httpmw.RealIP(cfg.TrustedProxyHops))
 
 	// AccessLog を外側、Recover を内側に置くことで、panic を 500 に変換した結果も
 	// アクセスログに記録される。

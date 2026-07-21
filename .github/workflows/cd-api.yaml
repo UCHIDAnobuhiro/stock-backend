@@ -61,7 +61,7 @@ jobs:
                     --region "${{ env.REGION }}" \
                     --platform managed \
                     --allow-unauthenticated \
-                    --set-env-vars=GIN_MODE=release \
+                    --set-env-vars=GIN_MODE=release,TRUSTED_PROXY_HOPS=1 \
                     --service-account "${{ env.RUNTIME_SERVICE_ACCOUNT }}" \
                     --add-cloudsql-instances "${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}" \
                     --vpc-connector run-connector \

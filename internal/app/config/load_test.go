@@ -26,6 +26,7 @@ func clearServerEnv(t *testing.T) {
 		"GITHUB_CLIENT_SECRET",
 		"GITHUB_REDIRECT_URL",
 		"OAUTH_FRONTEND_REDIRECT_URL",
+		"TRUSTED_PROXY_HOPS",
 	} {
 		t.Setenv(k, "")
 	}
@@ -125,6 +126,56 @@ func TestLoadAPI(t *testing.T) {
 		}
 		if cfg.Server.SecureCookie {
 			t.Error("secureCookie should fall back to false")
+		}
+	})
+
+	t.Run("TRUSTED_PROXY_HOPS 未設定は0", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Server.TrustedProxyHops != 0 {
+			t.Errorf("TrustedProxyHops = %d, want 0", cfg.Server.TrustedProxyHops)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Errorf("expected no warnings, got %v", cfg.Warnings)
+		}
+	})
+
+	t.Run("TRUSTED_PROXY_HOPS 正常値を読み込む", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		t.Setenv("TRUSTED_PROXY_HOPS", "1")
+
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Server.TrustedProxyHops != 1 {
+			t.Errorf("TrustedProxyHops = %d, want 1", cfg.Server.TrustedProxyHops)
+		}
+	})
+
+	t.Run("TRUSTED_PROXY_HOPS 不正値はWarningsに記録し0にフォールバック", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		t.Setenv("TRUSTED_PROXY_HOPS", "-1")
+
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Server.TrustedProxyHops != 0 {
+			t.Errorf("TrustedProxyHops = %d, want 0", cfg.Server.TrustedProxyHops)
+		}
+		if len(cfg.Warnings) == 0 {
+			t.Error("expected a warning for invalid TRUSTED_PROXY_HOPS")
 		}
 	})
 }
