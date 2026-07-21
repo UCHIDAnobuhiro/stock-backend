@@ -78,33 +78,47 @@ func TestOAuthHandler_BeginAuth_SetsStateCookie(t *testing.T) {
 func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 	t.Parallel()
 
+	const frontendURL = "http://localhost:3000"
+
 	tests := []struct {
-		name           string
-		query          string
-		stateCookie    string // 空文字なら Cookie を付与しない
-		expectedStatus int
-		callbackCalled bool
+		name             string
+		query            string
+		stateCookie      string // 空文字なら Cookie を付与しない
+		expectedStatus   int
+		expectedLocation string
+		callbackCalled   bool
 	}{
 		{
-			name:           "success: query state matches cookie",
-			query:          "?code=auth-code&state=abc",
-			stateCookie:    "abc",
-			expectedStatus: http.StatusFound,
-			callbackCalled: true,
+			name:             "success: query state matches cookie",
+			query:            "?code=auth-code&state=abc",
+			stateCookie:      "abc",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL,
+			callbackCalled:   true,
 		},
 		{
-			name:           "failure: no state cookie",
-			query:          "?code=auth-code&state=abc",
-			stateCookie:    "",
-			expectedStatus: http.StatusBadRequest,
-			callbackCalled: false,
+			name:             "failure: no state cookie",
+			query:            "?code=auth-code&state=abc",
+			stateCookie:      "",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+			callbackCalled:   false,
 		},
 		{
-			name:           "failure: cookie mismatch (login CSRF attempt)",
-			query:          "?code=auth-code&state=attacker-state",
-			stateCookie:    "victim-state",
-			expectedStatus: http.StatusBadRequest,
-			callbackCalled: false,
+			name:             "failure: cookie mismatch (login CSRF attempt)",
+			query:            "?code=auth-code&state=attacker-state",
+			stateCookie:      "victim-state",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+			callbackCalled:   false,
+		},
+		{
+			name:             "failure: missing code/state query",
+			query:            "",
+			stateCookie:      "",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+			callbackCalled:   false,
 		},
 	}
 
@@ -119,7 +133,7 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 					return "dummy-jwt-token", nil
 				},
 			}
-			h := authhttp.NewOAuthHandler(uc, false, "http://localhost:3000")
+			h := authhttp.NewOAuthHandler(uc, false, frontendURL)
 
 			req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback"+tt.query, nil)
 			if tt.stateCookie != "" {
@@ -129,64 +143,74 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 			newOAuthRouter(h).ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectedLocation, w.Header().Get("Location"))
 			assert.Equal(t, tt.callbackCalled, called, "HandleCallback の呼び出し有無")
 
 			// いずれのケースでも state Cookie は削除される（使い捨て）。
-			if tt.stateCookie != "" || tt.expectedStatus == http.StatusBadRequest {
+			if tt.stateCookie != "" {
 				stateCookie := findCookie(w, "oauth_state")
 				if stateCookie != "" {
 					assert.Contains(t, stateCookie, "Max-Age=0", "oauth_state should be cleared")
 				}
 			}
 
-			// 成功時は auth_token / csrf_token がセットされること。
-			if tt.expectedStatus == http.StatusFound {
+			// 成功時は auth_token / csrf_token がセットされ、失敗時はセットされないこと。
+			if tt.callbackCalled {
 				assert.NotEmpty(t, findCookie(w, "auth_token"), "auth_token should be set on success")
 				assert.NotEmpty(t, findCookie(w, "csrf_token"), "csrf_token should be set on success")
+			} else {
+				assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on failure")
+				assert.Empty(t, findCookie(w, "csrf_token"), "csrf_token must not be set on failure")
 			}
 		})
 	}
 }
 
 // TestOAuthHandler_Callback_StateNotFound はサーバ側 state（Redis）の照合失敗時に
-// 400 を返すことを検証します。
+// フロントエンドのログイン画面へ error=oauth_failed でリダイレクトすることを検証します。
 func TestOAuthHandler_Callback_StateNotFound(t *testing.T) {
 	t.Parallel()
 
+	const frontendURL = "http://localhost:3000"
 	uc := &mockOAuthUsecase{
 		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
 			return "", auth.ErrStateNotFound
 		},
 	}
-	h := authhttp.NewOAuthHandler(uc, false, "http://localhost:3000")
+	h := authhttp.NewOAuthHandler(uc, false, frontendURL)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=auth-code&state=abc", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})
 	w := httptest.NewRecorder()
 	newOAuthRouter(h).ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, frontendURL+"/login?error=oauth_failed", w.Header().Get("Location"))
+	assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on failure")
+	assert.Empty(t, findCookie(w, "csrf_token"), "csrf_token must not be set on failure")
 }
 
 // TestOAuthHandler_Callback_EmailConflict は同メールの既存アカウントが存在し
-// 自動リンクが拒否された場合に 409 を返し、認証 Cookie を設定しないことを検証します。
+// 自動リンクが拒否された場合に、フロントエンドのログイン画面へ error=account_conflict で
+// リダイレクトし、認証 Cookie を設定しないことを検証します。
 func TestOAuthHandler_Callback_EmailConflict(t *testing.T) {
 	t.Parallel()
 
+	const frontendURL = "http://localhost:3000"
 	uc := &mockOAuthUsecase{
 		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
 			return "", auth.ErrOAuthEmailConflict
 		},
 	}
-	h := authhttp.NewOAuthHandler(uc, false, "http://localhost:3000")
+	h := authhttp.NewOAuthHandler(uc, false, frontendURL)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=auth-code&state=abc", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})
 	w := httptest.NewRecorder()
 	newOAuthRouter(h).ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusConflict, w.Code)
-	assert.Contains(t, w.Body.String(), "email already registered with a different login method")
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, frontendURL+"/login?error=account_conflict", w.Header().Get("Location"))
 	assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on conflict")
 	assert.Empty(t, findCookie(w, "csrf_token"), "csrf_token must not be set on conflict")
 }
