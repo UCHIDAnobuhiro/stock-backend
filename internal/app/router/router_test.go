@@ -311,6 +311,37 @@ func TestNewRouter_LogoRateLimit(t *testing.T) {
 	})
 }
 
+// TestNewRouter_OAuthBeginAuthRateLimit は issue #270 対応: /v1/auth/oauth/{provider}
+// （BeginAuth）が Callback と同じ IP 単位 20回/分でレートリミットされることを検証します。
+// 同一ルーターインスタンスへの逐次リクエストでカウント順序を検証するため、
+// リクエストを発行するサブテストは t.Parallel() を使わない。
+func TestNewRouter_OAuthBeginAuthRateLimit(t *testing.T) {
+	t.Parallel()
+
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+	r := newTestRouter(t, oauthHandler)
+
+	getBeginAuth := func(t *testing.T) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/google", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	t.Run("success: 20回までは429にならない", func(t *testing.T) {
+		for i := 0; i < 20; i++ {
+			code := getBeginAuth(t)
+			assert.NotEqual(t, http.StatusTooManyRequests, code, "リクエスト%d回目で429になってはいけない", i+1)
+		}
+	})
+
+	t.Run("error: 21回目は429になる", func(t *testing.T) {
+		code := getBeginAuth(t)
+		assert.Equal(t, http.StatusTooManyRequests, code)
+	})
+}
+
 // TestNewRouter_TrustedProxyHops は TrustedProxyHops の設定に応じて
 // httpmw.RealIP が X-Forwarded-For を解決し、レートリミッターのバケット分割
 // （httpx.ClientIP 経由のキー生成）に反映されることを検証します。
