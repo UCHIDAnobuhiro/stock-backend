@@ -49,19 +49,40 @@ func (e OauthCallbackParamsProvider) Valid() bool {
 
 // Defines values for GetCandlesParamsInterval.
 const (
-	N1day   GetCandlesParamsInterval = "1day"
-	N1month GetCandlesParamsInterval = "1month"
-	N1week  GetCandlesParamsInterval = "1week"
+	GetCandlesParamsIntervalN1day   GetCandlesParamsInterval = "1day"
+	GetCandlesParamsIntervalN1month GetCandlesParamsInterval = "1month"
+	GetCandlesParamsIntervalN1week  GetCandlesParamsInterval = "1week"
 )
 
 // Valid indicates whether the value is a known member of the GetCandlesParamsInterval enum.
 func (e GetCandlesParamsInterval) Valid() bool {
 	switch e {
-	case N1day:
+	case GetCandlesParamsIntervalN1day:
 		return true
-	case N1month:
+	case GetCandlesParamsIntervalN1month:
 		return true
-	case N1week:
+	case GetCandlesParamsIntervalN1week:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetQuotesParamsInterval.
+const (
+	GetQuotesParamsIntervalN1day   GetQuotesParamsInterval = "1day"
+	GetQuotesParamsIntervalN1month GetQuotesParamsInterval = "1month"
+	GetQuotesParamsIntervalN1week  GetQuotesParamsInterval = "1week"
+)
+
+// Valid indicates whether the value is a known member of the GetQuotesParamsInterval enum.
+func (e GetQuotesParamsInterval) Valid() bool {
+	switch e {
+	case GetQuotesParamsIntervalN1day:
+		return true
+	case GetQuotesParamsIntervalN1month:
+		return true
+	case GetQuotesParamsIntervalN1week:
 		return true
 	default:
 		return false
@@ -143,6 +164,30 @@ type LoginRequest struct {
 // MessageResponse defines model for MessageResponse.
 type MessageResponse struct {
 	Message string `json:"message"`
+}
+
+// QuoteResponse defines model for QuoteResponse.
+type QuoteResponse struct {
+	// Change 前日比（close - prev_close）
+	Change float64 `json:"change"`
+
+	// ChangePercent 前日比率（%）。prev_closeが0の場合は0
+	ChangePercent float64 `json:"change_percent"`
+
+	// Close 最新終値
+	Close float64 `json:"close"`
+
+	// Closes スパークライン用の終値配列（古い→新しい順、最大bars本）。bars=0の場合は含まれない
+	Closes *[]float64 `json:"closes,omitempty"`
+
+	// Code 銘柄コード（例: AAPL, 7203.T）
+	Code string `json:"code"`
+
+	// PrevClose 前日終値
+	PrevClose float64 `json:"prev_close"`
+
+	// Time 最新足の日付（YYYY-MM-DD形式）
+	Time string `json:"time"`
 }
 
 // ReorderWatchlistRequest defines model for ReorderWatchlistRequest.
@@ -236,6 +281,21 @@ type DetectLogoParams struct {
 	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
 	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
 }
+
+// GetQuotesParams defines parameters for GetQuotes.
+type GetQuotesParams struct {
+	// Codes カンマ区切りの銘柄コード（1〜50件、例: AAPL,GOOGL,7203.T）。重複は順序を保って除去される
+	Codes string `form:"codes" json:"codes"`
+
+	// Interval 時間間隔
+	Interval *GetQuotesParamsInterval `form:"interval,omitempty" json:"interval,omitempty"`
+
+	// Bars スパークライン用に含める直近終値の本数（0〜500）。0の場合はclosesを含めない
+	Bars *int `form:"bars,omitempty" json:"bars,omitempty"`
+}
+
+// GetQuotesParamsInterval defines parameters for GetQuotes.
+type GetQuotesParamsInterval string
 
 // AddToWatchlistParams defines parameters for AddToWatchlist.
 type AddToWatchlistParams struct {

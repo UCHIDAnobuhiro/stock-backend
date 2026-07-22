@@ -49,6 +49,9 @@ type stubCandlesUsecase struct{}
 func (stubCandlesUsecase) GetCandles(_ context.Context, _, _ string, _ int) ([]candles.Candle, error) {
 	return nil, nil
 }
+func (stubCandlesUsecase) GetQuotes(_ context.Context, _ []string, _ string, _ int) ([]candles.Quote, error) {
+	return nil, nil
+}
 
 type stubSymbolUsecase struct{}
 
@@ -142,6 +145,7 @@ func TestNewRouter_ProtectedRoutes(t *testing.T) {
 		path   string
 	}{
 		{"GET candles", http.MethodGet, "/v1/candles/AAPL"},
+		{"GET quotes", http.MethodGet, "/v1/quotes?codes=AAPL"},
 		{"GET symbols", http.MethodGet, "/v1/symbols"},
 		{"POST logo detect", http.MethodPost, "/v1/logo/detect"},
 		{"POST logo analyze", http.MethodPost, "/v1/logo/analyze"},

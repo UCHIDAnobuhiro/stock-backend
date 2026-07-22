@@ -127,6 +127,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 			r.Use(cfg.OpenAPIValidator)
 
 			r.Get("/candles/{code}", h.Candles.GetCandlesHandler)
+			r.Get("/quotes", h.Candles.GetQuotesHandler)
 			r.Get("/symbols", h.Symbol.List)
 
 			// Vision/Gemini API は従量課金のため、ユーザー単位で1日あたりの呼び出し回数を制限する。
