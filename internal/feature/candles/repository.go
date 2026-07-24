@@ -93,3 +93,37 @@ func (r *dbRepository) Find(ctx context.Context, symbol, interval string, output
 	}
 	return out, nil
 }
+
+// FindLatestBySymbols は複数銘柄の直近 n 件を、unnest + CROSS JOIN LATERAL の
+// 1クエリで取得します。銘柄ごとに LIMIT n で打ち切られるため、Find を銘柄数分
+// 繰り返すより読み取り行数を抑えられます。
+func (r *dbRepository) FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]Candle, error) {
+	if n <= 0 || n > MaxOutputSize {
+		return nil, fmt.Errorf("find latest candles: %w", ErrInvalidOutputSize)
+	}
+	if len(codes) == 0 {
+		return []Candle{}, nil
+	}
+	rows, err := r.q.FindLatestCandlesBySymbols(ctx, candlessqlc.FindLatestCandlesBySymbolsParams{
+		SymbolCodes:    codes,
+		IntervalFilter: interval,
+		MaxRows:        int32(n),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Candle, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Candle{
+			SymbolCode: row.SymbolCode,
+			Interval:   row.Interval,
+			Time:       row.Time,
+			Open:       row.Open,
+			High:       row.High,
+			Low:        row.Low,
+			Close:      row.Close,
+			Volume:     row.Volume,
+		})
+	}
+	return out, nil
+}

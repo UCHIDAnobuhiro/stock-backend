@@ -27,6 +27,10 @@ func IsValidInterval(interval string) bool {
 type Repository interface {
 	// Find はデータベースからローソク足データを検索します。
 	Find(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error)
+
+	// FindLatestBySymbols は複数銘柄の直近 n 件を1クエリで取得します。
+	// 戻り値はフラットな []Candle（銘柄ごとに時刻降順）。
+	FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]Candle, error)
 }
 
 // usecase はローソク足データ操作のユースケースを定義します。

@@ -7,6 +7,8 @@ package candlessqlc
 
 import (
 	"context"
+
+	"github.com/lib/pq"
 )
 
 const findCandlesLimit = `-- name: FindCandlesLimit :many
@@ -25,6 +27,56 @@ type FindCandlesLimitParams struct {
 
 func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]Candle, error) {
 	rows, err := q.db.QueryContext(ctx, findCandlesLimit, arg.SymbolCode, arg.Interval, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Candle{}
+	for rows.Next() {
+		var i Candle
+		if err := rows.Scan(
+			&i.SymbolCode,
+			&i.Interval,
+			&i.Time,
+			&i.Open,
+			&i.High,
+			&i.Low,
+			&i.Close,
+			&i.Volume,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findLatestCandlesBySymbols = `-- name: FindLatestCandlesBySymbols :many
+SELECT c.symbol_code, c."interval", c."time", c.open, c.high, c.low, c.close, c.volume
+FROM unnest($1::text[]) AS s(code)
+CROSS JOIN LATERAL (
+  SELECT symbol_code, "interval", "time", open, high, low, close, volume
+  FROM candles
+  WHERE symbol_code = s.code AND "interval" = $2
+  ORDER BY "time" DESC
+  LIMIT $3
+) c
+`
+
+type FindLatestCandlesBySymbolsParams struct {
+	SymbolCodes    []string
+	IntervalFilter string
+	MaxRows        int32
+}
+
+func (q *Queries) FindLatestCandlesBySymbols(ctx context.Context, arg FindLatestCandlesBySymbolsParams) ([]Candle, error) {
+	rows, err := q.db.QueryContext(ctx, findLatestCandlesBySymbols, pq.Array(arg.SymbolCodes), arg.IntervalFilter, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}

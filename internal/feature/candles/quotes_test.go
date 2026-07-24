@@ -11,55 +11,84 @@ import (
 )
 
 // quoteMockRepository はRepositoryインターフェースのモック実装です。
-// GetQuotesは銘柄ごとにFindを呼び出すため、symbolに応じて挙動を切り替えられるようにします。
+// GetQuotesはFindLatestBySymbolsを1回だけ呼び出すため、FindLatestBySymbolsFuncで
+// フラットな結果（銘柄ごとに時刻降順で連結）を返せるようにします。
 type quoteMockRepository struct {
-	FindFunc func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error)
+	FindLatestBySymbolsFunc  func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error)
+	FindLatestBySymbolsCalls int
 }
 
-// Find はFindFuncに処理を委譲します。
+// Find はRepositoryインターフェースを満たすためだけに存在します。
+// GetQuotesから呼ばれることはないため、呼ばれた場合はテスト失敗として扱います。
 func (m *quoteMockRepository) Find(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-	return m.FindFunc(ctx, symbol, interval, outputsize)
+	return nil, errors.New("Find should not be called by GetQuotes")
 }
 
-// mkCandle は2024年1月dayの日付・終値closeを持つCandleを生成するテストヘルパーです。
-// GetQuotesの計算には Time と Close のみが使われます。
-func mkCandle(day int, close float64) candles.Candle {
+// FindLatestBySymbols はFindLatestBySymbolsFuncに処理を委譲し、呼び出し回数を記録します。
+func (m *quoteMockRepository) FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+	m.FindLatestBySymbolsCalls++
+	return m.FindLatestBySymbolsFunc(ctx, codes, interval, n)
+}
+
+// flattenByCode は byCode（銘柄→時刻降順のCandleスライス）を codes の順に連結した
+// フラットな []Candle に変換するテストヘルパーです（FindLatestBySymbols の戻り値を模す）。
+func flattenByCode(codes []string, byCode map[string][]candles.Candle) []candles.Candle {
+	var flat []candles.Candle
+	for _, code := range codes {
+		flat = append(flat, byCode[code]...)
+	}
+	return flat
+}
+
+// mkCandle は指定銘柄コード・2024年1月dayの日付・終値closeを持つCandleを生成する
+// テストヘルパーです。GetQuotesはSymbolCodeで銘柄ごとにグルーピングするため、
+// SymbolCodeを必ず設定します。
+func mkCandle(symbol string, day int, close float64) candles.Candle {
 	return candles.Candle{
-		Time:  time.Date(2024, 1, day, 0, 0, 0, 0, time.UTC),
-		Close: close,
+		SymbolCode: symbol,
+		Time:       time.Date(2024, 1, day, 0, 0, 0, 0, time.UTC),
+		Close:      close,
 	}
 }
 
-// TestCandlesUsecase_GetQuotes はGetQuotesメソッドの並行呼び出し・変換ロジックをテストします。
+// TestCandlesUsecase_GetQuotes はGetQuotesメソッドの変換ロジック・FindLatestBySymbolsの
+// 呼び出し方をテストします。
 func TestCandlesUsecase_GetQuotes(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success: change and change_percent are computed from the two most recent candles", func(t *testing.T) {
 		byCode := map[string][]candles.Candle{
-			// Findは時刻降順（[0]が最新）で返す。
-			"AAPL":  {mkCandle(2, 105), mkCandle(1, 100)},
-			"GOOGL": {mkCandle(2, 210), mkCandle(1, 200)},
+			// FindLatestBySymbolsは銘柄ごとに時刻降順（[0]が最新）で返す。
+			"AAPL":  {mkCandle("AAPL", 2, 105), mkCandle("AAPL", 1, 100)},
+			"GOOGL": {mkCandle("GOOGL", 2, 210), mkCandle("GOOGL", 1, 200)},
 		}
+		codes := []string{"AAPL", "GOOGL"}
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+			FindLatestBySymbolsFunc: func(ctx context.Context, gotCodes []string, interval string, n int) ([]candles.Candle, error) {
 				if interval != "1day" {
 					t.Errorf("unexpected interval: got %s, want 1day", interval)
 				}
-				// bars=0でも前日比計算に2本必要なため outputsize は max(bars, 2) = 2 になる。
-				if outputsize != 2 {
-					t.Errorf("unexpected outputsize: got %d, want 2", outputsize)
+				// bars=0でも前日比計算に2本必要なため n は max(bars, 2) = 2 になる。
+				if n != 2 {
+					t.Errorf("unexpected n: got %d, want 2", n)
 				}
-				return byCode[symbol], nil
+				if !reflect.DeepEqual(gotCodes, codes) {
+					t.Errorf("unexpected codes: got %v, want %v", gotCodes, codes)
+				}
+				return flattenByCode(codes, byCode), nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
 
-		got, err := uc.GetQuotes(ctx, []string{"AAPL", "GOOGL"}, "1day", 0)
+		got, err := uc.GetQuotes(ctx, codes, "1day", 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(got) != 2 {
 			t.Fatalf("expected 2 quotes, got %d", len(got))
+		}
+		if repo.FindLatestBySymbolsCalls != 1 {
+			t.Errorf("expected FindLatestBySymbols to be called once, got %d", repo.FindLatestBySymbolsCalls)
 		}
 
 		byResultCode := make(map[string]candles.Quote, len(got))
@@ -95,12 +124,13 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 	})
 
 	t.Run("2本未満のローソク足しかない銘柄は結果から除外される", func(t *testing.T) {
+		byCode := map[string][]candles.Candle{
+			"AAPL": {mkCandle("AAPL", 2, 105), mkCandle("AAPL", 1, 100)},
+			"ONE":  {mkCandle("ONE", 1, 100)},
+		}
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				if symbol == "ONE" {
-					return []candles.Candle{mkCandle(1, 100)}, nil
-				}
-				return []candles.Candle{mkCandle(2, 105), mkCandle(1, 100)}, nil
+			FindLatestBySymbolsFunc: func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+				return flattenByCode(codes, byCode), nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -116,13 +146,16 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 
 	t.Run("bars>0のときclosesは古い→新しい順で最大bars件返る", func(t *testing.T) {
 		// 時刻降順（[0]が最新）: day5(50) > day4(40) > day3(30) > day2(20) > day1(10)
-		all := []candles.Candle{mkCandle(5, 50), mkCandle(4, 40), mkCandle(3, 30), mkCandle(2, 20), mkCandle(1, 10)}
+		all := []candles.Candle{
+			mkCandle("AAPL", 5, 50), mkCandle("AAPL", 4, 40), mkCandle("AAPL", 3, 30),
+			mkCandle("AAPL", 2, 20), mkCandle("AAPL", 1, 10),
+		}
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				if outputsize != 3 {
-					t.Errorf("unexpected outputsize: got %d, want 3 (bars=3)", outputsize)
+			FindLatestBySymbolsFunc: func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+				if n != 3 {
+					t.Errorf("unexpected n: got %d, want 3 (bars=3)", n)
 				}
-				return all[:outputsize], nil
+				return all[:n], nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -143,8 +176,8 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 
 	t.Run("bars=0のときclosesはnil", func(t *testing.T) {
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				return []candles.Candle{mkCandle(2, 105), mkCandle(1, 100)}, nil
+			FindLatestBySymbolsFunc: func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+				return []candles.Candle{mkCandle("AAPL", 2, 105), mkCandle("AAPL", 1, 100)}, nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -160,8 +193,8 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 
 	t.Run("prev_closeが0のときchange_percentは0", func(t *testing.T) {
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				return []candles.Candle{mkCandle(2, 10), mkCandle(1, 0)}, nil
+			FindLatestBySymbolsFunc: func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+				return []candles.Candle{mkCandle("AAPL", 2, 10), mkCandle("AAPL", 1, 0)}, nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -178,14 +211,11 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		}
 	})
 
-	t.Run("error: リポジトリが1銘柄でもエラーを返した場合は全体がエラーになる", func(t *testing.T) {
+	t.Run("error: FindLatestBySymbolsがエラーを返した場合は全体がエラーになる", func(t *testing.T) {
 		errDB := errors.New("database error")
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				if symbol == "BAD" {
-					return nil, errDB
-				}
-				return []candles.Candle{mkCandle(2, 105), mkCandle(1, 100)}, nil
+			FindLatestBySymbolsFunc: func(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+				return nil, errDB
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -199,11 +229,15 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		}
 	})
 
-	t.Run("success: 複数銘柄すべてが返る（順序は保証しない）", func(t *testing.T) {
+	t.Run("success: 複数銘柄すべてがcodesの順で返る", func(t *testing.T) {
 		codes := []string{"A", "B", "C", "D"}
+		byCode := make(map[string][]candles.Candle, len(codes))
+		for _, c := range codes {
+			byCode[c] = []candles.Candle{mkCandle(c, 2, 20), mkCandle(c, 1, 10)}
+		}
 		repo := &quoteMockRepository{
-			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
-				return []candles.Candle{mkCandle(2, 20), mkCandle(1, 10)}, nil
+			FindLatestBySymbolsFunc: func(ctx context.Context, gotCodes []string, interval string, n int) ([]candles.Candle, error) {
+				return flattenByCode(gotCodes, byCode), nil
 			},
 		}
 		uc := candles.NewUsecase(repo)
@@ -216,14 +250,15 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 			t.Fatalf("expected %d quotes, got %d", len(codes), len(got))
 		}
 
-		seen := make(map[string]bool, len(codes))
-		for _, q := range got {
-			seen[q.Code] = true
+		gotCodes := make([]string, len(got))
+		for i, q := range got {
+			gotCodes[i] = q.Code
 		}
-		for _, c := range codes {
-			if !seen[c] {
-				t.Errorf("expected code %s in result, got %+v", c, got)
-			}
+		if !reflect.DeepEqual(gotCodes, codes) {
+			t.Errorf("expected result order %v, got %v", codes, gotCodes)
+		}
+		if repo.FindLatestBySymbolsCalls != 1 {
+			t.Errorf("expected FindLatestBySymbols to be called once, got %d", repo.FindLatestBySymbolsCalls)
 		}
 	})
 }

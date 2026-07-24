@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redismock/v9"
+	"github.com/redis/go-redis/v9"
 )
 
 // mockReadWriteRepository はテスト用の readWriteRepository（読み書き）モック実装です。
 type mockReadWriteRepository struct {
-	findFn        func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error)
-	upsertBatchFn func(ctx context.Context, candles []Candle) error
+	findFn                   func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error)
+	upsertBatchFn            func(ctx context.Context, candles []Candle) error
+	findLatestBySymbolsFn    func(ctx context.Context, codes []string, interval string, n int) ([]Candle, error)
+	findLatestBySymbolsCalls int
 }
 
 // Find はモックのFind関数を呼び出します。
@@ -30,6 +35,15 @@ func (m *mockReadWriteRepository) UpsertBatch(ctx context.Context, candles []Can
 		return m.upsertBatchFn(ctx, candles)
 	}
 	return nil
+}
+
+// FindLatestBySymbols はモックのfindLatestBySymbolsFn関数を呼び出し、呼び出し回数を記録します。
+func (m *mockReadWriteRepository) FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]Candle, error) {
+	m.findLatestBySymbolsCalls++
+	if m.findLatestBySymbolsFn != nil {
+		return m.findLatestBySymbolsFn(ctx, codes, interval, n)
+	}
+	return nil, nil
 }
 
 // TestNewCachingCandleRepository_Defaults はデフォルト値（TTLとnamespace）が正しく設定されることを検証します。
@@ -513,6 +527,73 @@ func TestCachingCandleRepository_UpsertBatch_DeduplicatesDel(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestCachingCandleRepository_FindLatestBySymbols_PassThrough はFindLatestBySymbolsが
+// innerへ引数どおり委譲され、その結果をそのまま返すことを検証します。
+func TestCachingCandleRepository_FindLatestBySymbols_PassThrough(t *testing.T) {
+	t.Parallel()
+
+	expectedCandles := []Candle{
+		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
+		{SymbolCode: "GOOGL", Interval: "1day", Open: 250.0, Close: 255.0},
+	}
+	wantCodes := []string{"AAPL", "GOOGL"}
+
+	inner := &mockReadWriteRepository{
+		findLatestBySymbolsFn: func(ctx context.Context, codes []string, interval string, n int) ([]Candle, error) {
+			if !reflect.DeepEqual(codes, wantCodes) {
+				t.Errorf("unexpected codes: got %v, want %v", codes, wantCodes)
+			}
+			if interval != "1day" {
+				t.Errorf("unexpected interval: got %s, want 1day", interval)
+			}
+			if n != 2 {
+				t.Errorf("unexpected n: got %d, want 2", n)
+			}
+			return expectedCandles, nil
+		},
+	}
+
+	repo := NewCachingRepository(nil, 5*time.Minute, inner, "candles")
+	got, err := repo.FindLatestBySymbols(context.Background(), wantCodes, "1day", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, expectedCandles) {
+		t.Errorf("expected inner result to be returned as-is: got %v, want %v", got, expectedCandles)
+	}
+	if inner.findLatestBySymbolsCalls != 1 {
+		t.Errorf("expected inner.FindLatestBySymbols to be called once, got %d", inner.findLatestBySymbolsCalls)
+	}
+}
+
+// TestCachingCandleRepository_FindLatestBySymbols_NoCacheAccess はFindLatestBySymbolsが
+// Redisキャッシュへ一切アクセスしないことを検証します。キャッシュキーは「全件
+// （MaxOutputSize件）」を保持する契約のため、直近N件の部分データでキャッシュを
+// 汚染してはならないという不変条件を守っていることを、実際のRedis（miniredis）に
+// 対してキーが作成されないことで確認します。
+func TestCachingCandleRepository_FindLatestBySymbols_NoCacheAccess(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	inner := &mockReadWriteRepository{
+		findLatestBySymbolsFn: func(ctx context.Context, codes []string, interval string, n int) ([]Candle, error) {
+			return []Candle{{SymbolCode: "AAPL", Interval: "1day", Close: 100}}, nil
+		},
+	}
+
+	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+	if _, err := repo.FindLatestBySymbols(context.Background(), []string{"AAPL"}, "1day", 2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if keys := mr.Keys(); len(keys) != 0 {
+		t.Errorf("expected no keys to be created in Redis, got %v", keys)
 	}
 }
 

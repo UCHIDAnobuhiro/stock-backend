@@ -268,6 +268,106 @@ func TestCandleRepository_Find(t *testing.T) {
 	}
 }
 
+func TestCandleRepository_FindLatestBySymbols(t *testing.T) {
+	t.Parallel()
+	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name         string
+		codes        []string
+		interval     string
+		n            int
+		wantErr      error
+		setupFunc    func(t *testing.T, db *sql.DB)
+		validateFunc func(t *testing.T, candles []Candle)
+	}{
+		{
+			name:  "success: 複数銘柄で各銘柄n件・時刻降順に取得できる",
+			codes: []string{"AAPL", "GOOGL"}, interval: "1day", n: 2,
+			setupFunc: func(t *testing.T, db *sql.DB) {
+				for i := 0; i < 3; i++ {
+					seedCandle(t, db, "AAPL", "1day", baseTime.AddDate(0, 0, i))
+					seedCandle(t, db, "GOOGL", "1day", baseTime.AddDate(0, 0, i))
+				}
+			},
+			validateFunc: func(t *testing.T, candles []Candle) {
+				byCode := map[string][]Candle{}
+				for _, c := range candles {
+					byCode[c.SymbolCode] = append(byCode[c.SymbolCode], c)
+				}
+				assert.Len(t, byCode["AAPL"], 2)
+				assert.Len(t, byCode["GOOGL"], 2)
+				// 各銘柄内で時刻降順になっていること
+				assert.True(t, byCode["AAPL"][0].Time.After(byCode["AAPL"][1].Time))
+				assert.True(t, byCode["GOOGL"][0].Time.After(byCode["GOOGL"][1].Time))
+			},
+		},
+		{
+			name:  "success: intervalフィルタが効く",
+			codes: []string{"AAPL"}, interval: "1day", n: 10,
+			setupFunc: func(t *testing.T, db *sql.DB) {
+				seedCandle(t, db, "AAPL", "1day", baseTime)
+				seedCandle(t, db, "AAPL", "1week", baseTime)
+			},
+			validateFunc: func(t *testing.T, candles []Candle) {
+				assert.Len(t, candles, 1)
+				assert.Equal(t, "1day", candles[0].Interval)
+			},
+		},
+		{
+			name:  "success: 存在しない銘柄コードの行は返らない",
+			codes: []string{"AAPL", "NOTFOUND"}, interval: "1day", n: 10,
+			setupFunc: func(t *testing.T, db *sql.DB) {
+				seedCandle(t, db, "AAPL", "1day", baseTime)
+			},
+			validateFunc: func(t *testing.T, candles []Candle) {
+				assert.Len(t, candles, 1)
+				assert.Equal(t, "AAPL", candles[0].SymbolCode)
+			},
+		},
+		{
+			name:  "success: codesが空スライスなら空結果でクエリ発行なし",
+			codes: []string{}, interval: "1day", n: 10,
+			setupFunc: func(t *testing.T, db *sql.DB) {
+				seedCandle(t, db, "AAPL", "1day", baseTime)
+			},
+			validateFunc: func(t *testing.T, candles []Candle) {
+				assert.Empty(t, candles)
+			},
+		},
+		{
+			name:  "error: n=0はErrInvalidOutputSize",
+			codes: []string{"AAPL"}, interval: "1day", n: 0,
+			wantErr: ErrInvalidOutputSize,
+		},
+		{
+			name:  "error: n=MaxOutputSize+1はErrInvalidOutputSize",
+			codes: []string{"AAPL"}, interval: "1day", n: MaxOutputSize + 1,
+			wantErr: ErrInvalidOutputSize,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := setupTestDB(t)
+			repo := NewRepository(db)
+			if tt.setupFunc != nil {
+				tt.setupFunc(t, db)
+			}
+			candles, err := repo.FindLatestBySymbols(context.Background(), tt.codes, tt.interval, tt.n)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tt.validateFunc != nil {
+				tt.validateFunc(t, candles)
+			}
+		})
+	}
+}
+
 func TestCandleRepository_Find_EntityMapping(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)

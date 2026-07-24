@@ -128,6 +128,14 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 	return sliceCandles(all, outputsize), nil
 }
 
+// FindLatestBySymbols は複数銘柄の直近 n 件を inner にそのまま委譲します。
+// Find のキャッシュキーは「全件（MaxOutputSize件）」を保持する契約のため、
+// ここで直近N件の部分データをSETするとcandles経路のキャッシュを汚染してしまいます。
+// そのためキャッシュの読み書きは一切行いません。
+func (c *CachingRepository) FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]Candle, error) {
+	return c.inner.FindLatestBySymbols(ctx, codes, interval, n)
+}
+
 // sliceCandles は全ローソク足データから先頭 outputsize 件を返します。
 // outputsize は呼び出し元の Find で 1〜MaxOutputSize であることが検証済みのため、
 // ここでは outputsize が件数以上の場合に全件返すことのみを扱います。

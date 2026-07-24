@@ -28,6 +28,12 @@ func (m *mockRepository) Find(ctx context.Context, symbol, interval string, outp
 	return nil, errors.New("FindFunc is not implemented")
 }
 
+// FindLatestBySymbols はRepositoryインターフェースを満たすためだけに存在します
+// （GetCandlesのテストでは使用しません）。
+func (m *mockRepository) FindLatestBySymbols(ctx context.Context, codes []string, interval string, n int) ([]candles.Candle, error) {
+	return nil, errors.New("FindLatestBySymbols is not implemented")
+}
+
 // TestCandlesUsecase_GetCandles はGetCandlesメソッドのパラメータ処理とリポジトリ呼び出しをテストします。
 func TestCandlesUsecase_GetCandles(t *testing.T) {
 	ctx := context.Background()
