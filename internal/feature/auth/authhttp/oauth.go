@@ -133,8 +133,8 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	slog.Info("oauth login successful", "provider", provider)
 
 	// handler.go の Login と同一パターンで Cookie をセット
-	setAuthCookie(w, "auth_token", token, 3600, h.secureCookie, true)
-	setAuthCookie(w, "csrf_token", csrfToken, 3600, h.secureCookie, false)
+	setAuthCookie(w, "auth_token", token, authCookieMaxAge, h.secureCookie, true)
+	setAuthCookie(w, "csrf_token", csrfToken, authCookieMaxAge, h.secureCookie, false)
 
 	http.Redirect(w, r, h.frontendURL, http.StatusFound)
 }

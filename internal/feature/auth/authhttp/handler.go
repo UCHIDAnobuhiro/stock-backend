@@ -32,6 +32,10 @@ const (
 	loginEmailWindow = 15 * time.Minute // メールベースレートリミットのウィンドウ
 )
 
+// authCookieMaxAge は auth_token / csrf_token Cookie の Max-Age（秒）です。
+// JWT の有効期限（jwt.DefaultTokenTTL）から導出し、トークンと Cookie の寿命の乖離を防ぎます。
+const authCookieMaxAge = int(jwt.DefaultTokenTTL / time.Second)
+
 // Handler は認証操作のHTTPリクエストを処理します。
 // Usecaseインターフェースに依存し、JSONリクエスト/レスポンスを処理します。
 type Handler struct {
@@ -140,9 +144,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// 両トークンが揃ってからCookieをセット（原子性保証）
 	// auth_token: httpOnly Cookie（JavaScriptから読み取り不可 → XSS対策）
-	setAuthCookie(w, "auth_token", token, 3600, h.secureCookie, true)
+	setAuthCookie(w, "auth_token", token, authCookieMaxAge, h.secureCookie, true)
 	// csrf_token: 非httpOnly Cookie（JavaScriptが読み取りX-CSRF-Tokenヘッダーにセット → CSRF対策）
-	setAuthCookie(w, "csrf_token", csrfToken, 3600, h.secureCookie, false)
+	setAuthCookie(w, "csrf_token", csrfToken, authCookieMaxAge, h.secureCookie, false)
 
 	slog.Info("user login successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})

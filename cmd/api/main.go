@@ -95,7 +95,7 @@ func run() int {
 	cachedCandleRepo := candles.NewCachingRepository(rdb, candles.DefaultCacheTTL, candleRepo, "candles")
 
 	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
-	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, 1*time.Hour)
+	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, jwt.DefaultTokenTTL)
 	jwtBlacklist := jwt.NewBlacklist(rdb)
 
 	// Google Cloudクライアント初期化
