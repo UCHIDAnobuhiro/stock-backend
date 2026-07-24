@@ -11,6 +11,11 @@ import (
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
+// DefaultTokenTTL はアクセストークン（JWT）の有効期限です。
+// トークンの exp クレームと auth_token / csrf_token Cookie の Max-Age は
+// 必ずこの値から導出し、有効期限の定義を一箇所に集約します。
+const DefaultTokenTTL = time.Hour
+
 // Generator はJWTトークンの生成を実装します。
 // 利用者（例: auth/usecase）が定義するJWTGeneratorインターフェースを実装します。
 type Generator struct {
