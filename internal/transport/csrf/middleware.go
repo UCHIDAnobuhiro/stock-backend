@@ -59,13 +59,49 @@ func Protect() func(http.Handler) http.Handler {
 				return
 			}
 
-			headerVal := r.Header.Get(HeaderName)
-			if headerVal == "" || subtle.ConstantTimeCompare([]byte(headerVal), []byte(cookie.Value)) != 1 {
-				httpx.WriteJSON(w, http.StatusForbidden, api.ErrorResponse{Error: "csrf token mismatch"})
+			if !requireHeaderMatch(w, r, cookie.Value) {
 				return
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ProtectIfCookiePresent は forced logout CSRF対策のミドルウェアです。認証必須にできない
+// logoutエンドポイント向けに、csrf_token Cookieを持つリクエストのみヘッダー照合を要求します（issue #330）。
+func ProtectIfCookiePresent() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			cookie, err := r.Cookie(CookieName)
+			if err != nil || cookie.Value == "" {
+				// Cookieがない（既にログアウト済み・Bearer認証等）場合はチェックをスキップ
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !requireHeaderMatch(w, r, cookie.Value) {
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// requireHeaderMatch はX-CSRF-TokenヘッダーとcsrfCookieValueを定数時間比較します。
+// 一致すればtrueを返し、不一致なら403を書き込んでfalseを返します。
+func requireHeaderMatch(w http.ResponseWriter, r *http.Request, csrfCookieValue string) bool {
+	headerVal := r.Header.Get(HeaderName)
+	if headerVal == "" || subtle.ConstantTimeCompare([]byte(headerVal), []byte(csrfCookieValue)) != 1 {
+		httpx.WriteJSON(w, http.StatusForbidden, api.ErrorResponse{Error: "csrf token mismatch"})
+		return false
+	}
+	return true
 }

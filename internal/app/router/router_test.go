@@ -22,6 +22,7 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/symbollist/symbollisthttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/watchlist"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/watchlist/watchlisthttp"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/csrf"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
@@ -233,6 +234,46 @@ func TestNewRouter_PublicRoutes(t *testing.T) {
 			assert.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
 		})
 	}
+}
+
+// TestNewRouter_LogoutCSRF は /v1/logout が forced logout CSRF 対策として、
+// csrf_token Cookie を持つリクエストのみ X-CSRF-Token ヘッダー照合を要求することを検証します（issue #330）。
+func TestNewRouter_LogoutCSRF(t *testing.T) {
+	t.Parallel()
+
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+
+	t.Run("error: csrf_token cookie present with missing header returns 403", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, oauthHandler)
+		req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
+		req.AddCookie(&http.Cookie{Name: csrf.CookieName, Value: "csrf-token"})
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("error: csrf_token cookie present with mismatched header returns 403", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, oauthHandler)
+		req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
+		req.AddCookie(&http.Cookie{Name: csrf.CookieName, Value: "csrf-token"})
+		req.Header.Set(csrf.HeaderName, "other-token")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("success: csrf_token cookie present with matching header does not return 403", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, oauthHandler)
+		req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
+		req.AddCookie(&http.Cookie{Name: csrf.CookieName, Value: "csrf-token"})
+		req.Header.Set(csrf.HeaderName, "csrf-token")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusForbidden, rec.Code)
+	})
 }
 
 // TestNewRouter_OAuthRoutesOptional は Handlers.OAuth が nil の場合に

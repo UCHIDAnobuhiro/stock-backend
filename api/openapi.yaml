@@ -141,11 +141,19 @@ paths:
       security: []
       responses:
         "200":
-          description: ログアウト成功（auth_token・csrf_token Cookieを削除）
+          description: |
+            ログアウト成功（auth_token・csrf_token Cookieを削除）。
+            csrf_token Cookieを保持している場合はX-CSRF-Tokenヘッダーとの一致が必要です。
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
+        "403":
+          description: csrf_token Cookieを保持しているにもかかわらずX-CSRF-Tokenヘッダーが欠落・不一致
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /v1/auth/oauth/{provider}:
     get:

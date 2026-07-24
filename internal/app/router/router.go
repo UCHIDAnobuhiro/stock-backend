@@ -96,8 +96,12 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 				Policy: httpratelimit.FailClosed,
 			})).Post("/login", h.Auth.Login)
 
-			// 期限切れトークンでもログアウトできるよう認証不要
-			r.Delete("/logout", h.Auth.Logout)
+			// 期限切れトークンでもログアウトできるよう認証不要（冪等設計）。
+			// ただし forced logout CSRF 対策として、csrf_token Cookie を持つリクエストのみ
+			// Double Submit 照合を行う（Cookie を持たない Bearer クライアント等は通過）。
+			// なお DELETE は CORS プリフライト必須 + SameSite=Lax のため実攻撃は困難であり、
+			// 本ミドルウェアは防御の多層化（defense-in-depth）である（issue #330）。
+			r.With(csrfmw.ProtectIfCookiePresent()).Delete("/logout", h.Auth.Logout)
 
 			// OAuthルート（環境変数が設定されている場合のみ登録）
 			if h.OAuth != nil {

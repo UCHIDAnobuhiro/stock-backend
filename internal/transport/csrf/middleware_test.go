@@ -128,6 +128,100 @@ func TestProtect_BearerAuthSkipsCheck(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestProtectIfCookiePresent_SafeMethodsSkipped(t *testing.T) {
+	t.Parallel()
+
+	methods := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+
+			next, called := newRecordingHandler()
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(method, "/", nil)
+
+			ProtectIfCookiePresent()(next).ServeHTTP(w, req)
+
+			assert.True(t, *called, "next must be called for safe methods")
+			assert.Equal(t, http.StatusOK, w.Code)
+		})
+	}
+}
+
+func TestProtectIfCookiePresent_NoCookieSkipsCheck(t *testing.T) {
+	t.Parallel()
+
+	next, called := newRecordingHandler()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/", nil)
+
+	ProtectIfCookiePresent()(next).ServeHTTP(w, req)
+
+	assert.True(t, *called, "next must be called when csrf_token cookie is absent")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestProtectIfCookiePresent_EmptyCookieSkipsCheck(t *testing.T) {
+	t.Parallel()
+
+	next, called := newRecordingHandler()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/", nil)
+	req.AddCookie(&http.Cookie{Name: CookieName, Value: ""})
+
+	ProtectIfCookiePresent()(next).ServeHTTP(w, req)
+
+	assert.True(t, *called, "next must be called when csrf_token cookie is empty")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestProtectIfCookiePresent_RejectsMissingOrMismatchedHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		headerValue string
+	}{
+		{name: "missing header", headerValue: ""},
+		{name: "mismatch", headerValue: "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			next, called := newRecordingHandler()
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodDelete, "/", nil)
+			req.AddCookie(&http.Cookie{Name: CookieName, Value: "token"})
+			if tt.headerValue != "" {
+				req.Header.Set(HeaderName, tt.headerValue)
+			}
+
+			ProtectIfCookiePresent()(next).ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusForbidden, w.Code)
+			assert.False(t, *called, "next must not be called when CSRF check fails")
+		})
+	}
+}
+
+func TestProtectIfCookiePresent_AllowsMatchingToken(t *testing.T) {
+	t.Parallel()
+
+	const token = "matching-csrf-token"
+	next, called := newRecordingHandler()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/", nil)
+	req.AddCookie(&http.Cookie{Name: CookieName, Value: token})
+	req.Header.Set(HeaderName, token)
+
+	ProtectIfCookiePresent()(next).ServeHTTP(w, req)
+
+	assert.True(t, *called, "next must be called when tokens match")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 // TestProtect_CookieAuthWithForgedBearerStillRequiresCSRF is the regression for
 // issue #201: even when a forged Authorization: Bearer header is present, cookie
 // auth takes priority (auth_source == "cookie"), so the CSRF check must still run.

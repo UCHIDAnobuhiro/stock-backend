@@ -131,6 +131,12 @@ sequenceDiagram
     participant Blacklist as jwt.Blacklist<br/>(Redis)
 
     Client->>Handler: DELETE /v1/logout
+    alt csrf_token Cookieを保持
+        Handler->>Handler: X-CSRF-Tokenヘッダーとcsrf_token Cookieを比較
+        alt ヘッダー欠落・不一致
+            Handler-->>Client: 403 Forbidden<br/>{error: "csrf token mismatch"}
+        end
+    end
     Handler->>Handler: リクエストからJWT抽出（Cookie優先→Authorizationヘッダー）
     alt トークンが有効（署名OK・未期限切れ）
         Handler->>Blacklist: Revoke(jti, ttl=exp-now)
@@ -375,6 +381,10 @@ sequenceDiagram
 リクエストが有効なJWTを保持している場合、その`jti`をRedisブラックリストへ登録し、
 有効期限（発行から1時間）を待たずに即時失効させます。
 
+ただし forced logout CSRF 対策として、`csrf_token` Cookie を保持しているリクエストに限り
+`X-CSRF-Token` ヘッダーとの一致（Double Submit Cookie照合）が必須です
+（`csrf_token` Cookieを持たないリクエストはチェックをスキップして通過します）。
+
 **レスポンス**
 
 - **200 OK** - ログアウト成功
@@ -388,7 +398,14 @@ sequenceDiagram
   - `auth_token`: 空文字列、`Max-Age=0`（即時削除）
   - `csrf_token`: 空文字列、`Max-Age=0`（即時削除）
 
-**注意**: 期限切れトークンを持つクライアントでも必ずログアウトできるよう、認証不要のエンドポイントに設定されています。
+- **403 Forbidden** - `csrf_token` Cookieを保持しているにもかかわらず`X-CSRF-Token`ヘッダーが欠落・不一致
+  ```json
+  {
+    "error": "csrf token mismatch"
+  }
+  ```
+
+**注意**: 期限切れトークンを持つクライアントでも必ずログアウトできるよう、認証不要のエンドポイントに設定されています（issue #330）。
 
 ### GET /v1/auth/oauth/:provider
 
