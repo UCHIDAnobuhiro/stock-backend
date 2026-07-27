@@ -34,9 +34,9 @@ func New() (func(http.Handler) http.Handler, error) {
 
 	opts := &nethttpmiddleware.Options{
 		Options: openapi3filter.Options{
-			// 認証は jwt / csrf ミドルウェアが担うため、検証層では認証を no-op にする。
-			// spec の protected route は security: [cookieAuth] を宣言しており、
-			// これを設定しないと openapi3filter が認証器不在でエラーになる。
+			// 認証とCSRFの実検証は前段の jwt / csrf ミドルウェアが担う。
+			// OpenAPI の Security Requirement は契約記述に使用し、この検証層では no-op にする。
+			// これを設定しないと openapi3filter が各 Security Scheme の認証器不在でエラーになる。
 			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
 		},
 		// バリデーション失敗時は詳細をログに残しつつ、クライアントへは汎用文言を返す
