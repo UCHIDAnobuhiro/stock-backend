@@ -98,9 +98,6 @@ func TestMiddleware_RequestValidation(t *testing.T) {
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
-			// 保護ルートは spec で X-CSRF-Token ヘッダーを必須宣言しているため常に付与する
-			// （実運用では csrf ミドルウェアが先に検証し、ここには到達済みの値が渡る）。
-			req.Header.Set("X-CSRF-Token", "dummy-csrf-token")
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)

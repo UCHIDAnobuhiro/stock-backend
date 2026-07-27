@@ -228,6 +228,7 @@ paths:
         - candles
       security:
         - cookieAuth: []
+        - bearerAuth: []
       parameters:
         - name: code
           in: path
@@ -289,6 +290,7 @@ paths:
         - quotes
       security:
         - cookieAuth: []
+        - bearerAuth: []
       parameters:
         - name: codes
           in: query
@@ -349,6 +351,7 @@ paths:
         - symbols
       security:
         - cookieAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: 銘柄一覧
@@ -375,6 +378,7 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: ウォッチリスト一覧
@@ -399,8 +403,8 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
+          csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -455,6 +459,8 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
+          csrfToken: []
+        - bearerAuth: []
       parameters:
         - name: code
           in: path
@@ -464,7 +470,6 @@ paths:
             type: string
             maxLength: 20
             pattern: "^[A-Za-z0-9._-]{1,20}$"
-        - $ref: "#/components/parameters/CsrfToken"
       responses:
         "204":
           description: 削除成功
@@ -503,8 +508,8 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
+          csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -543,8 +548,8 @@ paths:
         - logo
       security:
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
+          csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -625,8 +630,8 @@ paths:
         - logo
       security:
         - cookieAuth: []
-      parameters:
-        - $ref: "#/components/parameters/CsrfToken"
+          csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -685,20 +690,22 @@ components:
       in: cookie
       name: auth_token
 
-  parameters:
-    CsrfToken:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+    csrfToken:
+      type: apiKey
       name: X-CSRF-Token
       in: header
-      required: true
       description: |
         CSRFトークン（Double Submit Cookieパターン）。
         ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-      schema:
-        type: string
 
   responses:
     UnauthorizedError:
-      description: 認証失敗（auth_token Cookieが無い・無効・期限切れ）
+      description: 認証失敗（auth_token CookieまたはBearerトークンが無い・無効・期限切れ）
       content:
         application/json:
           schema:
