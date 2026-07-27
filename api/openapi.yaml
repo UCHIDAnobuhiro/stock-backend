@@ -228,6 +228,7 @@ paths:
         - candles
       security:
         - cookieAuth: []
+        - bearerAuth: []
       parameters:
         - name: code
           in: path
@@ -289,6 +290,7 @@ paths:
         - quotes
       security:
         - cookieAuth: []
+        - bearerAuth: []
       parameters:
         - name: codes
           in: query
@@ -349,6 +351,7 @@ paths:
         - symbols
       security:
         - cookieAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: 銘柄一覧
@@ -375,6 +378,7 @@ paths:
         - watchlist
       security:
         - cookieAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: ウォッチリスト一覧
@@ -400,6 +404,7 @@ paths:
       security:
         - cookieAuth: []
           csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -455,6 +460,7 @@ paths:
       security:
         - cookieAuth: []
           csrfToken: []
+        - bearerAuth: []
       parameters:
         - name: code
           in: path
@@ -503,6 +509,7 @@ paths:
       security:
         - cookieAuth: []
           csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -542,6 +549,7 @@ paths:
       security:
         - cookieAuth: []
           csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -623,6 +631,7 @@ paths:
       security:
         - cookieAuth: []
           csrfToken: []
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -681,6 +690,11 @@ components:
       in: cookie
       name: auth_token
 
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
     csrfToken:
       type: apiKey
       name: X-CSRF-Token
@@ -691,7 +705,7 @@ components:
 
   responses:
     UnauthorizedError:
-      description: 認証失敗（auth_token Cookieが無い・無効・期限切れ）
+      description: 認証失敗（auth_token CookieまたはBearerトークンが無い・無効・期限切れ）
       content:
         application/json:
           schema:

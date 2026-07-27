@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 	CsrfTokenScopes  csrfTokenContextKey  = "csrfToken.Scopes"
 )
@@ -232,6 +233,9 @@ type WatchlistItem struct {
 
 // UnauthorizedError defines model for UnauthorizedError.
 type UnauthorizedError = ErrorResponse
+
+// bearerAuthContextKey is the context key for bearerAuth security scheme
+type bearerAuthContextKey string
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string

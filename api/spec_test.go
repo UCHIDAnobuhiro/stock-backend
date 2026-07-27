@@ -34,10 +34,11 @@ func TestMutationOperationsRequireCookieAndCSRF(t *testing.T) {
 			operation := pathItem.GetOperation(tt.method)
 			require.NotNil(t, operation)
 			require.NotNil(t, operation.Security)
-			require.Len(t, *operation.Security, 1)
+			require.Len(t, *operation.Security, 2)
 
 			require.Contains(t, (*operation.Security)[0], "cookieAuth")
 			require.Contains(t, (*operation.Security)[0], "csrfToken")
+			require.Contains(t, (*operation.Security)[1], "bearerAuth")
 		})
 	}
 }
