@@ -9,6 +9,7 @@ import (
 
 const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
+	CsrfTokenScopes  csrfTokenContextKey  = "csrfToken.Scopes"
 )
 
 // Defines values for BeginOAuthParamsProvider.
@@ -229,14 +230,14 @@ type WatchlistItem struct {
 	SymbolCode string `json:"symbol_code"`
 }
 
-// CsrfToken defines model for CsrfToken.
-type CsrfToken = string
-
 // UnauthorizedError defines model for UnauthorizedError.
 type UnauthorizedError = ErrorResponse
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
+
+// csrfTokenContextKey is the context key for csrfToken security scheme
+type csrfTokenContextKey string
 
 // BeginOAuthParamsProvider defines parameters for BeginOAuth.
 type BeginOAuthParamsProvider string
@@ -262,24 +263,10 @@ type GetCandlesParams struct {
 // GetCandlesParamsInterval defines parameters for GetCandles.
 type GetCandlesParamsInterval string
 
-// AnalyzeCompanyParams defines parameters for AnalyzeCompany.
-type AnalyzeCompanyParams struct {
-	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
-	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
-}
-
 // DetectLogoMultipartBody defines parameters for DetectLogo.
 type DetectLogoMultipartBody struct {
 	// Image ロゴ検出対象の画像ファイル（最大10MB）
 	Image openapi_types.File `json:"image"`
-}
-
-// DetectLogoParams defines parameters for DetectLogo.
-type DetectLogoParams struct {
-	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
-	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
 }
 
 // GetQuotesParams defines parameters for GetQuotes.
@@ -296,27 +283,6 @@ type GetQuotesParams struct {
 
 // GetQuotesParamsInterval defines parameters for GetQuotes.
 type GetQuotesParamsInterval string
-
-// AddToWatchlistParams defines parameters for AddToWatchlist.
-type AddToWatchlistParams struct {
-	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
-	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
-}
-
-// ReorderWatchlistParams defines parameters for ReorderWatchlist.
-type ReorderWatchlistParams struct {
-	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
-	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
-}
-
-// RemoveFromWatchlistParams defines parameters for RemoveFromWatchlist.
-type RemoveFromWatchlistParams struct {
-	// XCSRFToken CSRFトークン（Double Submit Cookieパターン）。
-	// ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
-	XCSRFToken CsrfToken `json:"X-CSRF-Token"`
-}
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
