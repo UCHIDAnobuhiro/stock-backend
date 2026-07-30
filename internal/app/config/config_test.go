@@ -117,6 +117,36 @@ func TestReadDuration(t *testing.T) {
 	}
 }
 
+func TestReadCache(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		want     time.Duration
+		wantWarn bool
+	}{
+		{name: "未設定は既定値", value: "", want: defaultCandlesCacheTTL},
+		{name: "正常値", value: "2h30m", want: 2*time.Hour + 30*time.Minute},
+		{name: "不正値は警告して既定値", value: "invalid", want: defaultCandlesCacheTTL, wantWarn: true},
+		{name: "0以下は警告して既定値", value: "0s", want: defaultCandlesCacheTTL, wantWarn: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CANDLES_CACHE_TTL", tt.value)
+			var warn []string
+
+			got := readCache(&warn)
+
+			if got.CandlesTTL != tt.want {
+				t.Errorf("CandlesTTL = %v, want %v", got.CandlesTTL, tt.want)
+			}
+			if (len(warn) > 0) != tt.wantWarn {
+				t.Errorf("warn = %v, wantWarn %v", warn, tt.wantWarn)
+			}
+		})
+	}
+}
+
 // TestParseCORSOrigins は CORS_ALLOWED_ORIGINS env の生文字列パースが
 // trim・空要素除去・複数要素対応を正しく行うことを検証します。
 func TestParseCORSOrigins(t *testing.T) {

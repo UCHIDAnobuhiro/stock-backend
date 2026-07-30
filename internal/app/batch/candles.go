@@ -49,7 +49,7 @@ func runCandleIngest(cfg *config.Config) int {
 
 	// UpsertBatchは対象キーのキャッシュをDELするのみで、再構築は次回Findのcache-miss時に行われる。
 	// TTLはDEL失敗時や競合による汚染時に古いキャッシュが残り続けないためのセーフティネット。
-	cachedCandleRepo := candles.NewCachingRepository(rdb, candles.DefaultCacheTTL, candleRepo, "candles")
+	cachedCandleRepo := candles.NewCachingRepository(rdb, cfg.Cache.CandlesTTL, candleRepo, "candles")
 
 	uc := candles.NewIngestUsecase(marketRepo, cachedCandleRepo, ingestSymbolRepo, rateLimiter)
 

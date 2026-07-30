@@ -485,6 +485,34 @@ func TestCachingCandleRepository_UpsertBatch_InvalidatesCache(t *testing.T) {
 	}
 }
 
+// TestCachingCandleRepository_UpsertBatch_CacheInvalidationError はキャッシュ削除に
+// 失敗しても、DBへの書き込みが成功していればUpsertBatchを成功として扱うことを検証します。
+func TestCachingCandleRepository_UpsertBatch_CacheInvalidationError(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	inner := &mockReadWriteRepository{
+		upsertBatchFn: func(ctx context.Context, candles []Candle) error {
+			return nil
+		},
+	}
+
+	mock.ExpectDel("candles:AAPL:1day").SetErr(errors.New("redis unavailable"))
+
+	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+	err := repo.UpsertBatch(context.Background(), []Candle{
+		{SymbolCode: "AAPL", Interval: "1day"},
+	})
+	if err != nil {
+		t.Fatalf("cache invalidation error should not fail the DB write: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
 // TestCachingCandleRepository_UpsertBatch_DeduplicatesDel は同一symbol+intervalの
 // キャッシュキーに対するDELが重複せず1回のみ実行されることを検証します。
 func TestCachingCandleRepository_UpsertBatch_DeduplicatesDel(t *testing.T) {

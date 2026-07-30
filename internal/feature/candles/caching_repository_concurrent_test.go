@@ -89,7 +89,7 @@ func TestCachingRepository_ConcurrentFindAndUpsert(t *testing.T) {
 	)
 
 	inner := newVersionedInnerRepository(symbol, interval, candleCount)
-	repo := NewCachingRepository(rdb, DefaultCacheTTL, inner, "candles-concurrent-test")
+	repo := NewCachingRepository(rdb, 24*time.Hour, inner, "candles-concurrent-test")
 
 	ctx := context.Background()
 
