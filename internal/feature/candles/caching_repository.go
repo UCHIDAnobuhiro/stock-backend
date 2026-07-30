@@ -4,17 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
-
-// DefaultCacheTTL はキャッシュが汚染された場合やDEL失敗時に、古いデータが
-// 残り続けないためのセーフティネットTTL。通常運用ではingestのUpsertBatchが
-// 対象キーをDELし、次回Find時のcache-miss経路でキャッシュが再構築されるため、
-// このTTLはあくまでフォールバックとしてのみ機能する。
-const DefaultCacheTTL = 24 * time.Hour
 
 // readWriteRepository はCachingRepositoryが内部で必要とする読み書きインターフェースです。
 type readWriteRepository interface {
@@ -79,7 +74,13 @@ func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) e
 	// 各 symbol+interval のキャッシュを削除するのみ（再構築は次回Findに委ねる）
 	for si := range seen {
 		key := c.cacheKey(si.symbol, si.interval)
-		_ = c.rdb.Del(ctx, key).Err() // ベストエフォート
+		if err := c.rdb.Del(ctx, key).Err(); err != nil {
+			slog.Warn("failed to invalidate candle cache",
+				"symbol", si.symbol,
+				"interval", si.interval,
+				"error", err,
+			)
+		}
 	}
 	return nil
 }

@@ -33,6 +33,8 @@ const (
 	defaultIngestTimeoutHours = 3
 	// defaultMaxFailureRate は *_MAX_FAILURE_RATE のデフォルト値。
 	defaultMaxFailureRate = 0.2
+	// defaultCandlesCacheTTL は CANDLES_CACHE_TTL 未設定・不正時のフォールバック。
+	defaultCandlesCacheTTL = 24 * time.Hour
 	// minSecretLength は JWT_SECRET / PASSWORD_PEPPER に要求する最低バイト数。
 	// HS256 署名鍵の総当たり偽造を防ぐため 32 バイト以上を必須とする。
 	minSecretLength = 32
@@ -44,6 +46,7 @@ type Config struct {
 	Log        LogConfig         // 全エントリポイント共通
 	DB         db.Config         // API / batch / migrate
 	Redis      RedisConfig       // API / batch
+	Cache      CacheConfig       // API / batch
 	Server     ServerConfig      // API のみ
 	OAuth      *di.OAuthConfig   // API のみ（OAuth 無効なら nil）
 	TwelveData twelvedata.Config // batch のみ
@@ -62,6 +65,11 @@ type RedisConfig struct {
 	Host     string
 	Port     string
 	Password string
+}
+
+// CacheConfig はキャッシュの有効期限設定です。
+type CacheConfig struct {
+	CandlesTTL time.Duration
 }
 
 // ServerConfig は API サーバー固有の検証済み設定です。
@@ -92,6 +100,7 @@ func LoadAPI() (*Config, error) {
 	cfg.Log = readLog(&cfg.Warnings)
 	cfg.DB = readDB(&cfg.Warnings)
 	cfg.Redis = readRedis()
+	cfg.Cache = readCache(&cfg.Warnings)
 
 	server, err := readServer(&cfg.Warnings)
 	if err != nil {
@@ -115,6 +124,7 @@ func LoadBatch() (*Config, error) {
 	cfg.Log = readLog(&cfg.Warnings)
 	cfg.DB = readDB(&cfg.Warnings)
 	cfg.Redis = readRedis()
+	cfg.Cache = readCache(&cfg.Warnings)
 	cfg.TwelveData = readTwelveData()
 	cfg.Batch = readBatch(&cfg.Warnings)
 	return cfg, nil
@@ -168,6 +178,15 @@ func readRedis() RedisConfig {
 		Port:     os.Getenv("REDIS_PORT"),
 		Password: os.Getenv("REDIS_PASSWORD"),
 	}
+}
+
+// readCache はキャッシュ関連の環境変数を読み込みます。
+func readCache(warn *[]string) CacheConfig {
+	ttl := readDuration("CANDLES_CACHE_TTL", warn)
+	if ttl == 0 {
+		ttl = defaultCandlesCacheTTL
+	}
+	return CacheConfig{CandlesTTL: ttl}
 }
 
 // readTwelveData は TWELVE_DATA_* 環境変数から TwelveData クライアント設定を組み立てます。
