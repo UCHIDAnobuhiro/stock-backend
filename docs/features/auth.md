@@ -144,7 +144,7 @@ sequenceDiagram
 
 **注意**: ログアウトは期限切れトークンでも動作するよう、認証不要のルートに配置されています（失効させるべき有効なトークンがない場合、ブラックリスト登録はスキップされます）。
 
-**即時失効の仕組み（issue #263）**: JWTには生成時に`jti`（JWT ID）クレームを付与しており（`internal/transport/jwt/generator.go`）、ログアウト時に`jti`をRedisブラックリストへ登録します（`internal/transport/jwt/blacklist.go`）。認証ミドルウェア（`AuthRequired`）はリクエストごとにブラックリストを確認し、登録済みの`jti`を持つトークンを401で拒否します。ブラックリストのRedisエントリはトークンの残り有効期限と同じTTLで自動失効するため、際限なく肥大化しません。Redis未接続時は他のRedis依存コンポーネント（レートリミッター・キャッシュ）と同様にフェイルオープン（失効チェックをスキップ）します。
+**即時失効の仕組み（issue #263）**: JWTには生成時に`jti`（JWT ID）クレームを付与しており（`internal/transport/jwt/generator.go`）、ログアウト時に`jti`をRedisブラックリストへ登録します（`internal/transport/jwt/blacklist.go`）。認証ミドルウェア（`AuthRequired`）はリクエストごとにブラックリストを確認し、登録済みの`jti`を持つトークンを401で拒否します。ブラックリストのRedisエントリはトークンの残り有効期限と同じTTLで自動失効するため、際限なく肥大化しません。Redis未接続時はフェイルオープン（失効チェックをスキップ）します。JWTは元々短命（`DefaultTokenTTL` = 1時間）で`exp`により失効するため、ブラックリストは失効を前倒しする補助機構と位置づけ、可用性を優先する方針です。認証系レートリミットは同じRedis障害に対してfail-closed（503）である点に注意してください（[ADR-0008](../adr/0008-レートリミット障害時のfail-open-fail-closed方針.md)）。
 
 ### OAuth2 認可開始フロー
 
