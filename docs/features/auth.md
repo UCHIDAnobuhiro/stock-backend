@@ -2,15 +2,16 @@
 
 ## 概要
 
-Auth フィーチャーは、JWT（JSON Web Token）ベースの認証システムを提供します。ユーザー登録、ログイン、JWTトークンの発行・検証を処理します。
+Auth フィーチャーは、短期JWTとサーバー管理リフレッシュトークンを組み合わせた認証システムを提供します。ユーザー登録、ログイン、トークン更新・失効を処理します。
 
 ### 主な機能
 
 - **ユーザー登録（Signup）**: メールアドレスとパスワードで新規ユーザーを登録
-- **ログイン**: 認証情報を検証し、JWTトークンを発行
+- **ログイン**: 認証情報を検証し、JWTとリフレッシュトークンを発行
 - **OAuth2 ログイン**: Google / GitHub プロバイダーによるソーシャルログイン（PKCE 対応。同メールの既存アカウントへの自動リンクは行わず、フロントエンドのログイン画面へ `error=account_conflict` 付きでリダイレクトする）
 - **パスワード暗号化**: HMAC-SHA256ペッパー + bcryptによる安全なパスワードハッシュ化
-- **JWT認証**: 保護エンドポイントへのアクセス制御用に有効期限1時間のJWTトークンを発行
+- **JWT認証**: 保護エンドポイントへのアクセス制御用に有効期限10分のJWTトークンを発行
+- **セッション更新**: 30日有効のリフレッシュトークンを使用ごとにローテーションし、再利用を検知した系列を失効
 - **レートリミット**: Redis Sorted Setによるスライディングウィンドウ方式でブルートフォース攻撃を防止
 
 ## シーケンス図
@@ -68,7 +69,7 @@ sequenceDiagram
     participant Handler as Handler
     participant Limiter as Email Rate Limiter<br/>(Redis)
     participant Usecase as Usecase
-    participant JWTGenerator as JWTGenerator
+    participant Session as SessionService
     participant Repository as UserRepository
     participant DB as PostgreSQL
 
@@ -112,14 +113,38 @@ sequenceDiagram
         Handler-->>Client: 401 Unauthorized<br/>{error: "invalid email or password"}
     end
 
-    Usecase->>JWTGenerator: GenerateToken(userID, email)
-    JWTGenerator-->>Usecase: JWT Token
-    Usecase-->>Handler: JWT Token
+    Usecase->>Session: Issue(userID, email)
+    Session->>DB: INSERT refresh_sessions (token hash only)
+    Session-->>Usecase: TokenPair
+    Usecase-->>Handler: TokenPair
     Handler->>Handler: GenerateCSRFToken()
-    Handler->>Handler: SetCookie auth_token (HttpOnly)
-    Handler->>Handler: SetCookie csrf_token (non-HttpOnly)
+    Handler->>Handler: SetCookie auth_token / refresh_token / csrf_token
     Handler-->>Client: 200 OK<br/>{"message":"ok"}
-    Note over Handler,Client: Set-Cookie: auth_token=... (HttpOnly)<br/>Set-Cookie: csrf_token=...
+    Note over Handler,Client: auth_token / refresh_token are HttpOnly
+```
+
+### トークン更新フロー
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Handler
+    participant Session as SessionService
+    participant DB as PostgreSQL
+
+    Client->>Handler: POST /v1/auth/refresh<br/>refresh_token Cookie + X-CSRF-Token
+    Handler->>Session: Refresh(refreshToken)
+    Session->>DB: SELECT ... FOR UPDATE
+    alt 有効な未使用トークン
+        Session->>DB: 旧トークンを消費済みに更新<br/>次トークンを同一トランザクションで作成
+        Session-->>Handler: 新しいTokenPair
+        Handler-->>Client: 200 OK + Cookie一式を交換
+    else 使用済みトークンの再利用
+        Session->>DB: 同じfamily_idをすべて失効
+        Handler-->>Client: 401 Unauthorized
+    else 無効・期限切れ
+        Handler-->>Client: 401 Unauthorized
+    end
 ```
 
 ### ログアウトフロー
@@ -129,22 +154,23 @@ sequenceDiagram
     participant Client
     participant Handler as Handler
     participant Blacklist as jwt.Blacklist<br/>(Redis)
+    participant Sessions as RefreshSessionRepository<br/>(PostgreSQL)
 
     Client->>Handler: DELETE /v1/logout
+    Handler->>Sessions: refresh token familyを失効
     Handler->>Handler: リクエストからJWT抽出（Cookie優先→Authorizationヘッダー）
     alt トークンが有効（署名OK・未期限切れ）
         Handler->>Blacklist: Revoke(jti, ttl=exp-now)
         Note over Blacklist: jwt:blacklist:<jti> をttl付きでSET<br/>Redis未接続時は警告ログのみ（グレースフルデグレード）
     end
-    Handler->>Handler: Clear auth_token cookie (MaxAge -1)
-    Handler->>Handler: Clear csrf_token cookie (MaxAge -1)
+    Handler->>Handler: Clear auth_token / refresh_token / csrf_token
     Handler-->>Client: 200 OK {"message":"ok"}
-    Note over Handler,Client: Set-Cookie: auth_token (Max-Age 0)<br/>Set-Cookie: csrf_token (Max-Age 0)
+    Note over Handler,Client: 認証CookieはすべてMax-Age 0
 ```
 
 **注意**: ログアウトは期限切れトークンでも動作するよう、認証不要のルートに配置されています（失効させるべき有効なトークンがない場合、ブラックリスト登録はスキップされます）。
 
-**即時失効の仕組み（issue #263）**: JWTには生成時に`jti`（JWT ID）クレームを付与しており（`internal/transport/jwt/generator.go`）、ログアウト時に`jti`をRedisブラックリストへ登録します（`internal/transport/jwt/blacklist.go`）。認証ミドルウェア（`AuthRequired`）はリクエストごとにブラックリストを確認し、登録済みの`jti`を持つトークンを401で拒否します。ブラックリストのRedisエントリはトークンの残り有効期限と同じTTLで自動失効するため、際限なく肥大化しません。Redis未接続時はフェイルオープン（失効チェックをスキップ）します。JWTは元々短命（`DefaultTokenTTL` = 1時間）で`exp`により失効するため、ブラックリストは失効を前倒しする補助機構と位置づけ、可用性を優先する方針です。認証系レートリミットは同じRedis障害に対してfail-closed（503）である点に注意してください（[ADR-0008](../adr/0008-レートリミット障害時のfail-open-fail-closed方針.md)）。
+**即時失効の仕組み（issue #263）**: JWTには生成時に`jti`（JWT ID）クレームを付与しており（`internal/transport/jwt/generator.go`）、ログアウト時に`jti`をRedisブラックリストへ登録します（`internal/transport/jwt/blacklist.go`）。認証ミドルウェア（`AuthRequired`）はリクエストごとにブラックリストを確認し、登録済みの`jti`を持つトークンを401で拒否します。ブラックリストのRedisエントリはトークンの残り有効期限と同じTTLで自動失効するため、際限なく肥大化しません。Redis未接続時はフェイルオープン（失効チェックをスキップ）します。JWTは10分で`exp`により失効するため、ブラックリストは失効を前倒しする補助機構と位置づけます。リフレッシュセッションはPostgreSQLで失効を管理し、DB障害時のログアウトはfail-closedで503を返します。
 
 ### OAuth2 認可開始フロー
 
@@ -241,11 +267,11 @@ sequenceDiagram
         end
     end
 
-    Usecase->>JWT: GenerateToken(userID, email)
-    JWT-->>Usecase: JWT Token
-    Usecase-->>Handler: JWT Token
+    Usecase->>JWT: Issue(userID, email)
+    JWT-->>Usecase: TokenPair
+    Usecase-->>Handler: TokenPair
     Handler->>Handler: GenerateCSRFToken()
-    Handler->>Handler: SetCookie(auth_token, csrf_token)
+    Handler->>Handler: SetCookie(auth_token, refresh_token, csrf_token)
     Handler-->>Client: 302 Redirect → OAUTH_FRONTEND_REDIRECT_URL
 ```
 
@@ -307,7 +333,7 @@ sequenceDiagram
 
 ### POST /v1/login
 
-ユーザーを認証し、JWTトークンを発行します。
+ユーザーを認証し、JWTアクセストークンとリフレッシュトークンを発行します。
 
 **リクエスト**
 ```json
@@ -331,14 +357,15 @@ sequenceDiagram
   ```
 
   **Set-Cookieヘッダー:**
-  - `auth_token`: JWTトークン（`HttpOnly; SameSite=Lax; Max-Age=3600`）— JavaScriptから読み取り不可（XSS対策）
-  - `csrf_token`: CSRFトークン（`SameSite=Lax; Max-Age=3600`）— JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット（CSRF対策）
+  - `auth_token`: JWTトークン（`HttpOnly; SameSite=Lax; Max-Age=600`）— JavaScriptから読み取り不可
+  - `refresh_token`: 不透明トークン（`HttpOnly; SameSite=Lax; Max-Age=2592000`）— DBにはSHA-256ハッシュのみ保存
+  - `csrf_token`: CSRFトークン（`SameSite=Lax; Max-Age=2592000`）— JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット
 
   **JWTクレーム（auth_token内）:**
   - `sub`: ユーザーID（int64を文字列として格納）
   - `email`: ユーザーのメールアドレス
   - `iat`: 発行日時（Unixタイムスタンプ）
-  - `exp`: 有効期限（発行日時 + 1時間）
+  - `exp`: 有効期限（発行日時 + 10分）
 
 - **400 Bad Request** - バリデーションエラー
   ```json
@@ -369,11 +396,20 @@ sequenceDiagram
   }
   ```
 
+### POST /v1/auth/refresh
+
+`refresh_token` Cookieを一度だけ消費し、`auth_token`、`refresh_token`、`csrf_token`をすべて交換します。`X-CSRF-Token`ヘッダーが必要です。
+
+- **200 OK**: 更新成功
+- **401 Unauthorized**: トークンが無効、期限切れ、失効済み、または再利用
+- **403 Forbidden**: CSRFトークン不正
+- **429 Too Many Requests**: IP単位で30回/分を超過
+
 ### DELETE /v1/logout
 
-ログアウトします（`auth_token` と `csrf_token` のCookieを削除）。認証不要です。
+ログアウトします。リフレッシュセッション系列を失効させ、認証Cookieをすべて削除します。JWT認証自体は不要ですが、Cookieがある場合はCSRF検証を行います。
 リクエストが有効なJWTを保持している場合、その`jti`をRedisブラックリストへ登録し、
-有効期限（発行から1時間）を待たずに即時失効させます。
+有効期限（発行から10分）を待たずに即時失効させます。
 
 **レスポンス**
 
@@ -386,6 +422,7 @@ sequenceDiagram
 
   **Set-Cookieヘッダー:**
   - `auth_token`: 空文字列、`Max-Age=0`（即時削除）
+  - `refresh_token`: 空文字列、`Max-Age=0`（即時削除）
   - `csrf_token`: 空文字列、`Max-Age=0`（即時削除）
 
 **注意**: 期限切れトークンを持つクライアントでも必ずログアウトできるよう、認証不要のエンドポイントに設定されています。
@@ -407,7 +444,7 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 
 ### GET /v1/auth/oauth/:provider/callback
 
-プロバイダーから認可コードを受け取り、ユーザー認証・JWT 発行・フロントエンドへのリダイレクトを行います。
+プロバイダーから認可コードを受け取り、ユーザー認証・認証セッション発行・フロントエンドへのリダイレクトを行います。
 
 **パスパラメータ**
 - `provider`: `google` | `github`
@@ -426,8 +463,9 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 
 - **302 Found**
   - 成功時: `OAUTH_FRONTEND_REDIRECT_URL` へリダイレクト
-    - `Set-Cookie: auth_token=<JWT>; HttpOnly; SameSite=Lax; Max-Age=3600`
-    - `Set-Cookie: csrf_token=<token>; SameSite=Lax; Max-Age=3600`
+    - `Set-Cookie: auth_token=<JWT>; HttpOnly; SameSite=Lax; Max-Age=600`
+    - `Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=Lax; Max-Age=2592000`
+    - `Set-Cookie: csrf_token=<token>; SameSite=Lax; Max-Age=2592000`
     - `Set-Cookie: oauth_state=; Max-Age=0`（使い捨て: 照合後に削除）
   - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）
     - `code=account_conflict`: 同メールアドレスの既存アカウントが存在（乗っ取り防止のため自動リンクは行わない）
@@ -563,6 +601,8 @@ graph TB
   - `ErrUserNotFound`: ユーザー検索が失敗した場合に返却
   - `ErrEmailAlreadyExists`: メールアドレスが既に登録されている場合に返却
   - `ErrInvalidCredentials`: メールアドレスまたはパスワードが正しくない場合に返却
+  - `ErrRefreshTokenInvalid` / `Expired` / `Reused`: リフレッシュトークン検証・再利用検知
+  - `ErrSessionUnavailable`: セッション保存先が一時的に利用できない場合に返却
   - `ErrStateNotFound`: OAuth state が存在しない・期限切れ
   - `ErrOAuthEmailUnavailable`: OAuth プロバイダーから検証済みメールが取得できない
   - `ErrOAuthEmailConflict`: OAuth ログインのメールが既存アカウントに登録済み（自動リンク拒否）
@@ -577,6 +617,8 @@ graph TB
 #### Usecase層インターフェース（続き）
 - **UserRepository**: ユーザー永続化（`Create`, `FindByEmail`, `FindByID`）
 - **JWTGenerator**: 署名済みJWTトークン生成（`GenerateToken(userID, email)`）
+- **SessionManager**: トークンペアの発行・ローテーション・失効
+- **RefreshSessionRepository**: `refresh_sessions`の永続化と原子的なローテーション
 - **OAuthProvider**: プロバイダー抽象化（`AuthorizationURL`, `ExchangeCode`）
 - **OAuthStateStore**: PKCE state の一時保存（`SaveState`, `ConsumeState`）
 - **OAuthAccountRepository**: `oauth_accounts` 永続化（`FindByProvider`, `Create`）
@@ -586,6 +628,7 @@ graph TB
 #### Adapters層
 - **userRepository**（[user_repository.go](../../internal/feature/auth/user_repository.go)）: UserRepository / OAuthUserCreator の sqlc + database/sql 実装
 - **oauthAccountRepository**（[oauth_account_repository.go](../../internal/feature/auth/oauth_account_repository.go)）: OAuthAccountRepository の sqlc + database/sql 実装
+- **refreshSessionRepository**（[refresh_session_repository.go](../../internal/feature/auth/refresh_session_repository.go)）: refreshセッションのPostgreSQL実装
 - **redisOAuthStateStore**（[oauth_state_store.go](../../internal/feature/auth/oauth_state_store.go)）: OAuthStateStore の Redis 実装（`GETDEL` で atomic に消費）
 - **GoogleProvider**（[google_provider.go](../../internal/feature/auth/google_provider.go)）: Google OAuth2 実装（PKCE S256 対応、`/oauth2/v3/userinfo` でメール取得）
 - **GitHubProvider**（[github_provider.go](../../internal/feature/auth/github_provider.go)）: GitHub OAuth2 実装（GitHub は PKCE 非対応、state による CSRF 保護のみ）
@@ -597,6 +640,7 @@ graph TB
 3. **インターフェースの所有権**: リポジトリインターフェースとJWT生成インターフェースは、使用されるusecase層で定義（Goのベストプラクティス）
 4. **Cookie + CSRF 二重保護**:
    - `auth_token`: httpOnly Cookie（XSS攻撃からトークンを保護）
+   - `refresh_token`: httpOnly Cookie（JavaScriptから分離し、サーバー側でハッシュ管理）
    - `csrf_token`: 非httpOnly Cookie（JavaScriptが `X-CSRF-Token` ヘッダーにセット）
    - 両トークンの一致を検証（Double Submit Cookieパターン）
 5. **セキュリティ**:
@@ -614,6 +658,9 @@ auth/                                  # package auth（フィーチャー直下
 ├── README.md                          # このファイル
 ├── user.go                            # Userエンティティ定義
 ├── oauth_account.go                   # OAuthAccountエンティティ定義
+├── refresh_session.go                 # RefreshSession / TokenPair
+├── session.go                         # セッション発行・更新・失効
+├── refresh_session_repository.go      # PostgreSQLセッションリポジトリ
 ├── usecase.go                         # 認証ビジネスロジック + UserRepository等インターフェース
 ├── usecase_test.go                    # Usecaseテスト
 ├── oauth.go                           # OAuth2ビジネスロジック + OAuth関連インターフェース
@@ -628,7 +675,7 @@ auth/                                  # package auth（フィーチャー直下
 │   ├── queries.sql                    # クエリ定義
 │   └── *.go                           # 型安全な生成コード
 └── authhttp/                         # package authhttp
-    ├── handler.go                     # 認証HTTPハンドラー（signup/login/logout）
+    ├── handler.go                     # 認証HTTPハンドラー（signup/login/refresh/logout）
     ├── handler_test.go                # ハンドラーテスト
     └── oauth.go                       # OAuth2 HTTPハンドラー（begin/callback）
 ```
@@ -801,9 +848,10 @@ GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
 2. **タイミング攻撃防止**: ユーザーが存在しない場合でもダミーハッシュを使用してbcrypt比較を実行し、レスポンス時間の差異による情報漏洩を防止
 3. **Cookie + CSRF 二重保護**:
    - `auth_token`（httpOnly）: JavaScriptから読み取り不可のためXSS攻撃でトークン窃取不可
+   - `refresh_token`（httpOnly）: DBにはSHA-256ハッシュだけを保存し、使用ごとに交換
    - `csrf_token`（非httpOnly）: JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット → CSRF攻撃を防止
    - `SameSite=Lax` 設定でクロスサイトリクエストを制限
-4. **JWTの有効期限**: 1時間で自動的に失効。加えて、ログアウト時は`jti`をRedisブラックリストへ登録し有効期限前でも即時失効させる（issue #263）
+4. **トークンの有効期限**: JWTは10分、リフレッシュトークンは30日で失効。ログアウト時はJWTの`jti`をRedisブラックリストへ登録し、リフレッシュセッション系列をPostgreSQLで失効させる
 5. **認証方式フォールバック**: `auth_token` Cookieを優先、存在しない場合は `Authorization: Bearer <token>` ヘッダーにフォールバック（API/curlクライアント対応）
 6. **エラーメッセージの統一化**:
    - バリデーションエラー: 汎用 "invalid request" メッセージを返却

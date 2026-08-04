@@ -27,8 +27,10 @@ type H = map[string]any
 
 // mockUsecase はUsecaseインターフェースのモック実装です。
 type mockUsecase struct {
-	SignupFunc func(ctx context.Context, email, password string) (int64, error)
-	LoginFunc  func(ctx context.Context, email, password string) (string, error)
+	SignupFunc  func(ctx context.Context, email, password string) (int64, error)
+	LoginFunc   func(ctx context.Context, email, password string) (auth.TokenPair, error)
+	RefreshFunc func(ctx context.Context, refreshToken string) (auth.TokenPair, error)
+	LogoutFunc  func(ctx context.Context, refreshToken string) error
 }
 
 // Signup はSignupメソッドのモック実装です。
@@ -40,11 +42,25 @@ func (m *mockUsecase) Signup(ctx context.Context, email, password string) (int64
 }
 
 // Login はLoginメソッドのモック実装です。
-func (m *mockUsecase) Login(ctx context.Context, email, password string) (string, error) {
+func (m *mockUsecase) Login(ctx context.Context, email, password string) (auth.TokenPair, error) {
 	if m.LoginFunc != nil {
 		return m.LoginFunc(ctx, email, password)
 	}
-	return "", errors.New("login failed") // デフォルト: 失敗
+	return auth.TokenPair{}, errors.New("login failed") // デフォルト: 失敗
+}
+
+func (m *mockUsecase) Refresh(ctx context.Context, refreshToken string) (auth.TokenPair, error) {
+	if m.RefreshFunc != nil {
+		return m.RefreshFunc(ctx, refreshToken)
+	}
+	return auth.TokenPair{}, auth.ErrRefreshTokenInvalid
+}
+
+func (m *mockUsecase) Logout(ctx context.Context, refreshToken string) error {
+	if m.LogoutFunc != nil {
+		return m.LogoutFunc(ctx, refreshToken)
+	}
+	return nil
 }
 
 // mockPostHook は auth.UserCreatedHook インターフェースのモック実装です。
@@ -96,7 +112,7 @@ func assertJSONResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStat
 func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie bool) {
 	t.Helper()
 
-	var authTokenCookie, csrfTokenCookie string
+	var authTokenCookie, refreshTokenCookie, csrfTokenCookie string
 	for _, c := range w.Header().Values("Set-Cookie") {
 		if strings.HasPrefix(c, "auth_token=") {
 			authTokenCookie = c
@@ -104,12 +120,18 @@ func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie
 		if strings.HasPrefix(c, "csrf_token=") {
 			csrfTokenCookie = c
 		}
+		if strings.HasPrefix(c, "refresh_token=") {
+			refreshTokenCookie = c
+		}
 	}
 
 	// auth_token: HttpOnly かつ SameSite=Lax であること
 	assert.NotEmpty(t, authTokenCookie, "auth_token cookie should be set")
 	assert.Contains(t, authTokenCookie, "HttpOnly", "auth_token should be HttpOnly")
 	assert.Contains(t, authTokenCookie, "SameSite=Lax", "auth_token should have SameSite=Lax")
+	assert.NotEmpty(t, refreshTokenCookie, "refresh_token cookie should be set")
+	assert.Contains(t, refreshTokenCookie, "HttpOnly", "refresh_token should be HttpOnly")
+	assert.Contains(t, refreshTokenCookie, "SameSite=Lax", "refresh_token should have SameSite=Lax")
 
 	// csrf_token: 非HttpOnly（JavaScriptから読み取れる）かつ SameSite=Lax であること
 	assert.NotEmpty(t, csrfTokenCookie, "csrf_token cookie should be set")
@@ -119,9 +141,11 @@ func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie
 	// secureCookie=true の場合: 両Cookieに Secure 属性が付くこと / false の場合: 付かないこと
 	if secureCookie {
 		assert.Contains(t, authTokenCookie, "Secure", "auth_token should have Secure attribute")
+		assert.Contains(t, refreshTokenCookie, "Secure", "refresh_token should have Secure attribute")
 		assert.Contains(t, csrfTokenCookie, "Secure", "csrf_token should have Secure attribute")
 	} else {
 		assert.NotContains(t, authTokenCookie, "Secure", "auth_token must not have Secure attribute")
+		assert.NotContains(t, refreshTokenCookie, "Secure", "refresh_token must not have Secure attribute")
 		assert.NotContains(t, csrfTokenCookie, "Secure", "csrf_token must not have Secure attribute")
 	}
 }
@@ -245,9 +269,9 @@ func TestAuthHandler_Login_RateLimited(t *testing.T) {
 	limiter := httpratelimit.NewLimiter(rdb)
 	loginCalled := false
 	mockUC := &mockUsecase{
-		LoginFunc: func(ctx context.Context, email, password string) (string, error) {
+		LoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
 			loginCalled = true
-			return "", errors.New("should not be called")
+			return auth.TokenPair{}, errors.New("should not be called")
 		},
 	}
 	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
@@ -287,9 +311,9 @@ func TestAuthHandler_Login_RateLimiterUnavailable(t *testing.T) {
 	limiter := httpratelimit.NewLimiter(rdb)
 	loginCalled := false
 	mockUC := &mockUsecase{
-		LoginFunc: func(ctx context.Context, email, password string) (string, error) {
+		LoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
 			loginCalled = true
-			return "", errors.New("should not be called")
+			return auth.TokenPair{}, errors.New("should not be called")
 		},
 	}
 	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
@@ -337,25 +361,29 @@ func TestAuthHandler_Login(t *testing.T) {
 	tests := []struct {
 		name           string
 		requestBody    H
-		mockLoginFunc  func(ctx context.Context, email, password string) (string, error)
+		mockLoginFunc  func(ctx context.Context, email, password string) (auth.TokenPair, error)
 		expectedStatus int
 		expectedBody   H
 		checkCookies   bool
 		secureCookie   bool
 	}{
 		{
-			name:           "success: user login",
-			requestBody:    H{"email": "test@example.com", "password": "password12345"},
-			mockLoginFunc:  func(ctx context.Context, email, password string) (string, error) { return "dummy-jwt-token", nil },
+			name:        "success: user login",
+			requestBody: H{"email": "test@example.com", "password": "password12345"},
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{AccessToken: "dummy-jwt-token", RefreshToken: "dummy-refresh-token"}, nil
+			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   H{"message": "ok"},
 			checkCookies:   true,
 			secureCookie:   false,
 		},
 		{
-			name:           "success: user login (secureCookie=true)",
-			requestBody:    H{"email": "test@example.com", "password": "password12345"},
-			mockLoginFunc:  func(ctx context.Context, email, password string) (string, error) { return "dummy-jwt-token", nil },
+			name:        "success: user login (secureCookie=true)",
+			requestBody: H{"email": "test@example.com", "password": "password12345"},
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{AccessToken: "dummy-jwt-token", RefreshToken: "dummy-refresh-token"}, nil
+			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   H{"message": "ok"},
 			checkCookies:   true,
@@ -366,20 +394,29 @@ func TestAuthHandler_Login(t *testing.T) {
 		{
 			name:        "failure: invalid credentials (usecase error)",
 			requestBody: H{"email": "wrong@example.com", "password": "wrong-password"},
-			mockLoginFunc: func(ctx context.Context, email, password string) (string, error) {
-				return "", errors.New("invalid email or password")
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, auth.ErrInvalidCredentials
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedBody:   H{"error": "invalid email or password"},
 		},
 		{
-			name:        "failure: JWT secret not set (usecase error)",
+			name:        "failure: token generation error",
 			requestBody: H{"email": "test@example.com", "password": "password12345"},
-			mockLoginFunc: func(ctx context.Context, email, password string) (string, error) {
-				return "", errors.New("server misconfigured: JWT_SECRET missing")
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, errors.New("token generation failed")
 			},
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   H{"error": "invalid email or password"}, // Usecaseのエラーメッセージは隠蔽される
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   H{"error": "internal error"},
+		},
+		{
+			name:        "failure: session store unavailable",
+			requestBody: H{"email": "test@example.com", "password": "password12345"},
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, auth.ErrSessionUnavailable
+			},
+			expectedStatus: http.StatusServiceUnavailable,
+			expectedBody:   H{"error": "service temporarily unavailable"},
 		},
 	}
 
@@ -423,7 +460,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var authTokenCookie, csrfTokenCookie string
+			var authTokenCookie, refreshTokenCookie, csrfTokenCookie string
 			for _, c := range w.Header().Values("Set-Cookie") {
 				if strings.HasPrefix(c, "auth_token=") {
 					authTokenCookie = c
@@ -431,11 +468,16 @@ func TestAuthHandler_Logout(t *testing.T) {
 				if strings.HasPrefix(c, "csrf_token=") {
 					csrfTokenCookie = c
 				}
+				if strings.HasPrefix(c, "refresh_token=") {
+					refreshTokenCookie = c
+				}
 			}
 
 			// ログアウト時は Max-Age=0 でCookieを削除すること
 			assert.NotEmpty(t, authTokenCookie, "auth_token cookie should be present in response")
 			assert.Contains(t, authTokenCookie, "Max-Age=0", "auth_token cookie should be deleted (Max-Age=0)")
+			assert.NotEmpty(t, refreshTokenCookie, "refresh_token cookie should be present in response")
+			assert.Contains(t, refreshTokenCookie, "Max-Age=0", "refresh_token cookie should be deleted (Max-Age=0)")
 
 			assert.NotEmpty(t, csrfTokenCookie, "csrf_token cookie should be present in response")
 			assert.Contains(t, csrfTokenCookie, "Max-Age=0", "csrf_token cookie should be deleted (Max-Age=0)")
@@ -443,9 +485,11 @@ func TestAuthHandler_Logout(t *testing.T) {
 			// secureCookie=true の場合: 両Cookieに Secure 属性が付くこと / false の場合: 付かないこと
 			if tt.secureCookie {
 				assert.Contains(t, authTokenCookie, "Secure", "auth_token should have Secure attribute")
+				assert.Contains(t, refreshTokenCookie, "Secure", "refresh_token should have Secure attribute")
 				assert.Contains(t, csrfTokenCookie, "Secure", "csrf_token should have Secure attribute")
 			} else {
 				assert.NotContains(t, authTokenCookie, "Secure", "auth_token must not have Secure attribute")
+				assert.NotContains(t, refreshTokenCookie, "Secure", "refresh_token must not have Secure attribute")
 				assert.NotContains(t, csrfTokenCookie, "Secure", "csrf_token must not have Secure attribute")
 			}
 		})
@@ -488,4 +532,105 @@ func TestAuthHandler_Logout_RevokesToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAuthHandler_Refresh(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		refreshToken   string
+		refreshFunc    func(context.Context, string) (auth.TokenPair, error)
+		expectedStatus int
+		expectCookies  bool
+	}{
+		{
+			name:           "error: missing refresh token",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:         "success: rotate token pair",
+			refreshToken: "old-refresh-token",
+			refreshFunc: func(_ context.Context, token string) (auth.TokenPair, error) {
+				assert.Equal(t, "old-refresh-token", token)
+				return auth.TokenPair{AccessToken: "new-access", RefreshToken: "new-refresh"}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectCookies:  true,
+		},
+		{
+			name:         "error: reused refresh token",
+			refreshToken: "reused-refresh-token",
+			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, auth.ErrRefreshTokenReused
+			},
+			expectedStatus: http.StatusUnauthorized,
+			expectCookies:  true,
+		},
+		{
+			name:         "error: session service failure",
+			refreshToken: "refresh-token",
+			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, errors.New("database unavailable")
+			},
+			expectedStatus: http.StatusInternalServerError,
+		},
+		{
+			name:         "error: session store unavailable",
+			refreshToken: "refresh-token",
+			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, auth.ErrSessionUnavailable
+			},
+			expectedStatus: http.StatusServiceUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := authhttp.NewHandler(&mockUsecase{RefreshFunc: tt.refreshFunc}, nil, false, "", nil)
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+			if tt.refreshToken != "" {
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: tt.refreshToken})
+			}
+			w := httptest.NewRecorder()
+			h.Refresh(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			if tt.expectCookies {
+				assert.NotEmpty(t, findSetCookie(w, "auth_token"))
+				assert.NotEmpty(t, findSetCookie(w, "refresh_token"))
+				assert.NotEmpty(t, findSetCookie(w, "csrf_token"))
+			}
+		})
+	}
+}
+
+func TestAuthHandler_Logout_RefreshRevocationFailure(t *testing.T) {
+	t.Parallel()
+
+	var received string
+	h := authhttp.NewHandler(&mockUsecase{
+		LogoutFunc: func(_ context.Context, token string) error {
+			received = token
+			return errors.New("database unavailable")
+		},
+	}, nil, false, "", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+	w := httptest.NewRecorder()
+	h.Logout(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Equal(t, "refresh-token", received)
+	assert.Empty(t, w.Header().Values("Set-Cookie"))
+}
+
+func findSetCookie(w *httptest.ResponseRecorder, name string) string {
+	for _, cookie := range w.Header().Values("Set-Cookie") {
+		if strings.HasPrefix(cookie, name+"=") {
+			return cookie
+		}
+	}
+	return ""
 }

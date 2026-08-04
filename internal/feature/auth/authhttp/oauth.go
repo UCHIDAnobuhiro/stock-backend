@@ -36,7 +36,7 @@ const (
 // Goの慣例に従い、インターフェースはプロバイダー（usecase）ではなくコンシューマー（handler）が定義します。
 type OAuthUsecase interface {
 	BeginAuth(ctx context.Context, provider string) (authURL, state string, err error)
-	HandleCallback(ctx context.Context, provider, code, state string) (token string, err error)
+	HandleCallback(ctx context.Context, provider, code, state string) (auth.TokenPair, error)
 }
 
 // OAuthHandler はOAuth2フローのHTTPリクエストを処理します。
@@ -103,8 +103,15 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	// 照合に成功したので state Cookie は使い捨て（リプレイ防止のため削除）。
 	setAuthCookie(w, oauthStateCookie, "", -1, h.secureCookie, true)
+	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
+	csrfToken, err := csrf.GenerateToken()
+	if err != nil {
+		slog.Error("failed to generate csrf token", "error", err)
+		h.redirectWithError(w, r, oauthErrOAuthFailed)
+		return
+	}
 
-	token, err := h.oauth.HandleCallback(r.Context(), provider, code, state)
+	pair, err := h.oauth.HandleCallback(r.Context(), provider, code, state)
 	if err != nil {
 		if errors.Is(err, auth.ErrStateNotFound) || errors.Is(err, auth.ErrOAuthEmailUnavailable) || errors.Is(err, auth.ErrUnknownProvider) {
 			// 期待されうる失敗（state期限切れ・プロバイダー起因等）は Warn に留める。
@@ -122,19 +129,9 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CSRFトークンを先に生成（失敗した場合はCookieをセットしない → 部分ログイン状態を防止）
-	csrfToken, err := csrf.GenerateToken()
-	if err != nil {
-		slog.Error("failed to generate csrf token", "error", err)
-		h.redirectWithError(w, r, oauthErrOAuthFailed)
-		return
-	}
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.secureCookie)
 
 	slog.Info("oauth login successful", "provider", provider)
-
-	// handler.go の Login と同一パターンで Cookie をセット
-	setAuthCookie(w, "auth_token", token, authCookieMaxAge, h.secureCookie, true)
-	setAuthCookie(w, "csrf_token", csrfToken, authCookieMaxAge, h.secureCookie, false)
 
 	http.Redirect(w, r, h.frontendURL, http.StatusFound)
 }

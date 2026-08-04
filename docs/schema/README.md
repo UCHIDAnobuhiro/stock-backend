@@ -9,6 +9,7 @@
 | [public.symbols](public.symbols.md) | 9 |  | BASE TABLE |
 | [public.candles](public.candles.md) | 8 |  | BASE TABLE |
 | [public.watchlists](public.watchlists.md) | 6 |  | BASE TABLE |
+| [public.refresh_sessions](public.refresh_sessions.md) | 9 |  | BASE TABLE |
 
 ## Relations
 
@@ -19,6 +20,8 @@ erDiagram
 "public.candles" }o--|| "public.symbols" : "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT"
 "public.watchlists" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
 "public.watchlists" }o--|| "public.symbols" : "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT"
+"public.refresh_sessions" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+"public.refresh_sessions" }o--o| "public.refresh_sessions" : "FOREIGN KEY (replaced_by) REFERENCES refresh_sessions(id) ON DELETE SET NULL"
 
 "public.users" {
   bigint id ""
@@ -62,6 +65,17 @@ erDiagram
   bigint sort_key ""
   timestamp_with_time_zone created_at ""
   timestamp_with_time_zone updated_at ""
+}
+"public.refresh_sessions" {
+  varchar_64_ id ""
+  varchar_64_ family_id ""
+  bigint user_id FK ""
+  bytea token_hash ""
+  timestamp_with_time_zone expires_at ""
+  timestamp_with_time_zone consumed_at ""
+  timestamp_with_time_zone revoked_at ""
+  varchar_64_ replaced_by FK ""
+  timestamp_with_time_zone created_at ""
 }
 ```
 

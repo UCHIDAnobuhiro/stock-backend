@@ -37,7 +37,8 @@ func GenerateToken() (string, error) {
 //   - Bearer認証（Authorization: Bearer）の場合はスキップします（CSRFはCookieベース認証にのみ必要）
 //   - それ以外のメソッドでは X-CSRF-Token ヘッダーと csrf_token Cookie の値が
 //     一致しない場合に 403 を返します
-func Protect() func(http.Handler) http.Handler {
+//   - cookieNamesを指定した場合は、そのいずれかが存在するリクエストだけを検証します
+func Protect(cookieNames ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
@@ -49,6 +50,10 @@ func Protect() func(http.Handler) http.Handler {
 			// Bearer認証の場合はCSRFチェックをスキップ
 			// （CSRFはブラウザのCookie自動送信を悪用する攻撃のため、明示的なAuthorizationヘッダーを使う場合は不要）
 			if jwt.AuthSourceFromContext(r.Context()) == jwt.AuthSourceBearer {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if len(cookieNames) > 0 && !hasAnyCookie(r, cookieNames) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -68,4 +73,13 @@ func Protect() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func hasAnyCookie(r *http.Request, names []string) bool {
+	for _, name := range names {
+		if cookie, err := r.Cookie(name); err == nil && cookie.Value != "" {
+			return true
+		}
+	}
+	return false
 }

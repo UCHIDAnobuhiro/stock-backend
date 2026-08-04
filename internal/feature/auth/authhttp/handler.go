@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,8 +23,12 @@ import (
 type Usecase interface {
 	// Signup は指定されたメールアドレスとパスワードで新規ユーザーを登録し、作成されたユーザーIDを返します。
 	Signup(ctx context.Context, email, password string) (int64, error)
-	// Login はユーザーを認証し、成功時にJWTトークンを返します。
-	Login(ctx context.Context, email, password string) (string, error)
+	// Login はユーザーを認証し、成功時にトークンペアを返します。
+	Login(ctx context.Context, email, password string) (auth.TokenPair, error)
+	// Refresh はリフレッシュトークンを新しいトークンペアへ交換します。
+	Refresh(ctx context.Context, refreshToken string) (auth.TokenPair, error)
+	// Logout はリフレッシュトークンが属するセッション系列を失効させます。
+	Logout(ctx context.Context, refreshToken string) error
 }
 
 // ログインのメールベースレートリミット設定
@@ -32,9 +37,12 @@ const (
 	loginEmailWindow = 15 * time.Minute // メールベースレートリミットのウィンドウ
 )
 
-// authCookieMaxAge は auth_token / csrf_token Cookie の Max-Age（秒）です。
-// JWT の有効期限（jwt.DefaultTokenTTL）から導出し、トークンと Cookie の寿命の乖離を防ぎます。
-const authCookieMaxAge = int(jwt.DefaultTokenTTL / time.Second)
+const (
+	authTokenCookieName    = "auth_token"
+	refreshTokenCookieName = "refresh_token"
+	authCookieMaxAge       = int(jwt.DefaultTokenTTL / time.Second)
+	refreshCookieMaxAge    = int(auth.DefaultRefreshTokenTTL / time.Second)
+)
 
 // Handler は認証操作のHTTPリクエストを処理します。
 // Usecaseインターフェースに依存し、JSONリクエスト/レスポンスを処理します。
@@ -126,57 +134,125 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.uc.Login(r.Context(), req.Email, req.Password)
-	if err != nil {
-		// ユーザー列挙攻撃を防止するため、実際のエラーを公開しない
-		slog.Warn("login failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
-		httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid email or password"})
-		return
-	}
-
-	// CSRFトークンを先に生成（失敗した場合はCookieを設定しない → 部分ログイン状態を防止）
+	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
 		slog.Error("failed to generate csrf token", "error", err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
+	pair, err := h.uc.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			// ユーザー列挙攻撃を防止するため、認証失敗の詳細を公開しない。
+			slog.Warn("login failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
+			httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid email or password"})
+			return
+		}
+		if errors.Is(err, auth.ErrSessionUnavailable) {
+			slog.Error("login session unavailable", "error", err, "email_hash", logging.HashedEmail(req.Email))
+			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
+			return
+		}
+		slog.Error("login failed with internal error", "error", err, "email_hash", logging.HashedEmail(req.Email))
+		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
+		return
+	}
 
-	// 両トークンが揃ってからCookieをセット（原子性保証）
-	// auth_token: httpOnly Cookie（JavaScriptから読み取り不可 → XSS対策）
-	setAuthCookie(w, "auth_token", token, authCookieMaxAge, h.secureCookie, true)
-	// csrf_token: 非httpOnly Cookie（JavaScriptが読み取りX-CSRF-Tokenヘッダーにセット → CSRF対策）
-	setAuthCookie(w, "csrf_token", csrfToken, authCookieMaxAge, h.secureCookie, false)
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.secureCookie)
 
 	slog.Info("user login successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
-// Logout はリクエストのJWTを即時失効させたうえでauth_tokenとcsrf_tokenのCookieを削除します。
+// Refresh は有効なリフレッシュトークンを新しいトークンペアへ交換します。
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(refreshTokenCookieName)
+	if err != nil || cookie.Value == "" {
+		httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid refresh token"})
+		return
+	}
+	// セッションをローテーションした後にCSRF生成が失敗すると、クライアントが
+	// 消費済みトークンだけを保持するため、先にCSRFトークンを用意する。
+	csrfToken, err := csrf.GenerateToken()
+	if err != nil {
+		slog.Error("failed to generate csrf token during refresh", "error", err)
+		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
+		return
+	}
+
+	pair, err := h.uc.Refresh(r.Context(), cookie.Value)
+	if err != nil {
+		if errors.Is(err, auth.ErrRefreshTokenInvalid) ||
+			errors.Is(err, auth.ErrRefreshTokenExpired) ||
+			errors.Is(err, auth.ErrRefreshTokenReused) {
+			clearSessionCookies(w, h.secureCookie)
+			httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid refresh token"})
+			return
+		}
+		if errors.Is(err, auth.ErrSessionUnavailable) {
+			slog.Error("refresh session unavailable", "error", err, "remote_addr", httpx.ClientIP(r))
+			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
+			return
+		}
+		slog.Error("failed to refresh session", "error", err, "remote_addr", httpx.ClientIP(r))
+		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
+		return
+	}
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.secureCookie)
+	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
+}
+
+// Logout はリクエストのJWTとリフレッシュセッションを失効させ、認証Cookieを削除します。
 // 期限切れトークンでも動作するよう認証不要のルートに配置します。
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	refreshToken := ""
+	if cookie, err := r.Cookie(refreshTokenCookieName); err == nil {
+		refreshToken = cookie.Value
+	}
+	if err := h.uc.Logout(r.Context(), refreshToken); err != nil {
+		slog.Error("failed to revoke refresh session on logout", "error", err)
+		httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
+		return
+	}
+
 	// トークンが有効な場合のみjtiをブラックリストに登録し、有効期限前でも即時失効させる。
 	// Redis未接続時等は警告ログのみでログアウト自体は継続する（グレースフルデグレード）。
 	if err := jwt.RevokeRequestToken(r.Context(), r, h.jwtSecret, h.blacklist); err != nil {
 		slog.Warn("failed to revoke token on logout", "error", err)
 	}
 
-	// MaxAge=-1 は Max-Age=0 を出力し、ブラウザにCookieの即時削除を指示する。
-	setAuthCookie(w, "auth_token", "", -1, h.secureCookie, true)
-	setAuthCookie(w, "csrf_token", "", -1, h.secureCookie, false)
+	clearSessionCookies(w, h.secureCookie)
 
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
+func setSessionCookiesWithCSRF(w http.ResponseWriter, pair auth.TokenPair, csrfToken string, secure bool) {
+	setAuthCookie(w, authTokenCookieName, pair.AccessToken, authCookieMaxAge, secure, true)
+	setAuthCookie(w, refreshTokenCookieName, pair.RefreshToken, refreshCookieMaxAge, secure, true)
+	setAuthCookie(w, csrf.CookieName, csrfToken, refreshCookieMaxAge, secure, false)
+}
+
+func clearSessionCookies(w http.ResponseWriter, secure bool) {
+	setAuthCookie(w, authTokenCookieName, "", -1, secure, true)
+	setAuthCookie(w, refreshTokenCookieName, "", -1, secure, true)
+	setAuthCookie(w, csrf.CookieName, "", -1, secure, false)
+}
+
 // setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
-// auth_token / csrf_token の設定・削除に共通利用します。
+// 認証関連Cookieの設定・削除に共通利用します。
 // maxAge は秒数（削除時は -1）です。
 func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
+	expires := time.Unix(1, 0).UTC()
+	if maxAge > 0 {
+		expires = time.Now().Add(time.Duration(maxAge) * time.Second).UTC()
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,
+		Expires:  expires,
 		Secure:   secure,
 		HttpOnly: httpOnly,
 		SameSite: http.SameSiteLaxMode,

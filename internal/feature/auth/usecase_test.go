@@ -42,6 +42,8 @@ type mockUserRepository struct {
 type mockJWTGenerator struct {
 	// GenerateTokenFunc はGenerateTokenメソッド呼び出し時に実行されます。
 	GenerateTokenFunc func(userID int64, email string) (string, error)
+	RefreshFunc       func(ctx context.Context, refreshToken string) (auth.TokenPair, error)
+	RevokeFunc        func(ctx context.Context, refreshToken string) error
 }
 
 // GenerateToken はGenerateTokenメソッドのモック実装です。
@@ -51,6 +53,28 @@ func (m *mockJWTGenerator) GenerateToken(userID int64, email string) (string, er
 	}
 	// デフォルト: ダミートークンを返す
 	return "mock-jwt-token", nil
+}
+
+func (m *mockJWTGenerator) Issue(_ context.Context, userID int64, email string) (auth.TokenPair, error) {
+	token, err := m.GenerateToken(userID, email)
+	if err != nil {
+		return auth.TokenPair{}, err
+	}
+	return auth.TokenPair{AccessToken: token, RefreshToken: "mock-refresh-token"}, nil
+}
+
+func (m *mockJWTGenerator) Refresh(ctx context.Context, refreshToken string) (auth.TokenPair, error) {
+	if m.RefreshFunc != nil {
+		return m.RefreshFunc(ctx, refreshToken)
+	}
+	return auth.TokenPair{}, auth.ErrRefreshTokenInvalid
+}
+
+func (m *mockJWTGenerator) Revoke(ctx context.Context, refreshToken string) error {
+	if m.RevokeFunc != nil {
+		return m.RevokeFunc(ctx, refreshToken)
+	}
+	return nil
 }
 
 // Create はCreateメソッドのモック実装です。
@@ -275,7 +299,7 @@ func TestAuthUsecase_Login(t *testing.T) {
 			email:             "test@example.com",
 			password:          "password12345",
 			wantErr:           true,
-			errMsg:            "failed to generate token: failed to sign token",
+			errMsg:            "failed to issue session: failed to sign token",
 			findByEmailResult: testUser,
 			jwtGenerateErr:    errors.New("failed to sign token"),
 		},
@@ -324,18 +348,18 @@ func TestAuthUsecase_Login(t *testing.T) {
 			}
 
 			uc := auth.NewUsecase(mockRepo, mockJWT, testPepper)
-			token, err := uc.Login(context.Background(), tt.email, tt.password)
+			pair, err := uc.Login(context.Background(), tt.email, tt.password)
 
 			// エラーの期待値を検証
 			assertError(t, err, tt.wantErr, tt.errMsg)
 
 			// 成功ケースの期待値を検証
 			if !tt.wantErr {
-				if token == "" {
+				if pair.AccessToken == "" {
 					t.Error("token is empty")
 				}
-				if tt.expectedToken != "" && token != tt.expectedToken {
-					t.Errorf("expected token '%s', got: '%s'", tt.expectedToken, token)
+				if tt.expectedToken != "" && pair.AccessToken != tt.expectedToken {
+					t.Errorf("expected token '%s', got: '%s'", tt.expectedToken, pair.AccessToken)
 				}
 			}
 		})
@@ -380,11 +404,11 @@ func TestAuthUsecase_Login_NormalizesEmail(t *testing.T) {
 	}
 	uc := auth.NewUsecase(mockRepo, &mockJWTGenerator{}, testPepper)
 
-	token, err := uc.Login(context.Background(), "  User@Example.COM ", "password12345")
+	pair, err := uc.Login(context.Background(), "  User@Example.COM ", "password12345")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if token == "" {
+	if pair.AccessToken == "" {
 		t.Error("token is empty")
 	}
 	if lookupEmail != "user@example.com" {

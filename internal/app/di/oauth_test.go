@@ -31,6 +31,10 @@ func (s *stubJWTGenerator) GenerateToken(userID int64, email string) (string, er
 	return "", nil
 }
 
+func (s *stubJWTGenerator) Issue(context.Context, int64, string) (auth.TokenPair, error) {
+	return auth.TokenPair{AccessToken: "access", RefreshToken: "refresh"}, nil
+}
+
 // stubUserCreatedHook は auth.UserCreatedHook の最小実装。
 type stubUserCreatedHook struct{}
 

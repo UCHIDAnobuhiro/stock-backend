@@ -18,14 +18,14 @@ import (
 // mockOAuthUsecase は authhttp.OAuthUsecase インターフェースのモック実装です。
 type mockOAuthUsecase struct {
 	BeginAuthFunc      func(ctx context.Context, provider string) (string, string, error)
-	HandleCallbackFunc func(ctx context.Context, provider, code, state string) (string, error)
+	HandleCallbackFunc func(ctx context.Context, provider, code, state string) (auth.TokenPair, error)
 }
 
 func (m *mockOAuthUsecase) BeginAuth(ctx context.Context, provider string) (string, string, error) {
 	return m.BeginAuthFunc(ctx, provider)
 }
 
-func (m *mockOAuthUsecase) HandleCallback(ctx context.Context, provider, code, state string) (string, error) {
+func (m *mockOAuthUsecase) HandleCallback(ctx context.Context, provider, code, state string) (auth.TokenPair, error) {
 	return m.HandleCallbackFunc(ctx, provider, code, state)
 }
 
@@ -128,9 +128,9 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 
 			called := false
 			uc := &mockOAuthUsecase{
-				HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
+				HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (auth.TokenPair, error) {
 					called = true
-					return "dummy-jwt-token", nil
+					return auth.TokenPair{AccessToken: "dummy-jwt-token", RefreshToken: "dummy-refresh-token"}, nil
 				},
 			}
 			h := authhttp.NewOAuthHandler(uc, false, frontendURL)
@@ -154,12 +154,14 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 				}
 			}
 
-			// 成功時は auth_token / csrf_token がセットされ、失敗時はセットされないこと。
+			// 成功時は認証Cookieがセットされ、失敗時はセットされないこと。
 			if tt.callbackCalled {
 				assert.NotEmpty(t, findCookie(w, "auth_token"), "auth_token should be set on success")
+				assert.NotEmpty(t, findCookie(w, "refresh_token"), "refresh_token should be set on success")
 				assert.NotEmpty(t, findCookie(w, "csrf_token"), "csrf_token should be set on success")
 			} else {
 				assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on failure")
+				assert.Empty(t, findCookie(w, "refresh_token"), "refresh_token must not be set on failure")
 				assert.Empty(t, findCookie(w, "csrf_token"), "csrf_token must not be set on failure")
 			}
 		})
@@ -173,8 +175,8 @@ func TestOAuthHandler_Callback_StateNotFound(t *testing.T) {
 
 	const frontendURL = "http://localhost:3000"
 	uc := &mockOAuthUsecase{
-		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
-			return "", auth.ErrStateNotFound
+		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (auth.TokenPair, error) {
+			return auth.TokenPair{}, auth.ErrStateNotFound
 		},
 	}
 	h := authhttp.NewOAuthHandler(uc, false, frontendURL)
@@ -198,8 +200,8 @@ func TestOAuthHandler_Callback_EmailConflict(t *testing.T) {
 
 	const frontendURL = "http://localhost:3000"
 	uc := &mockOAuthUsecase{
-		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (string, error) {
-			return "", auth.ErrOAuthEmailConflict
+		HandleCallbackFunc: func(ctx context.Context, provider, code, state string) (auth.TokenPair, error) {
+			return auth.TokenPair{}, auth.ErrOAuthEmailConflict
 		},
 	}
 	h := authhttp.NewOAuthHandler(uc, false, frontendURL)

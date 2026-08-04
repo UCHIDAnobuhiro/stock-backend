@@ -97,6 +97,8 @@ func run() int {
 	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
 	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, jwt.DefaultTokenTTL)
 	jwtBlacklist := jwt.NewBlacklist(rdb)
+	refreshSessionRepo := auth.NewRefreshSessionRepository(sqlDB)
+	sessionService := auth.NewSessionService(userRepo, jwtGen, refreshSessionRepo, auth.DefaultRefreshTokenTTL)
 
 	// Google Cloudクライアント初期化
 	visionDetector, err := vision.NewVisionLogoDetector(context.Background())
@@ -120,7 +122,7 @@ func run() int {
 	rateLimiter := httpratelimit.NewLimiter(rdb)
 
 	// ユースケース
-	authUC := auth.NewUsecase(userRepo, jwtGen, cfg.Server.PasswordPepper)
+	authUC := auth.NewUsecase(userRepo, sessionService, cfg.Server.PasswordPepper)
 	symbolUC := symbollist.NewUsecase(symbolRepo)
 	candlesUC := candles.NewUsecase(cachedCandleRepo)
 	logoUC := logodetection.NewUsecase(visionDetector, geminiAnalyzer)
@@ -129,7 +131,7 @@ func run() int {
 	// OAuth ハンドラー（cfg.OAuth が nil の場合はOAuth機能なしで起動）
 	var oauthH *authhttp.OAuthHandler
 	if cfg.OAuth != nil {
-		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, jwtGen, watchlistUC, cfg.Server.SecureCookie)
+		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, sessionService, watchlistUC, cfg.Server.SecureCookie)
 		if err != nil {
 			slog.Error("failed to set up OAuth", "error", err)
 			return 1

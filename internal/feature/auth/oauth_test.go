@@ -184,20 +184,20 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 				map[string]auth.OAuthProvider{providerName: provider},
 			)
 
-			token, err := uc.HandleCallback(context.Background(), providerName, "code", "state")
+			pair, err := uc.HandleCallback(context.Background(), providerName, "code", "state")
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("HandleCallback error = %v, want %v", err, tt.wantErr)
 				}
-				if token != "" {
-					t.Errorf("token = %q, want empty on error", token)
+				if pair.AccessToken != "" {
+					t.Errorf("token = %q, want empty on error", pair.AccessToken)
 				}
 			} else {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if token == "" {
+				if pair.AccessToken == "" {
 					t.Error("token is empty")
 				}
 			}
@@ -270,11 +270,11 @@ func TestOAuthUsecase_HandleCallback_HookRunsWithoutCancelOnClientDisconnect(t *
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	token, err := uc.HandleCallback(ctx, providerName, "code", "state")
+	pair, err := uc.HandleCallback(ctx, providerName, "code", "state")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if token == "" {
+	if pair.AccessToken == "" {
 		t.Error("token is empty")
 	}
 	if !hook.called {

@@ -96,8 +96,19 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 				Policy: httpratelimit.FailClosed,
 			})).Post("/login", h.Auth.Login)
 
-			// 期限切れトークンでもログアウトできるよう認証不要
-			r.Delete("/logout", h.Auth.Logout)
+			r.With(
+				httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
+					Prefix: "rl:refresh:ip",
+					Limit:  30,
+					Window: 1 * time.Minute,
+					Policy: httpratelimit.FailClosed,
+				}),
+				csrfmw.Protect("auth_token", "refresh_token"),
+			).Post("/auth/refresh", h.Auth.Refresh)
+
+			// 期限切れアクセストークンでもログアウトできるようJWT認証は要求しない。
+			// Cookieがある場合だけDouble Submit Cookieを検証し、Bearerのみの利用も維持する。
+			r.With(csrfmw.Protect("auth_token", "refresh_token")).Delete("/logout", h.Auth.Logout)
 
 			// OAuthルート（環境変数が設定されている場合のみ登録）
 			if h.OAuth != nil {

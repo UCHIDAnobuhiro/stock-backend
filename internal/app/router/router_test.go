@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/router"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles/candleshttp"
@@ -33,15 +34,21 @@ const testJWTSecret = "test-jwt-secret-for-router-tests"
 type stubAuthUsecase struct{}
 
 func (stubAuthUsecase) Signup(_ context.Context, _, _ string) (int64, error) { return 0, nil }
-func (stubAuthUsecase) Login(_ context.Context, _, _ string) (string, error) { return "", nil }
+func (stubAuthUsecase) Login(_ context.Context, _, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{}, nil
+}
+func (stubAuthUsecase) Refresh(_ context.Context, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{AccessToken: "access", RefreshToken: "refresh"}, nil
+}
+func (stubAuthUsecase) Logout(_ context.Context, _ string) error { return nil }
 
 type stubOAuthUsecase struct{}
 
 func (stubOAuthUsecase) BeginAuth(_ context.Context, _ string) (string, string, error) {
 	return "", "", nil
 }
-func (stubOAuthUsecase) HandleCallback(_ context.Context, _, _, _ string) (string, error) {
-	return "", nil
+func (stubOAuthUsecase) HandleCallback(_ context.Context, _, _, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{}, nil
 }
 
 type stubCandlesUsecase struct{}
@@ -231,6 +238,39 @@ func TestNewRouter_PublicRoutes(t *testing.T) {
 			assert.NotEqual(t, http.StatusUnauthorized, rec.Code)
 			assert.NotEqual(t, http.StatusForbidden, rec.Code)
 			assert.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
+		})
+	}
+}
+
+func TestNewRouter_RefreshRequiresCookieAndCSRF(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setRefresh     bool
+		setCSRF        bool
+		expectedStatus int
+	}{
+		{name: "error: missing refresh cookie", expectedStatus: http.StatusUnauthorized},
+		{name: "error: missing csrf token", setRefresh: true, expectedStatus: http.StatusForbidden},
+		{name: "success: matching csrf token", setRefresh: true, setCSRF: true, expectedStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newTestRouter(t, nil)
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+			if tt.setRefresh {
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+			}
+			if tt.setCSRF {
+				req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "csrf-token"})
+				req.Header.Set("X-CSRF-Token", "csrf-token")
+			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
 		})
 	}
 }

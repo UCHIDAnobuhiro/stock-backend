@@ -4,7 +4,7 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | bigint | nextval('users_id_seq'::regclass) | false | [public.oauth_accounts](public.oauth_accounts.md) [public.watchlists](public.watchlists.md) |  |  |
+| id | bigint | nextval('users_id_seq'::regclass) | false | [public.oauth_accounts](public.oauth_accounts.md) [public.watchlists](public.watchlists.md) [public.refresh_sessions](public.refresh_sessions.md) |  |  |
 | email | varchar(255) |  | false |  |  |  |
 | password_hash | varchar(255) |  | true |  |  |  |
 | created_at | timestamp with time zone | now() | false |  |  |  |
@@ -34,6 +34,7 @@ erDiagram
 
 "public.oauth_accounts" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
 "public.watchlists" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+"public.refresh_sessions" }o--|| "public.users" : "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
 
 "public.users" {
   bigint id ""
@@ -56,6 +57,17 @@ erDiagram
   bigint sort_key ""
   timestamp_with_time_zone created_at ""
   timestamp_with_time_zone updated_at ""
+}
+"public.refresh_sessions" {
+  varchar_64_ id ""
+  varchar_64_ family_id ""
+  bigint user_id FK ""
+  bytea token_hash ""
+  timestamp_with_time_zone expires_at ""
+  timestamp_with_time_zone consumed_at ""
+  timestamp_with_time_zone revoked_at ""
+  varchar_64_ replaced_by FK ""
+  timestamp_with_time_zone created_at ""
 }
 ```
 

@@ -28,6 +28,18 @@ type OauthAccount struct {
 	UpdatedAt   time.Time
 }
 
+type RefreshSession struct {
+	ID         string
+	FamilyID   string
+	UserID     int64
+	TokenHash  []byte
+	ExpiresAt  time.Time
+	ConsumedAt sql.NullTime
+	RevokedAt  sql.NullTime
+	ReplacedBy sql.NullString
+	CreatedAt  time.Time
+}
+
 type Symbol struct {
 	Code          string
 	Name          string

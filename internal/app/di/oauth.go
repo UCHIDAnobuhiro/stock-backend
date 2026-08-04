@@ -43,7 +43,7 @@ func NewOAuthHandler(
 	db *sql.DB,
 	rdb *redis.Client,
 	userStore OAuthUserStore,
-	jwtGen auth.JWTGenerator,
+	sessions auth.SessionIssuer,
 	onUserCreated auth.UserCreatedHook,
 	secureCookie bool,
 ) (*authhttp.OAuthHandler, error) {
@@ -75,7 +75,7 @@ func NewOAuthHandler(
 		auth.NewOAuthAccountRepository(db),
 		userStore,
 		auth.NewRedisOAuthStateStore(rdb),
-		jwtGen,
+		sessions,
 		providers,
 		onUserCreated,
 	)

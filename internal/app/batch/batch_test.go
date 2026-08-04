@@ -97,7 +97,7 @@ func TestShouldFailExit(t *testing.T) {
 }
 
 // TestRunInvalidJobID は job_id 未指定・未知の値で exit code 2 を返すことを検証します。
-// candles / logo は DB 接続を伴うため、ここでは引数ディスパッチのエラー系のみを対象とします。
+// 各ジョブは DB 接続を伴うため、ここでは引数ディスパッチのエラー系のみを対象とします。
 func TestRunInvalidJobID(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -123,7 +123,7 @@ func TestRun_ReturnsOneWhenDBConfigInvalid(t *testing.T) {
 
 	// DB_USER 未設定相当の不正な DB Config → OpenSQL の検証で失敗し 1 を返す。
 	cfg := &config.Config{DB: infradb.Config{}}
-	for _, jobID := range []string{"candles", "logo"} {
+	for _, jobID := range []string{"auth-session-cleanup", "candles", "logo"} {
 		t.Run(jobID, func(t *testing.T) {
 			if got := Run(cfg, []string{jobID}); got != 1 {
 				t.Errorf("Run(%q) = %d, want 1", jobID, got)

@@ -41,7 +41,7 @@ func (b *Blacklist) Revoke(ctx context.Context, jti string, ttl time.Duration) e
 
 // IsRevoked はjtiがブラックリストに登録されているかを確認します。
 // Redis未接続・エラー時は「失効していない」として扱います（フェイルオープン）。
-// JWTは元々短命（DefaultTokenTTL = 1時間）でexpにより失効するため、ブラックリストは
+// JWTは元々短命（DefaultTokenTTL = 10分）でexpにより失効するため、ブラックリストは
 // 失効を前倒しする補助機構と位置づけ、Redis障害時は可用性を優先します。
 // 認証系レートリミットは同じRedis障害に対してfail-closedです（ADR-0008）。
 func (b *Blacklist) IsRevoked(ctx context.Context, jti string) bool {

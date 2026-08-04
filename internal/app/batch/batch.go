@@ -15,12 +15,13 @@ const (
 // jobs は job_id とバッチ実行関数の対応表。
 // 新しいバッチジョブを追加する場合はここに1行追加するだけでよい。
 var jobs = map[string]func(*config.Config) int{
-	"candles": runCandleIngest, // 株価取り込み
-	"logo":    runLogoIngest,   // ロゴURL取り込み
+	"auth-session-cleanup": runAuthSessionCleanup, // 期限切れ認証セッション削除
+	"candles":              runCandleIngest,       // 株価取り込み
+	"logo":                 runLogoIngest,         // ロゴURL取り込み
 }
 
 // Run は job_id（コマンド引数）に応じてバッチを実行し、終了コードを返す。
-// candles: 株価取り込み、logo: ロゴURL取り込み。
+// auth-session-cleanup: 期限切れ認証セッション削除、candles: 株価取り込み、logo: ロゴURL取り込み。
 // 環境変数から読み込んだ設定は cfg として注入される。
 // os.Exit は呼ばず、終了コードを返すのみ（呼び出し側の main で os.Exit する）。
 func Run(cfg *config.Config, args []string) int {

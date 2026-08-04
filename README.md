@@ -12,7 +12,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 
   - メールアドレス/パスワードによるログイン
   - OAuth2 ソーシャルログイン（Google / GitHub、PKCE 対応。同メールの既存アカウントへの自動リンクは行わない）
-  - JWTの発行（短期アクセストークン + リフレッシュトークン実装予定）
+  - JWTの発行（10分の短期アクセストークン + PostgreSQL管理のリフレッシュトークン）
   - トークン検証ミドルウェアによる認可
 
 - **株式データ取得**
@@ -178,18 +178,13 @@ go generate ./internal/api/...
 
 ### 現在の実装
 
-- JWTアクセストークンによる認証（`Authorization: Bearer <token>` ヘッダー）
+- 10分のJWTアクセストークンによる認証（Cookieまたは`Authorization: Bearer <token>`ヘッダー）
+- **リフレッシュトークン**: 30日有効の不透明トークンをPostgreSQLでハッシュ管理し、使用ごとにローテーション
 - **OAuth2 ソーシャルログイン**: Google / GitHub（PKCE 対応、state は Redis 管理。同メールの既存アカウントへの自動リンクは行わず 409 を返す）。OAuth 環境変数が設定されている場合のみ有効
 - **CSRF保護**: Double Submit Cookieパターン（`csrf_token` Cookie + `X-CSRF-Token` ヘッダーの一致を検証）
 - **レートリミット**: Redisスライディングウィンドウ方式（signup: 5回/時、login: 10回/分、oauth callback: 20回/分）
 - **セキュリティヘッダー**: `X-Content-Type-Options`、`X-Frame-Options` 等を全レスポンスに付与
 - **SameSite Cookie**: `Lax` 設定でクロスサイトリクエストを制御
-
-### 今後の計画（ハイブリッド認証）
-
-- **短期JWT（5〜10分）** + **サーバー管理リフレッシュトークン** 方式の実装
-- `/auth/refresh` によるアクセストークンの自動更新
-- リフレッシュトークンをDBまたはRedisに保存し、**ローテーション管理**を実施
 
 ## データフロー（例: 株価取得）
 
@@ -218,6 +213,7 @@ go generate ./internal/api/...
 | -------- | -------------- | ------ | ------------------------------------------------- |
 | POST     | `/v1/signup`   | 不要   | 新規ユーザー登録（IPレートリミット: 5回/時）      |
 | POST     | `/v1/login`    | 不要   | ログイン（JWTアクセストークンを発行、10回/分）    |
+| POST     | `/v1/auth/refresh` | 不要 | 認証トークン更新（Cookie + CSRF、30回/分）        |
 | DELETE   | `/v1/logout`   | 不要   | ログアウト（期限切れトークンでも実行可能）        |
 
 ---
@@ -264,8 +260,8 @@ go generate ./internal/api/...
 - `/v1/candles`、`/v1/symbols`、`/v1/watchlist`、`/v1/logo/*` は **JWT認証（`Authorization: Bearer <token>`）** が必要です。
 - 認証済みエンドポイントはすべて **CSRFトークン（`X-CSRF-Token` ヘッダー）** も必須です。
 - `/v1/signup` と `/v1/login` には **IPベースのレートリミット** が適用されています。
+- `/v1/auth/refresh` は `refresh_token` CookieとCSRFトークンを検証し、トークン一式をローテーションします。
 - `/v1/auth/oauth/*` は OAuth 環境変数（`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID` 等）が設定されている場合のみ登録されます。詳細は [auth フィーチャーのドキュメント](docs/features/auth.md) を参照してください。
-- 今後、リフレッシュトークン対応として `/auth/refresh` を追加予定です。
 
 ## クラウドアーキテクチャ（Google Cloud）
 

@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
-	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
-	CsrfTokenScopes  csrfTokenContextKey  = "csrfToken.Scopes"
+	BearerAuthScopes    bearerAuthContextKey    = "bearerAuth.Scopes"
+	CookieAuthScopes    cookieAuthContextKey    = "cookieAuth.Scopes"
+	CsrfTokenScopes     csrfTokenContextKey     = "csrfToken.Scopes"
+	RefreshCookieScopes refreshCookieContextKey = "refreshCookie.Scopes"
 )
 
 // Defines values for BeginOAuthParamsProvider.
@@ -242,6 +243,9 @@ type cookieAuthContextKey string
 
 // csrfTokenContextKey is the context key for csrfToken security scheme
 type csrfTokenContextKey string
+
+// refreshCookieContextKey is the context key for refreshCookie security scheme
+type refreshCookieContextKey string
 
 // BeginOAuthParamsProvider defines parameters for BeginOAuth.
 type BeginOAuthParamsProvider string

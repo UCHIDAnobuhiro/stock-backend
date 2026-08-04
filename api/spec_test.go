@@ -15,6 +15,8 @@ var publicMutations = map[string]struct{}{
 	"DELETE /v1/logout": {},
 }
 
+const refreshMutation = "POST /v1/auth/refresh"
+
 func TestAllMutationOperationsRequireCSRF(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +38,11 @@ func TestAllMutationOperationsRequireCSRF(t *testing.T) {
 
 			t.Run(operationKey, func(t *testing.T) {
 				require.NotNil(t, operation.Security)
+				if operationKey == refreshMutation {
+					require.Len(t, *operation.Security, 1)
+					require.True(t, hasExactSecurityRequirement(*operation.Security, "refreshCookie", "csrfToken"))
+					return
+				}
 				require.Len(t, *operation.Security, 2)
 				require.True(t, hasExactSecurityRequirement(*operation.Security, "cookieAuth", "csrfToken"))
 				require.True(t, hasExactSecurityRequirement(*operation.Security, "bearerAuth"))
@@ -60,6 +67,7 @@ func TestSecuritySchemes(t *testing.T) {
 		bearerFormat string
 	}{
 		{name: "cookieAuth", schemeType: "apiKey", in: "cookie", headerName: "auth_token"},
+		{name: "refreshCookie", schemeType: "apiKey", in: "cookie", headerName: "refresh_token"},
 		{name: "csrfToken", schemeType: "apiKey", in: "header", headerName: "X-CSRF-Token"},
 		{name: "bearerAuth", schemeType: "http", scheme: "bearer", bearerFormat: "JWT"},
 	}
