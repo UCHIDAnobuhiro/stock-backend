@@ -28,7 +28,8 @@ func runAuthSessionCleanup(cfg *config.Config) int {
 	ctx, cancel := context.WithTimeout(context.Background(), authSessionCleanupTimeout)
 	defer cancel()
 	repo := auth.NewRefreshSessionRepository(sqlDB)
-	deleted, err := repo.DeleteExpired(ctx, time.Now())
+	uc := auth.NewSessionCleanupUsecase(repo)
+	deleted, err := uc.CleanupExpired(ctx)
 	if err != nil {
 		slog.Error("auth session cleanup failed", "error", err)
 		return 1

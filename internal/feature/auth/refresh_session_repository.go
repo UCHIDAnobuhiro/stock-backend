@@ -16,7 +16,10 @@ type refreshSessionRepository struct {
 	q  *authsqlc.Queries
 }
 
-var _ RefreshSessionRepository = (*refreshSessionRepository)(nil)
+var (
+	_ RefreshSessionRepository = (*refreshSessionRepository)(nil)
+	_ ExpiredSessionRepository = (*refreshSessionRepository)(nil)
+)
 
 // NewRefreshSessionRepository はリフレッシュセッションリポジトリを生成します。
 func NewRefreshSessionRepository(db *sql.DB) *refreshSessionRepository {
