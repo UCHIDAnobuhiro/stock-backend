@@ -838,6 +838,14 @@
           "columns": [
             "expires_at"
           ]
+        },
+        {
+          "name": "idx_refresh_sessions_replaced_by",
+          "def": "CREATE INDEX idx_refresh_sessions_replaced_by ON public.refresh_sessions USING btree (replaced_by)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "replaced_by"
+          ]
         }
       ],
       "constraints": [

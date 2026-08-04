@@ -22,6 +22,7 @@ CREATE TABLE refresh_sessions (
 CREATE INDEX idx_refresh_sessions_family_id ON refresh_sessions (family_id);
 CREATE INDEX idx_refresh_sessions_user_id ON refresh_sessions (user_id);
 CREATE INDEX idx_refresh_sessions_expires_at ON refresh_sessions (expires_at);
+CREATE INDEX idx_refresh_sessions_replaced_by ON refresh_sessions (replaced_by);
 
 -- +goose Down
 

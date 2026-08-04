@@ -39,6 +39,7 @@
 | idx_refresh_sessions_family_id | CREATE INDEX idx_refresh_sessions_family_id ON public.refresh_sessions USING btree (family_id) |
 | idx_refresh_sessions_user_id | CREATE INDEX idx_refresh_sessions_user_id ON public.refresh_sessions USING btree (user_id) |
 | idx_refresh_sessions_expires_at | CREATE INDEX idx_refresh_sessions_expires_at ON public.refresh_sessions USING btree (expires_at) |
+| idx_refresh_sessions_replaced_by | CREATE INDEX idx_refresh_sessions_replaced_by ON public.refresh_sessions USING btree (replaced_by) |
 
 ## Relations
 
