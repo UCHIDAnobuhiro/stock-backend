@@ -190,6 +190,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 同じrefresh_tokenによる更新処理が並行している
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           description: リクエスト過多（レートリミット超過）
           headers:
@@ -202,7 +208,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: セッション保存先またはレートリミット基盤の障害時
+          description: セッション保存先の障害時
           content:
             application/json:
               schema:

@@ -10,21 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockSessionUserRepository struct {
-	findByIDFunc func(context.Context, int64) (*User, error)
-}
-
-func (m *mockSessionUserRepository) Create(context.Context, *User) error { return nil }
-func (m *mockSessionUserRepository) FindByEmail(context.Context, string) (*User, error) {
-	return nil, ErrUserNotFound
-}
-func (m *mockSessionUserRepository) FindByID(ctx context.Context, id int64) (*User, error) {
-	if m.findByIDFunc != nil {
-		return m.findByIDFunc(ctx, id)
-	}
-	return &User{ID: id, Email: "user@example.com"}, nil
-}
-
 type mockSessionJWTGenerator struct {
 	generateFunc func(int64, string) (string, error)
 }
@@ -38,8 +23,7 @@ func (m *mockSessionJWTGenerator) GenerateToken(userID int64, email string) (str
 
 type mockRefreshSessionRepository struct {
 	createFunc func(context.Context, *RefreshSession) error
-	findFunc   func(context.Context, []byte) (*RefreshSession, error)
-	rotateFunc func(context.Context, []byte, *RefreshSession, time.Time) error
+	rotateFunc func(context.Context, []byte, time.Time, RefreshSessionFactory) error
 	revokeFunc func(context.Context, []byte, time.Time) error
 }
 
@@ -49,15 +33,9 @@ func (m *mockRefreshSessionRepository) Create(ctx context.Context, session *Refr
 	}
 	return nil
 }
-func (m *mockRefreshSessionRepository) FindByTokenHash(ctx context.Context, hash []byte) (*RefreshSession, error) {
-	if m.findFunc != nil {
-		return m.findFunc(ctx, hash)
-	}
-	return nil, ErrRefreshTokenInvalid
-}
-func (m *mockRefreshSessionRepository) Rotate(ctx context.Context, hash []byte, next *RefreshSession, now time.Time) error {
+func (m *mockRefreshSessionRepository) Rotate(ctx context.Context, hash []byte, now time.Time, nextFactory RefreshSessionFactory) error {
 	if m.rotateFunc != nil {
-		return m.rotateFunc(ctx, hash, next, now)
+		return m.rotateFunc(ctx, hash, now, nextFactory)
 	}
 	return nil
 }
@@ -79,7 +57,7 @@ func TestSessionService_Issue(t *testing.T) {
 			return nil
 		},
 	}
-	service := NewSessionService(&mockSessionUserRepository{}, &mockSessionJWTGenerator{}, repo, time.Hour)
+	service := NewSessionService(&mockSessionJWTGenerator{}, repo, time.Hour)
 	service.now = func() time.Time { return fixedNow }
 
 	pair, err := service.Issue(context.Background(), 42, "user@example.com")
@@ -122,7 +100,7 @@ func TestSessionService_IssueErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			service := NewSessionService(&mockSessionUserRepository{}, tt.generator, tt.repo, time.Hour)
+			service := NewSessionService(tt.generator, tt.repo, time.Hour)
 			pair, err := service.Issue(context.Background(), 1, "user@example.com")
 			assert.Error(t, err)
 			assert.Empty(t, pair)
@@ -134,22 +112,19 @@ func TestSessionService_Refresh(t *testing.T) {
 	t.Parallel()
 
 	fixedNow := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	current := &RefreshSession{ID: "current", FamilyID: "family", UserID: 7}
 	var rotated *RefreshSession
 	repo := &mockRefreshSessionRepository{
-		findFunc: func(_ context.Context, hash []byte) (*RefreshSession, error) {
-			assert.Equal(t, hashRefreshToken("old-refresh"), hash)
-			return current, nil
-		},
-		rotateFunc: func(_ context.Context, hash []byte, next *RefreshSession, now time.Time) error {
+		rotateFunc: func(_ context.Context, hash []byte, now time.Time, nextFactory RefreshSessionFactory) error {
 			assert.Equal(t, hashRefreshToken("old-refresh"), hash)
 			assert.Equal(t, fixedNow, now)
+			next, err := nextFactory(RefreshSession{ID: "current", FamilyID: "family", UserID: 7}, "user@example.com")
+			require.NoError(t, err)
 			copy := *next
 			rotated = &copy
 			return nil
 		},
 	}
-	service := NewSessionService(&mockSessionUserRepository{}, &mockSessionJWTGenerator{}, repo, time.Hour)
+	service := NewSessionService(&mockSessionJWTGenerator{}, repo, time.Hour)
 	service.now = func() time.Time { return fixedNow }
 
 	pair, err := service.Refresh(context.Background(), "old-refresh")
@@ -167,61 +142,79 @@ func TestSessionService_RefreshErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		token string
-		users UserRepository
-		repo  RefreshSessionRepository
-		want  error
+		name        string
+		token       string
+		generator   JWTGenerator
+		repo        RefreshSessionRepository
+		want        error
+		wantMessage string
 	}{
 		{
 			name:  "error: empty token",
 			token: "",
-			users: &mockSessionUserRepository{},
 			repo:  &mockRefreshSessionRepository{},
 			want:  ErrRefreshTokenInvalid,
 		},
 		{
-			name:  "error: token lookup",
+			name:  "error: invalid token",
 			token: "invalid",
-			users: &mockSessionUserRepository{},
-			repo: &mockRefreshSessionRepository{findFunc: func(context.Context, []byte) (*RefreshSession, error) {
-				return nil, ErrRefreshTokenInvalid
+			repo: &mockRefreshSessionRepository{rotateFunc: func(context.Context, []byte, time.Time, RefreshSessionFactory) error {
+				return ErrRefreshTokenInvalid
 			}},
 			want: ErrRefreshTokenInvalid,
 		},
 		{
-			name:  "error: user lookup",
+			name:  "error: token reuse",
 			token: "token",
-			users: &mockSessionUserRepository{findByIDFunc: func(context.Context, int64) (*User, error) {
-				return nil, ErrUserNotFound
+			repo: &mockRefreshSessionRepository{rotateFunc: func(context.Context, []byte, time.Time, RefreshSessionFactory) error {
+				return ErrRefreshTokenReused
 			}},
-			repo: &mockRefreshSessionRepository{findFunc: func(context.Context, []byte) (*RefreshSession, error) {
-				return &RefreshSession{UserID: 1}, nil
+			want: ErrRefreshTokenReused,
+		},
+		{
+			name:  "error: rotation conflict",
+			token: "token",
+			repo: &mockRefreshSessionRepository{rotateFunc: func(context.Context, []byte, time.Time, RefreshSessionFactory) error {
+				return ErrRefreshTokenConflict
+			}},
+			want: ErrRefreshTokenConflict,
+		},
+		{
+			name:  "error: session store unavailable",
+			token: "token",
+			repo: &mockRefreshSessionRepository{rotateFunc: func(context.Context, []byte, time.Time, RefreshSessionFactory) error {
+				return errors.New("database unavailable")
 			}},
 			want: ErrSessionUnavailable,
 		},
 		{
-			name:  "error: token reuse",
+			name:  "error: access token generation",
 			token: "token",
-			users: &mockSessionUserRepository{},
-			repo: &mockRefreshSessionRepository{
-				findFunc: func(context.Context, []byte) (*RefreshSession, error) {
-					return &RefreshSession{FamilyID: "family", UserID: 1}, nil
-				},
-				rotateFunc: func(context.Context, []byte, *RefreshSession, time.Time) error {
-					return ErrRefreshTokenReused
-				},
-			},
-			want: ErrRefreshTokenReused,
+			generator: &mockSessionJWTGenerator{generateFunc: func(int64, string) (string, error) {
+				return "", errors.New("sign failed")
+			}},
+			repo: &mockRefreshSessionRepository{rotateFunc: func(_ context.Context, _ []byte, _ time.Time, nextFactory RefreshSessionFactory) error {
+				_, err := nextFactory(RefreshSession{FamilyID: "family", UserID: 1}, "user@example.com")
+				return err
+			}},
+			wantMessage: "sign failed",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			service := NewSessionService(tt.users, &mockSessionJWTGenerator{}, tt.repo, time.Hour)
+			generator := tt.generator
+			if generator == nil {
+				generator = &mockSessionJWTGenerator{}
+			}
+			service := NewSessionService(generator, tt.repo, time.Hour)
 			pair, err := service.Refresh(context.Background(), tt.token)
-			assert.ErrorIs(t, err, tt.want)
+			if tt.wantMessage != "" {
+				assert.ErrorContains(t, err, tt.wantMessage)
+			} else {
+				assert.ErrorIs(t, err, tt.want)
+			}
 			assert.Empty(t, pair)
 		})
 	}
@@ -237,7 +230,7 @@ func TestSessionService_Revoke(t *testing.T) {
 			return nil
 		},
 	}
-	service := NewSessionService(&mockSessionUserRepository{}, &mockSessionJWTGenerator{}, repo, time.Hour)
+	service := NewSessionService(&mockSessionJWTGenerator{}, repo, time.Hour)
 
 	require.NoError(t, service.Revoke(context.Background(), "refresh-token"))
 	assert.Equal(t, hashRefreshToken("refresh-token"), received)

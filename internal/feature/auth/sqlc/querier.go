@@ -20,6 +20,7 @@ type Querier interface {
 	FindUserByEmail(ctx context.Context, email string) (User, error)
 	FindUserByID(ctx context.Context, id int64) (User, error)
 	LockRefreshSessionByTokenHash(ctx context.Context, tokenHash []byte) (RefreshSession, error)
+	LockRefreshSessionForRotation(ctx context.Context, tokenHash []byte) (LockRefreshSessionForRotationRow, error)
 	RevokeRefreshSessionFamily(ctx context.Context, arg RevokeRefreshSessionFamilyParams) error
 }
 

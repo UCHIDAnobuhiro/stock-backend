@@ -56,10 +56,10 @@ func (r *refreshSessionRepository) FindByTokenHash(ctx context.Context, tokenHas
 }
 
 // Rotate は現在のトークンを一度だけ消費し、同じ系列の次トークンを原子的に作成します。
-// 消費済みトークンが再利用された場合は、系列全体を失効させます。
-func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash []byte, next *RefreshSession, now time.Time) error {
-	if next == nil {
-		return errors.New("next refresh session is nil")
+// 消費直後の再提示は並行更新として扱い、猶予期間を超えた再利用では系列全体を失効させます。
+func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash []byte, now time.Time, nextFactory RefreshSessionFactory) error {
+	if nextFactory == nil {
+		return errors.New("refresh session factory is nil")
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -73,14 +73,21 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 	}()
 
 	qtx := r.q.WithTx(tx)
-	current, err := qtx.LockRefreshSessionByTokenHash(ctx, currentTokenHash)
+	row, err := qtx.LockRefreshSessionForRotation(ctx, currentTokenHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRefreshTokenInvalid
 		}
 		return err
 	}
-	if current.ConsumedAt.Valid {
+	current := refreshSessionFromRotationSQLC(row)
+	if current.RevokedAt != nil {
+		return ErrRefreshTokenInvalid
+	}
+	if current.ConsumedAt != nil {
+		if !now.After(current.ConsumedAt.Add(refreshTokenReuseGracePeriod)) {
+			return ErrRefreshTokenConflict
+		}
 		if err := qtx.RevokeRefreshSessionFamily(ctx, authsqlc.RevokeRefreshSessionFamilyParams{
 			FamilyID:  current.FamilyID,
 			RevokedAt: sql.NullTime{Time: now, Valid: true},
@@ -93,15 +100,19 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 		committed = true
 		return ErrRefreshTokenReused
 	}
-	if current.RevokedAt.Valid {
-		return ErrRefreshTokenInvalid
-	}
 	if !now.Before(current.ExpiresAt) {
 		return ErrRefreshTokenExpired
 	}
-	if current.UserID != next.UserID || current.FamilyID != next.FamilyID {
-		return errors.New("refresh rotation lineage mismatch")
+
+	next, err := nextFactory(current, row.Email)
+	if err != nil {
+		return err
 	}
+	if next == nil {
+		return errors.New("next refresh session is nil")
+	}
+	next.UserID = current.UserID
+	next.FamilyID = current.FamilyID
 
 	if _, err := qtx.CreateRefreshSession(ctx, authsqlc.CreateRefreshSessionParams{
 		ID:        next.ID,
@@ -124,6 +135,20 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 	}
 	committed = true
 	return nil
+}
+
+func refreshSessionFromRotationSQLC(row authsqlc.LockRefreshSessionForRotationRow) RefreshSession {
+	return RefreshSession{
+		ID:         row.ID,
+		FamilyID:   row.FamilyID,
+		UserID:     row.UserID,
+		TokenHash:  row.TokenHash,
+		ExpiresAt:  row.ExpiresAt,
+		ConsumedAt: nullTimePointer(row.ConsumedAt),
+		RevokedAt:  nullTimePointer(row.RevokedAt),
+		ReplacedBy: nullStringPointer(row.ReplacedBy),
+		CreatedAt:  row.CreatedAt,
+	}
 }
 
 // Revoke はトークンが属する系列を失効させます。未知のトークンは冪等に成功します。

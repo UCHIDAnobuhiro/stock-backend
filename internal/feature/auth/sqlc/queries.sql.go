@@ -247,6 +247,48 @@ func (q *Queries) LockRefreshSessionByTokenHash(ctx context.Context, tokenHash [
 	return i, err
 }
 
+const lockRefreshSessionForRotation = `-- name: LockRefreshSessionForRotation :one
+SELECT rs.id, rs.family_id, rs.user_id, rs.token_hash, rs.expires_at,
+       rs.consumed_at, rs.revoked_at, rs.replaced_by, rs.created_at,
+       u.email
+FROM refresh_sessions AS rs
+JOIN users AS u ON u.id = rs.user_id
+WHERE rs.token_hash = $1
+LIMIT 1
+FOR UPDATE OF rs
+`
+
+type LockRefreshSessionForRotationRow struct {
+	ID         string
+	FamilyID   string
+	UserID     int64
+	TokenHash  []byte
+	ExpiresAt  time.Time
+	ConsumedAt sql.NullTime
+	RevokedAt  sql.NullTime
+	ReplacedBy sql.NullString
+	CreatedAt  time.Time
+	Email      string
+}
+
+func (q *Queries) LockRefreshSessionForRotation(ctx context.Context, tokenHash []byte) (LockRefreshSessionForRotationRow, error) {
+	row := q.db.QueryRowContext(ctx, lockRefreshSessionForRotation, tokenHash)
+	var i LockRefreshSessionForRotationRow
+	err := row.Scan(
+		&i.ID,
+		&i.FamilyID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.CreatedAt,
+		&i.Email,
+	)
+	return i, err
+}
+
 const revokeRefreshSessionFamily = `-- name: RevokeRefreshSessionFamily :exec
 UPDATE refresh_sessions
 SET revoked_at = $2

@@ -21,6 +21,9 @@ var (
 	// ErrRefreshTokenReused は消費済みのリフレッシュトークンが再利用された場合に返されます。
 	ErrRefreshTokenReused = errors.New("refresh token reused")
 
+	// ErrRefreshTokenConflict は消費直後のトークンが並行リクエストで再提示された場合に返されます。
+	ErrRefreshTokenConflict = errors.New("refresh token rotation conflict")
+
 	// ErrSessionUnavailable は認証セッションの永続化基盤が利用できない場合に返されます。
 	ErrSessionUnavailable = errors.New("session store unavailable")
 

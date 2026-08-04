@@ -2,8 +2,13 @@ package auth
 
 import "time"
 
-// DefaultRefreshTokenTTL はリフレッシュトークンの有効期限です。
-const DefaultRefreshTokenTTL = 30 * 24 * time.Hour
+const (
+	// DefaultRefreshTokenTTL はリフレッシュトークンの有効期限です。
+	DefaultRefreshTokenTTL = 30 * 24 * time.Hour
+
+	// refreshTokenReuseGracePeriod は正規クライアントの並行更新を盗難と誤検知しないための猶予期間です。
+	refreshTokenReuseGracePeriod = 30 * time.Second
+)
 
 // TokenPair はブラウザセッションへ発行するアクセストークンと
 // リフレッシュトークンをまとめた値です。

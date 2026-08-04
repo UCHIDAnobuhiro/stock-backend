@@ -98,7 +98,7 @@ func run() int {
 	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, jwt.DefaultTokenTTL)
 	jwtBlacklist := jwt.NewBlacklist(rdb)
 	refreshSessionRepo := auth.NewRefreshSessionRepository(sqlDB)
-	sessionService := auth.NewSessionService(userRepo, jwtGen, refreshSessionRepo, auth.DefaultRefreshTokenTTL)
+	sessionService := auth.NewSessionService(jwtGen, refreshSessionRepo, auth.DefaultRefreshTokenTTL)
 
 	// Google Cloudクライアント初期化
 	visionDetector, err := vision.NewVisionLogoDetector(context.Background())

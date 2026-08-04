@@ -15,10 +15,12 @@ const refreshTokenBytes = 32
 // RefreshSessionRepository はリフレッシュセッションの永続化操作を定義します。
 type RefreshSessionRepository interface {
 	Create(ctx context.Context, session *RefreshSession) error
-	FindByTokenHash(ctx context.Context, tokenHash []byte) (*RefreshSession, error)
-	Rotate(ctx context.Context, currentTokenHash []byte, next *RefreshSession, now time.Time) error
+	Rotate(ctx context.Context, currentTokenHash []byte, now time.Time, nextFactory RefreshSessionFactory) error
 	Revoke(ctx context.Context, tokenHash []byte, now time.Time) error
 }
+
+// RefreshSessionFactory はロック・検証済みセッションから次セッションを生成します。
+type RefreshSessionFactory func(current RefreshSession, email string) (*RefreshSession, error)
 
 // SessionIssuer はログイン成功時にトークンペアを発行します。
 type SessionIssuer interface {
@@ -34,7 +36,6 @@ type SessionManager interface {
 
 // sessionService は短期JWTとサーバー管理リフレッシュセッションを統合します。
 type sessionService struct {
-	users        UserRepository
 	jwtGenerator JWTGenerator
 	sessions     RefreshSessionRepository
 	refreshTTL   time.Duration
@@ -44,9 +45,8 @@ type sessionService struct {
 var _ SessionManager = (*sessionService)(nil)
 
 // NewSessionService は認証セッションサービスを生成します。
-func NewSessionService(users UserRepository, jwtGenerator JWTGenerator, sessions RefreshSessionRepository, refreshTTL time.Duration) *sessionService {
+func NewSessionService(jwtGenerator JWTGenerator, sessions RefreshSessionRepository, refreshTTL time.Duration) *sessionService {
 	return &sessionService{
-		users:        users,
 		jwtGenerator: jwtGenerator,
 		sessions:     sessions,
 		refreshTTL:   refreshTTL,
@@ -81,39 +81,38 @@ func (s *sessionService) Refresh(ctx context.Context, refreshToken string) (Toke
 		return TokenPair{}, ErrRefreshTokenInvalid
 	}
 	currentHash := hashRefreshToken(refreshToken)
-	current, err := s.sessions.FindByTokenHash(ctx, currentHash)
-	if err != nil {
-		if errors.Is(err, ErrRefreshTokenInvalid) || errors.Is(err, ErrRefreshTokenExpired) || errors.Is(err, ErrRefreshTokenReused) {
-			return TokenPair{}, err
-		}
-		return TokenPair{}, fmt.Errorf("%w: failed to find refresh session: %v", ErrSessionUnavailable, err)
-	}
-	user, err := s.users.FindByID(ctx, current.UserID)
-	if err != nil {
-		return TokenPair{}, fmt.Errorf("%w: failed to find refresh session user: %v", ErrSessionUnavailable, err)
-	}
-
 	now := s.now()
-	rawToken, next, err := s.newRefreshSession(current.UserID, current.FamilyID, now)
-	if err != nil {
-		return TokenPair{}, err
+	var pair TokenPair
+	var issueErr error
+	err := s.sessions.Rotate(ctx, currentHash, now, func(current RefreshSession, email string) (*RefreshSession, error) {
+		rawToken, next, err := s.newRefreshSession(current.UserID, current.FamilyID, now)
+		if err != nil {
+			issueErr = err
+			return nil, err
+		}
+		accessToken, err := s.jwtGenerator.GenerateToken(current.UserID, email)
+		if err != nil {
+			issueErr = fmt.Errorf("failed to generate access token: %w", err)
+			return nil, issueErr
+		}
+		pair = TokenPair{
+			AccessToken:      accessToken,
+			RefreshToken:     rawToken,
+			RefreshExpiresAt: next.ExpiresAt,
+		}
+		return next, nil
+	})
+	if issueErr != nil {
+		return TokenPair{}, issueErr
 	}
-	accessToken, err := s.jwtGenerator.GenerateToken(user.ID, user.Email)
 	if err != nil {
-		return TokenPair{}, fmt.Errorf("failed to generate access token: %w", err)
-	}
-	if err := s.sessions.Rotate(ctx, currentHash, next, now); err != nil {
-		if errors.Is(err, ErrRefreshTokenInvalid) || errors.Is(err, ErrRefreshTokenExpired) || errors.Is(err, ErrRefreshTokenReused) {
+		if errors.Is(err, ErrRefreshTokenInvalid) || errors.Is(err, ErrRefreshTokenExpired) ||
+			errors.Is(err, ErrRefreshTokenReused) || errors.Is(err, ErrRefreshTokenConflict) {
 			return TokenPair{}, err
 		}
 		return TokenPair{}, fmt.Errorf("%w: failed to rotate refresh session: %v", ErrSessionUnavailable, err)
 	}
-
-	return TokenPair{
-		AccessToken:      accessToken,
-		RefreshToken:     rawToken,
-		RefreshExpiresAt: next.ExpiresAt,
-	}, nil
+	return pair, nil
 }
 
 // Revoke は提示されたリフレッシュトークンの系列を失効させます。

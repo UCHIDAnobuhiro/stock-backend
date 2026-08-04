@@ -568,6 +568,14 @@ func TestAuthHandler_Refresh(t *testing.T) {
 			expectCookies:  true,
 		},
 		{
+			name:         "error: concurrent rotation",
+			refreshToken: "concurrent-refresh-token",
+			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, auth.ErrRefreshTokenConflict
+			},
+			expectedStatus: http.StatusConflict,
+		},
+		{
 			name:         "error: session service failure",
 			refreshToken: "refresh-token",
 			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
@@ -601,6 +609,9 @@ func TestAuthHandler_Refresh(t *testing.T) {
 				assert.NotEmpty(t, findSetCookie(w, "auth_token"))
 				assert.NotEmpty(t, findSetCookie(w, "refresh_token"))
 				assert.NotEmpty(t, findSetCookie(w, "csrf_token"))
+			}
+			if tt.expectedStatus == http.StatusConflict {
+				assert.Empty(t, w.Header().Values("Set-Cookie"))
 			}
 		})
 	}

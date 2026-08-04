@@ -183,6 +183,10 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	pair, err := h.uc.Refresh(r.Context(), cookie.Value)
 	if err != nil {
+		if errors.Is(err, auth.ErrRefreshTokenConflict) {
+			httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "refresh already in progress"})
+			return
+		}
 		if errors.Is(err, auth.ErrRefreshTokenInvalid) ||
 			errors.Is(err, auth.ErrRefreshTokenExpired) ||
 			errors.Is(err, auth.ErrRefreshTokenReused) {
