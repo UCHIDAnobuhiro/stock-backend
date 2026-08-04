@@ -101,7 +101,7 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 					Prefix: "rl:refresh:ip",
 					Limit:  30,
 					Window: 1 * time.Minute,
-					Policy: httpratelimit.FailClosed,
+					Policy: httpratelimit.FailOpen,
 				}),
 				csrfmw.Protect("auth_token", "refresh_token"),
 			).Post("/auth/refresh", h.Auth.Refresh)

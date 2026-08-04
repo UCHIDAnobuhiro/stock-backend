@@ -104,6 +104,11 @@ func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler, trustedHops ...in
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	limiter := httpratelimit.NewLimiter(rdb)
+	return newTestRouterWithLimiter(t, oauth, limiter, hops)
+}
+
+func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limiter *httpratelimit.Limiter, hops int) http.Handler {
+	t.Helper()
 
 	noopValidator := func(next http.Handler) http.Handler { return next }
 
@@ -273,6 +278,20 @@ func TestNewRouter_RefreshRequiresCookieAndCSRF(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 		})
 	}
+}
+
+func TestNewRouter_RefreshFailsOpenWhenRedisUnavailable(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRouterWithLimiter(t, nil, httpratelimit.NewLimiter(nil), 0)
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestNewRouter_OAuthRoutesOptional は Handlers.OAuth が nil の場合に
