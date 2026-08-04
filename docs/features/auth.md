@@ -408,7 +408,10 @@ sequenceDiagram
 - **409 Conflict**: 同じトークンによる更新が並行中（Cookieは維持）
 - **429 Too Many Requests**: IP単位で30回/分を超過
 
-Redis障害時はレートリミットをfail-openとし、PostgreSQLでのトークン検証を継続します。
+Redis障害時はレートリミットを例外的にfail-openとし、PostgreSQLでのトークン検証を継続します。
+リフレッシュトークンは256ビットの暗号論的乱数であり、有効性・失効状態はPostgreSQLで
+必ず検証されるため、Redis障害時は既存セッションの可用性を優先します
+（[ADR-0009](../adr/0009-リフレッシュトークンローテーションを採用する.md)）。
 
 ### DELETE /v1/logout
 
@@ -488,6 +491,7 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 | `POST /v1/login` | メールアドレス | 5回 | 15分 | Handler内 |
 | `POST /v1/signup` | IPアドレス | 5回 | 1時間 | HTTPミドルウェア |
 | `GET /v1/auth/oauth/:provider/callback` | IPアドレス | 20回 | 1分 | HTTPミドルウェア |
+| `POST /v1/auth/refresh` | IPアドレス | 30回 | 1分 | HTTPミドルウェア |
 
 ### アルゴリズム
 
@@ -498,7 +502,7 @@ Redis Sorted Setを使用したSliding Window Logアルゴリズム:
 3. `ZADD` で現在のリクエストを追加（ナノ秒タイムスタンプをスコアとして使用）
 4. `EXPIRE` でキーの有効期限を設定（安全ネット）
 
-### Redis障害時の挙動（fail-closed）
+### Redis障害時の挙動
 
 認証系エンドポイント（signup / login IP・メール / OAuth コールバック）のレートリミットは
 **fail-closed** です。Redisが利用できない場合（未接続・Luaスクリプト実行エラー）、
@@ -508,6 +512,11 @@ Redis Sorted Setを使用したSliding Window Logアルゴリズム:
 Redis障害時にレートリミットを無効化（fail-open）してしまうと、ブルートフォース攻撃・
 アカウント列挙対策が働かないままアプリケーションが動作し続けてしまうため、
 可用性よりセキュリティを優先する方針としています（issue #266 / [ADR-0008](../adr/0008-レートリミット障害時のfail-open-fail-closed方針.md)）。
+
+リフレッシュ（`POST /v1/auth/refresh`）は認証系ですが、例外的に **fail-open** です。
+リフレッシュトークンは256ビットの暗号論的乱数で総当たりが現実的ではなく、有効性・失効状態は
+PostgreSQLで必ず検証されるため、Redis障害時は既存セッションの可用性を優先します
+（[ADR-0009](../adr/0009-リフレッシュトークンローテーションを採用する.md)）。
 
 なお、candlesキャッシュやログアウト時のJWTブラックリスト登録など非クリティカルな
 Redis利用は、従来どおりfail-open（グレースフルデグレード）を維持しています。
