@@ -46,6 +46,7 @@ func (r *refreshSessionRepository) Create(ctx context.Context, session *RefreshS
 }
 
 // FindByTokenHash はハッシュに一致するリフレッシュセッションを返します。
+// 本番の更新・失効フローでは使用せず、リポジトリ統合テストで永続化結果を検証するために使用します。
 func (r *refreshSessionRepository) FindByTokenHash(ctx context.Context, tokenHash []byte) (*RefreshSession, error) {
 	row, err := r.q.FindRefreshSessionByTokenHash(ctx, tokenHash)
 	if err != nil {

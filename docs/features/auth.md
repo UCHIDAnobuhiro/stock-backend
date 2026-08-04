@@ -433,10 +433,17 @@ Redis障害時はレートリミットを例外的にfail-openとし、PostgreSQ
   }
   ```
 
-  **Set-Cookieヘッダー:**
-  - `auth_token`: 空文字列、`Max-Age=0`（即時削除）
-  - `refresh_token`: 空文字列、`Max-Age=0`（即時削除）
-  - `csrf_token`: 空文字列、`Max-Age=0`（即時削除）
+- **403 Forbidden** - Cookie認証でCSRFトークンがない、または不一致
+- **503 Service Unavailable** - リフレッシュセッションの失効処理が一時的に利用不可
+- **500 Internal Server Error** - 予期しないセッション失効処理エラー
+
+503または500の場合も、クライアント側の認証情報を残さないためCookie削除は実行します。
+
+**200・503・500のSet-Cookieヘッダー:**
+
+- `auth_token`: 空文字列、`Max-Age=0`（即時削除）
+- `refresh_token`: 空文字列、`Max-Age=0`（即時削除）
+- `csrf_token`: 空文字列、`Max-Age=0`（即時削除）
 
 **注意**: 期限切れトークンを持つクライアントでも必ずログアウトできるよう、認証不要のエンドポイントに設定されています。
 
