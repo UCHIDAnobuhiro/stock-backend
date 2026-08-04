@@ -620,21 +620,59 @@ func TestAuthHandler_Refresh(t *testing.T) {
 func TestAuthHandler_Logout_RefreshRevocationFailure(t *testing.T) {
 	t.Parallel()
 
-	var received string
-	h := authhttp.NewHandler(&mockUsecase{
-		LogoutFunc: func(_ context.Context, token string) error {
-			received = token
-			return errors.New("database unavailable")
-		},
-	}, nil, false, "", nil)
-	req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
-	w := httptest.NewRecorder()
-	h.Logout(w, req)
+	tests := []struct {
+		name           string
+		logoutErr      error
+		expectedStatus int
+	}{
+		{name: "error: session store unavailable", logoutErr: auth.ErrSessionUnavailable, expectedStatus: http.StatusServiceUnavailable},
+		{name: "error: unexpected failure", logoutErr: errors.New("unexpected"), expectedStatus: http.StatusInternalServerError},
+	}
 
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	assert.Equal(t, "refresh-token", received)
-	assert.Empty(t, w.Header().Values("Set-Cookie"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			const secret = "logout-failure-secret"
+			gen := jwt.NewGenerator(secret, time.Hour)
+			token, err := gen.GenerateToken(1, "test@example.com")
+			require.NoError(t, err)
+
+			rdb, mock := redismock.NewClientMock()
+			t.Cleanup(func() { _ = rdb.Close() })
+			match := mock.CustomMatch(func(_, actual []interface{}) error {
+				if len(actual) < 2 {
+					return fmt.Errorf("unexpected SET args: %+v", actual)
+				}
+				key, ok := actual[1].(string)
+				if !ok || !strings.HasPrefix(key, "jwt:blacklist:") {
+					return fmt.Errorf("unexpected blacklist key: %v", actual[1])
+				}
+				return nil
+			})
+			match.ExpectSet("ignored", "1", time.Hour).SetVal("OK")
+
+			var received string
+			h := authhttp.NewHandler(&mockUsecase{
+				LogoutFunc: func(_ context.Context, refreshToken string) error {
+					received = refreshToken
+					return tt.logoutErr
+				},
+			}, nil, false, secret, jwt.NewBlacklist(rdb))
+			req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+			w := httptest.NewRecorder()
+			h.Logout(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, "refresh-token", received)
+			assert.NotEmpty(t, findSetCookie(w, "auth_token"))
+			assert.NotEmpty(t, findSetCookie(w, "refresh_token"))
+			assert.NotEmpty(t, findSetCookie(w, "csrf_token"))
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func findSetCookie(w *httptest.ResponseRecorder, name string) string {

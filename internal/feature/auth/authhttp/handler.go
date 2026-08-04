@@ -214,11 +214,6 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(refreshTokenCookieName); err == nil {
 		refreshToken = cookie.Value
 	}
-	if err := h.uc.Logout(r.Context(), refreshToken); err != nil {
-		slog.Error("failed to revoke refresh session on logout", "error", err)
-		httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
-		return
-	}
 
 	// トークンが有効な場合のみjtiをブラックリストに登録し、有効期限前でも即時失効させる。
 	// Redis未接続時等は警告ログのみでログアウト自体は継続する（グレースフルデグレード）。
@@ -226,7 +221,17 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("failed to revoke token on logout", "error", err)
 	}
 
+	refreshErr := h.uc.Logout(r.Context(), refreshToken)
 	clearSessionCookies(w, h.secureCookie)
+	if refreshErr != nil {
+		slog.Error("failed to revoke refresh session on logout", "error", refreshErr)
+		if errors.Is(refreshErr, auth.ErrSessionUnavailable) {
+			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
+			return
+		}
+		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
+		return
+	}
 
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
