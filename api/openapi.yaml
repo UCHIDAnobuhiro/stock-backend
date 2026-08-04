@@ -191,7 +191,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: 同じrefresh_tokenによる更新処理が並行している
+          description: 同じrefresh_tokenによる更新処理が並行している（短く待機して1回だけ再試行）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（1秒）
+              schema:
+                type: integer
           content:
             application/json:
               schema:

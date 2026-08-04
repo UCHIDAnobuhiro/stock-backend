@@ -675,6 +675,25 @@ func TestAuthHandler_Logout_RefreshRevocationFailure(t *testing.T) {
 	}
 }
 
+func TestAuthHandler_RefreshConflictSetsRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	h := authhttp.NewHandler(&mockUsecase{
+		RefreshFunc: func(context.Context, string) (auth.TokenPair, error) {
+			return auth.TokenPair{}, auth.ErrRefreshTokenConflict
+		},
+	}, nil, false, "", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "concurrent-refresh-token"})
+	w := httptest.NewRecorder()
+
+	h.Refresh(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, "1", w.Header().Get("Retry-After"))
+	assert.Empty(t, w.Header().Values("Set-Cookie"))
+}
+
 func findSetCookie(w *httptest.ResponseRecorder, name string) string {
 	for _, cookie := range w.Header().Values("Set-Cookie") {
 		if strings.HasPrefix(cookie, name+"=") {

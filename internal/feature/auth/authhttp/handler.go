@@ -38,10 +38,11 @@ const (
 )
 
 const (
-	authTokenCookieName    = "auth_token"
-	refreshTokenCookieName = "refresh_token"
-	authCookieMaxAge       = int(jwt.DefaultTokenTTL / time.Second)
-	refreshCookieMaxAge    = int(auth.DefaultRefreshTokenTTL / time.Second)
+	authTokenCookieName              = "auth_token"
+	refreshTokenCookieName           = "refresh_token"
+	authCookieMaxAge                 = int(jwt.DefaultTokenTTL / time.Second)
+	refreshCookieMaxAge              = int(auth.DefaultRefreshTokenTTL / time.Second)
+	refreshConflictRetryAfterSeconds = 1
 )
 
 // Handler は認証操作のHTTPリクエストを処理します。
@@ -184,6 +185,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	pair, err := h.uc.Refresh(r.Context(), cookie.Value)
 	if err != nil {
 		if errors.Is(err, auth.ErrRefreshTokenConflict) {
+			w.Header().Set("Retry-After", strconv.Itoa(refreshConflictRetryAfterSeconds))
 			httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "refresh already in progress"})
 			return
 		}
