@@ -139,7 +139,9 @@ sequenceDiagram
         Session->>DB: 旧トークンを消費済みに更新<br/>次トークンを同一トランザクションで作成
         Session-->>Handler: 新しいTokenPair
         Handler-->>Client: 200 OK + Cookie一式を交換
-    else 使用済みトークンの再利用
+    else 消費から30秒以内の並行更新
+        Handler-->>Client: 409 Conflict<br/>Cookieは削除しない
+    else 30秒を超えた使用済みトークンの再利用
         Session->>DB: 同じfamily_idをすべて失効
         Handler-->>Client: 401 Unauthorized
     else 無効・期限切れ
@@ -403,7 +405,10 @@ sequenceDiagram
 - **200 OK**: 更新成功
 - **401 Unauthorized**: トークンが無効、期限切れ、失効済み、または再利用
 - **403 Forbidden**: CSRFトークン不正
+- **409 Conflict**: 同じトークンによる更新が並行中（Cookieは維持）
 - **429 Too Many Requests**: IP単位で30回/分を超過
+
+Redis障害時はレートリミットをfail-openとし、PostgreSQLでのトークン検証を継続します。
 
 ### DELETE /v1/logout
 
@@ -852,6 +857,8 @@ GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
    - `csrf_token`（非httpOnly）: JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット → CSRF攻撃を防止
    - `SameSite=Lax` 設定でクロスサイトリクエストを制限
 4. **トークンの有効期限**: JWTは10分、リフレッシュトークンは30日で失効。ログアウト時はJWTの`jti`をRedisブラックリストへ登録し、リフレッシュセッション系列をPostgreSQLで失効させる
+   - 消費後30秒以内の再提示は並行更新として409を返し、Cookieとセッション系列を維持
+   - 30秒を超えた再利用ではトークン系列全体を失効
 5. **認証方式フォールバック**: `auth_token` Cookieを優先、存在しない場合は `Authorization: Bearer <token>` ヘッダーにフォールバック（API/curlクライアント対応）
 6. **エラーメッセージの統一化**:
    - バリデーションエラー: 汎用 "invalid request" メッセージを返却
@@ -862,7 +869,6 @@ GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
 
 ## 今後の拡張
 
-- リフレッシュトークンの実装
 - パスワードリセット機能
 - メール認証
 - 二要素認証（2FA）
