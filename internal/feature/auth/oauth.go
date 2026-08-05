@@ -13,6 +13,62 @@ import (
 
 const oauthStateTTL = 10 * time.Minute
 
+// OAuthUserInfo はOAuth2プロバイダーから取得したユーザー情報です。
+type OAuthUserInfo struct {
+	ProviderUID string // プロバイダー側のユーザー一意ID
+	Email       string // 検証済みメールアドレス
+}
+
+// OAuthAccount はOAuth2プロバイダーとユーザーを紐付けるエンティティです。
+// (provider, provider_uid) の複合ユニーク制約でプロバイダー側IDの重複を防ぎます。
+type OAuthAccount struct {
+	// UserID は紐付けられたユーザーのIDです。
+	UserID int64
+
+	// Provider はOAuth2プロバイダー名です（"google" | "github"）。
+	Provider string
+
+	// ProviderUID はプロバイダー側のユーザー一意IDです。
+	// Google: "sub" クレーム / GitHub: ユーザーの数値ID（文字列）
+	ProviderUID string
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// OAuthProvider はOAuth2プロバイダーの抽象化インターフェースです。
+// インターフェースはコンシューマー（usecase）が定義します。
+type OAuthProvider interface {
+	// AuthorizationURL はPKCEのcodeChallenge付きの認可URLを生成します。
+	AuthorizationURL(state, codeChallenge string) string
+	// ExchangeCode はauthorization codeをユーザー情報に交換します。
+	ExchangeCode(ctx context.Context, code, codeVerifier string) (*OAuthUserInfo, error)
+}
+
+// OAuthStateStore はPKCE stateの一時保存を抽象化します。
+type OAuthStateStore interface {
+	// SaveState はstateとcodeVerifierをTTL付きで保存します。
+	SaveState(ctx context.Context, state, codeVerifier string, ttl time.Duration) error
+	// ConsumeState はstateを検索して削除し、codeVerifierを返します。
+	// stateが存在しない・期限切れの場合はErrStateNotFoundを返します。
+	ConsumeState(ctx context.Context, state string) (codeVerifier string, err error)
+}
+
+// OAuthAccountRepository はoauth_accountsテーブルの永続化を抽象化します。
+type OAuthAccountRepository interface {
+	// FindByProvider はプロバイダー名とプロバイダーUIDでOAuthAccountを検索します。
+	FindByProvider(ctx context.Context, provider, providerUID string) (*OAuthAccount, error)
+	// Create はOAuthAccountを新規作成します。
+	Create(ctx context.Context, account *OAuthAccount) error
+}
+
+// OAuthUserCreator はOAuth新規ユーザー作成時にUserとOAuthAccountを
+// トランザクション内で原子的に作成します。
+// 実装はadapters層がDB固有のトランザクション処理を担います。
+type OAuthUserCreator interface {
+	CreateUserWithOAuthAccount(ctx context.Context, user *User, account *OAuthAccount) error
+}
+
 // oauthUsecase はOAuth2認証フローのビジネスロジックを実装します。
 type oauthUsecase struct {
 	users      UserRepository
