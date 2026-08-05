@@ -746,6 +746,226 @@
           ]
         }
       ]
+    },
+    {
+      "name": "public.refresh_sessions",
+      "type": "BASE TABLE",
+      "columns": [
+        {
+          "name": "id",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "family_id",
+          "type": "varchar(64)",
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "token_hash",
+          "type": "bytea",
+          "nullable": false
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "nullable": false
+        },
+        {
+          "name": "consumed_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "nullable": true
+        },
+        {
+          "name": "replaced_by",
+          "type": "varchar(64)",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "nullable": false,
+          "default": "now()"
+        }
+      ],
+      "indexes": [
+        {
+          "name": "refresh_sessions_pkey",
+          "def": "CREATE UNIQUE INDEX refresh_sessions_pkey ON public.refresh_sessions USING btree (id)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_refresh_sessions_token_hash",
+          "def": "CREATE UNIQUE INDEX uq_refresh_sessions_token_hash ON public.refresh_sessions USING btree (token_hash)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "token_hash"
+          ]
+        },
+        {
+          "name": "idx_refresh_sessions_family_id",
+          "def": "CREATE INDEX idx_refresh_sessions_family_id ON public.refresh_sessions USING btree (family_id)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "family_id"
+          ]
+        },
+        {
+          "name": "idx_refresh_sessions_user_id",
+          "def": "CREATE INDEX idx_refresh_sessions_user_id ON public.refresh_sessions USING btree (user_id)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "idx_refresh_sessions_expires_at",
+          "def": "CREATE INDEX idx_refresh_sessions_expires_at ON public.refresh_sessions USING btree (expires_at)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "expires_at"
+          ]
+        },
+        {
+          "name": "idx_refresh_sessions_replaced_by",
+          "def": "CREATE INDEX idx_refresh_sessions_replaced_by ON public.refresh_sessions USING btree (replaced_by)",
+          "table": "public.refresh_sessions",
+          "columns": [
+            "replaced_by"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "name": "ck_refresh_sessions_token_hash_length",
+          "type": "CHECK",
+          "def": "CHECK ((octet_length(token_hash) = 32))",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "token_hash"
+          ]
+        },
+        {
+          "name": "refresh_sessions_created_at_not_null",
+          "type": "n",
+          "def": "NOT NULL created_at",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "refresh_sessions_expires_at_not_null",
+          "type": "n",
+          "def": "NOT NULL expires_at",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "expires_at"
+          ]
+        },
+        {
+          "name": "refresh_sessions_family_id_not_null",
+          "type": "n",
+          "def": "NOT NULL family_id",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "family_id"
+          ]
+        },
+        {
+          "name": "refresh_sessions_id_not_null",
+          "type": "n",
+          "def": "NOT NULL id",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "refresh_sessions_token_hash_not_null",
+          "type": "n",
+          "def": "NOT NULL token_hash",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "token_hash"
+          ]
+        },
+        {
+          "name": "refresh_sessions_user_id_not_null",
+          "type": "n",
+          "def": "NOT NULL user_id",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "user_id"
+          ]
+        },
+        {
+          "name": "fk_refresh_sessions_user",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "table": "public.refresh_sessions",
+          "referenced_table": "public.users",
+          "columns": [
+            "user_id"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "fk_refresh_sessions_replaced_by",
+          "type": "FOREIGN KEY",
+          "def": "FOREIGN KEY (replaced_by) REFERENCES refresh_sessions(id) ON DELETE SET NULL",
+          "table": "public.refresh_sessions",
+          "referenced_table": "public.refresh_sessions",
+          "columns": [
+            "replaced_by"
+          ],
+          "referenced_columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "refresh_sessions_pkey",
+          "type": "PRIMARY KEY",
+          "def": "PRIMARY KEY (id)",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "id"
+          ]
+        },
+        {
+          "name": "uq_refresh_sessions_token_hash",
+          "type": "UNIQUE",
+          "def": "UNIQUE (token_hash)",
+          "table": "public.refresh_sessions",
+          "referenced_table": "",
+          "columns": [
+            "token_hash"
+          ]
+        }
+      ]
     }
   ],
   "relations": [
@@ -800,6 +1020,32 @@
       ],
       "parent_cardinality": "exactly_one",
       "def": "FOREIGN KEY (symbol_code) REFERENCES symbols(code) ON DELETE RESTRICT"
+    },
+    {
+      "table": "public.refresh_sessions",
+      "columns": [
+        "user_id"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.users",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "exactly_one",
+      "def": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "public.refresh_sessions",
+      "columns": [
+        "replaced_by"
+      ],
+      "cardinality": "zero_or_more",
+      "parent_table": "public.refresh_sessions",
+      "parent_columns": [
+        "id"
+      ],
+      "parent_cardinality": "zero_or_one",
+      "def": "FOREIGN KEY (replaced_by) REFERENCES refresh_sessions(id) ON DELETE SET NULL"
     }
   ],
   "driver": {

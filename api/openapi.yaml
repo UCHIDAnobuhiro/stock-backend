@@ -91,7 +91,7 @@ paths:
               $ref: "#/components/schemas/LoginRequest"
       responses:
         "200":
-          description: 認証成功（auth_token・csrf_token CookieをSet-Cookieで発行）
+          description: 認証成功（auth_token・refresh_token・csrf_token CookieをSet-Cookieで発行）
           content:
             application/json:
               schema:
@@ -141,11 +141,95 @@ paths:
       security: []
       responses:
         "200":
-          description: ログアウト成功（auth_token・csrf_token Cookieを削除）
+          description: ログアウト成功（認証セッションを失効し、auth_token・refresh_token・csrf_token Cookieを削除）
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
+        "403":
+          description: CSRFトークンがない、または不一致
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: セッション失効処理が一時的に利用不可
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: 予期しないセッション失効処理エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /v1/auth/refresh:
+    post:
+      summary: 認証トークン更新
+      description: |
+        refresh_token Cookieを一度だけ消費し、アクセストークン、リフレッシュトークン、
+        CSRFトークンをすべてローテーションします。
+      operationId: refreshAuth
+      tags:
+        - auth
+      security:
+        - refreshCookie: []
+          csrfToken: []
+      responses:
+        "200":
+          description: 更新成功（新しいauth_token・refresh_token・csrf_token Cookieを発行）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: refresh_token Cookieがない、無効、期限切れ、または使用済み
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: CSRFトークンがない、または不一致
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 同じrefresh_tokenによる更新処理が並行している（短く待機して1回だけ再試行）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数（1秒）
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: リクエスト過多（レートリミット超過）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: セッション保存先の障害時
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /v1/auth/oauth/{provider}:
     get:
@@ -179,7 +263,7 @@ paths:
     get:
       summary: OAuthコールバック処理
       description: |
-        プロバイダーから受け取ったcodeとstateを検証し、JWTとCSRFトークンをCookieにセットして
+        プロバイダーから受け取ったcodeとstateを検証し、JWT・refresh・CSRFトークンをCookieにセットして
         フロントエンドURLへリダイレクトします。
         エラー時は自動リンクや JSON 応答は行わず、フロントエンドのログイン画面へ
         `error` コード付きでリダイレクトします。
@@ -207,7 +291,7 @@ paths:
       responses:
         "302":
           description: |
-            成功時は `{FRONTEND_URL}` へリダイレクト（auth_token・csrf_token Cookieをセット）。
+            成功時は `{FRONTEND_URL}` へリダイレクト（auth_token・refresh_token・csrf_token Cookieをセット）。
             エラー時は `{FRONTEND_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）。
             code は以下のいずれか:
               - `account_conflict`: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
@@ -689,6 +773,10 @@ components:
       type: apiKey
       in: cookie
       name: auth_token
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
 
     bearerAuth:
       type: http

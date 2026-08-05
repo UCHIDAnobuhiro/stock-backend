@@ -97,18 +97,18 @@ type JWTGenerator interface {
 
 // usecase は認証ビジネスロジックを実装します。
 type usecase struct {
-	users        UserRepository
-	jwtGenerator JWTGenerator
-	pepper       string
-	dummyHash    string // タイミング攻撃防止用のダミーハッシュ
+	users     UserRepository
+	sessions  SessionManager
+	pepper    string
+	dummyHash string // タイミング攻撃防止用のダミーハッシュ
 }
 
 // NewUsecase はusecaseの新しいインスタンスを生成します。
-func NewUsecase(users UserRepository, jwtGenerator JWTGenerator, pepper string) *usecase {
+func NewUsecase(users UserRepository, sessions SessionManager, pepper string) *usecase {
 	uc := &usecase{
-		users:        users,
-		jwtGenerator: jwtGenerator,
-		pepper:       pepper,
+		users:    users,
+		sessions: sessions,
+		pepper:   pepper,
 	}
 	// ペッパー適用済みのダミーハッシュを事前計算（タイミング攻撃防止用）
 	pepperedDummy := uc.pepperPassword("dummy")
@@ -152,15 +152,15 @@ func (u *usecase) Signup(ctx context.Context, email, password string) (int64, er
 	return user.ID, nil
 }
 
-// Login はユーザーを認証し、成功時にJWTトークンを返します。
-// メールアドレスとパスワードを検証し、署名済みJWTトークンを生成します。
+// Login はユーザーを認証し、成功時にアクセストークンとリフレッシュトークンを返します。
+// メールアドレスとパスワードを検証し、サーバー管理セッションを生成します。
 // タイミング攻撃を防止するため、ユーザーが存在しない場合でもbcrypt比較を実行します。
-func (u *usecase) Login(ctx context.Context, email, password string) (string, error) {
+func (u *usecase) Login(ctx context.Context, email, password string) (TokenPair, error) {
 	// 過大なパスワードによる CPU 枯渇を防止するため、HMAC 計算前に上限を超えるものを弾く。
 	// 上限超過のパスワードは正規パスワードと一致し得ないため汎用エラーを返す。
 	// ユーザー存在有無に関わらず同じ経路で早期 return するため、ユーザー列挙にはつながらない。
 	if len(password) > maxPasswordLength {
-		return "", ErrInvalidCredentials
+		return TokenPair{}, ErrInvalidCredentials
 	}
 
 	// 保存時と同じ正規化を施してから検索する（ケース依存の不一致を防ぐ）。
@@ -183,16 +183,25 @@ func (u *usecase) Login(ctx context.Context, email, password string) (string, er
 
 	// ユーザー未検出またはパスワード不一致の場合、汎用エラーを返す
 	if err != nil || compareErr != nil {
-		return "", ErrInvalidCredentials
+		return TokenPair{}, ErrInvalidCredentials
 	}
 
-	// 注入されたジェネレーターを使用してJWTトークンを生成
-	token, tokenErr := u.jwtGenerator.GenerateToken(user.ID, user.Email)
-	if tokenErr != nil {
-		return "", fmt.Errorf("failed to generate token: %w", tokenErr)
+	// JWTとサーバー管理リフレッシュセッションを一体として発行する。
+	pair, sessionErr := u.sessions.Issue(ctx, user.ID, user.Email)
+	if sessionErr != nil {
+		return TokenPair{}, fmt.Errorf("failed to issue session: %w", sessionErr)
 	}
+	return pair, nil
+}
 
-	return token, nil
+// Refresh はリフレッシュトークンを新しいトークンペアへ交換します。
+func (u *usecase) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
+	return u.sessions.Refresh(ctx, refreshToken)
+}
+
+// Logout はリフレッシュトークンが属するセッション系列を失効させます。
+func (u *usecase) Logout(ctx context.Context, refreshToken string) error {
+	return u.sessions.Revoke(ctx, refreshToken)
 }
 
 // validatePassword はパスワードがセキュリティ要件を満たしているかチェックします。

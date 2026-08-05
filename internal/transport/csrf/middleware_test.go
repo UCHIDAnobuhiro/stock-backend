@@ -173,3 +173,58 @@ func TestProtect_CookieAuthWithForgedBearerStillRequiresCSRF(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }
+
+func TestProtect_SelectedCookies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		refreshCookie  string
+		csrfCookie     string
+		csrfHeader     string
+		expectedStatus int
+		expectCalled   bool
+	}{
+		{
+			name:           "success: no selected cookie skips check",
+			expectedStatus: http.StatusOK,
+			expectCalled:   true,
+		},
+		{
+			name:           "error: selected cookie without csrf token",
+			refreshCookie:  "refresh-token",
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "success: selected cookie with matching csrf token",
+			refreshCookie:  "refresh-token",
+			csrfCookie:     "csrf-token",
+			csrfHeader:     "csrf-token",
+			expectedStatus: http.StatusOK,
+			expectCalled:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			next, called := newRecordingHandler()
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+			if tt.refreshCookie != "" {
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: tt.refreshCookie})
+			}
+			if tt.csrfCookie != "" {
+				req.AddCookie(&http.Cookie{Name: CookieName, Value: tt.csrfCookie})
+			}
+			if tt.csrfHeader != "" {
+				req.Header.Set(HeaderName, tt.csrfHeader)
+			}
+			w := httptest.NewRecorder()
+
+			Protect("auth_token", "refresh_token")(next).ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectCalled, *called)
+		})
+	}
+}

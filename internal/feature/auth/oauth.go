@@ -19,7 +19,7 @@ type oauthUsecase struct {
 	oauthAccts OAuthAccountRepository
 	creator    OAuthUserCreator
 	stateStore OAuthStateStore
-	jwtGen     JWTGenerator
+	sessions   SessionIssuer
 	providers  map[string]OAuthProvider
 	hooks      []UserCreatedHook
 }
@@ -33,7 +33,7 @@ func NewOAuthUsecase(
 	oauthAccts OAuthAccountRepository,
 	creator OAuthUserCreator,
 	stateStore OAuthStateStore,
-	jwtGen JWTGenerator,
+	sessions SessionIssuer,
 	providers map[string]OAuthProvider,
 	hooks ...UserCreatedHook,
 ) *oauthUsecase {
@@ -42,7 +42,7 @@ func NewOAuthUsecase(
 		oauthAccts: oauthAccts,
 		creator:    creator,
 		stateStore: stateStore,
-		jwtGen:     jwtGen,
+		sessions:   sessions,
 		providers:  providers,
 		hooks:      hooks,
 	}
@@ -80,43 +80,43 @@ func (uc *oauthUsecase) BeginAuth(ctx context.Context, providerName string) (aut
 }
 
 // HandleCallback はプロバイダーから返却されたcodeとstateを検証し、
-// JWTトークンを返します。同メールの既存ユーザーが存在する場合は自動リンクせず
+// アクセストークンとリフレッシュトークンを返します。同メールの既存ユーザーが存在する場合は自動リンクせず
 // ErrOAuthEmailConflict を返します（アカウント乗っ取り防止）。
-func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, state string) (string, error) {
+func (uc *oauthUsecase) HandleCallback(ctx context.Context, providerName, code, state string) (TokenPair, error) {
 	provider, ok := uc.providers[providerName]
 	if !ok {
-		return "", ErrUnknownProvider
+		return TokenPair{}, ErrUnknownProvider
 	}
 
 	// stateの検証と消費（リプレイ攻撃防止のため atomic に削除）
 	codeVerifier, err := uc.stateStore.ConsumeState(ctx, state)
 	if err != nil {
-		return "", err
+		return TokenPair{}, err
 	}
 
 	// authorization code を ユーザー情報に交換
 	info, err := provider.ExchangeCode(ctx, code, codeVerifier)
 	if err != nil {
-		return "", fmt.Errorf("oauth code exchange failed: %w", err)
+		return TokenPair{}, fmt.Errorf("oauth code exchange failed: %w", err)
 	}
 	// プロバイダー返却メールを正規化し、既存ユーザー検索・新規作成・JWT 生成を
 	// すべて正規化済みメールで行う（大小文字違いによる重複アカウントを防ぐ）。
 	info.Email = NormalizeEmail(info.Email)
 	if info.Email == "" {
-		return "", ErrOAuthEmailUnavailable
+		return TokenPair{}, ErrOAuthEmailUnavailable
 	}
 
 	userID, err := uc.findOrCreateUser(ctx, providerName, info)
 	if err != nil {
-		return "", err
+		return TokenPair{}, err
 	}
 
-	tok, err := uc.jwtGen.GenerateToken(userID, info.Email)
+	pair, err := uc.sessions.Issue(ctx, userID, info.Email)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate token: %w", err)
+		return TokenPair{}, fmt.Errorf("failed to issue session: %w", err)
 	}
 
-	return tok, nil
+	return pair, nil
 }
 
 // findOrCreateUser は既存OAuthAccountを探し、なければユーザーを新規作成します。

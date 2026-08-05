@@ -8,7 +8,26 @@ package authsqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const consumeRefreshSession = `-- name: ConsumeRefreshSession :exec
+UPDATE refresh_sessions
+SET consumed_at = $2,
+    replaced_by = $3
+WHERE id = $1
+`
+
+type ConsumeRefreshSessionParams struct {
+	ID         string
+	ConsumedAt sql.NullTime
+	ReplacedBy sql.NullString
+}
+
+func (q *Queries) ConsumeRefreshSession(ctx context.Context, arg ConsumeRefreshSessionParams) error {
+	_, err := q.db.ExecContext(ctx, consumeRefreshSession, arg.ID, arg.ConsumedAt, arg.ReplacedBy)
+	return err
+}
 
 const createOAuthAccount = `-- name: CreateOAuthAccount :one
 INSERT INTO oauth_accounts (user_id, provider, provider_uid)
@@ -31,6 +50,46 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 		&i.ProviderUid,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createRefreshSession = `-- name: CreateRefreshSession :one
+INSERT INTO refresh_sessions (
+    id, family_id, user_id, token_hash, expires_at
+)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, family_id, user_id, token_hash, expires_at,
+          consumed_at, revoked_at, replaced_by, created_at
+`
+
+type CreateRefreshSessionParams struct {
+	ID        string
+	FamilyID  string
+	UserID    int64
+	TokenHash []byte
+	ExpiresAt time.Time
+}
+
+func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (RefreshSession, error) {
+	row := q.db.QueryRowContext(ctx, createRefreshSession,
+		arg.ID,
+		arg.FamilyID,
+		arg.UserID,
+		arg.TokenHash,
+		arg.ExpiresAt,
+	)
+	var i RefreshSession
+	err := row.Scan(
+		&i.ID,
+		&i.FamilyID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -59,6 +118,19 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteExpiredRefreshSessions = `-- name: DeleteExpiredRefreshSessions :execrows
+DELETE FROM refresh_sessions
+WHERE expires_at < $1
+`
+
+func (q *Queries) DeleteExpiredRefreshSessions(ctx context.Context, expiresAt time.Time) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshSessions, expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const findOAuthAccountByProvider = `-- name: FindOAuthAccountByProvider :one
 SELECT user_id, provider, provider_uid, created_at, updated_at
 FROM oauth_accounts
@@ -80,6 +152,31 @@ func (q *Queries) FindOAuthAccountByProvider(ctx context.Context, arg FindOAuthA
 		&i.ProviderUid,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const findRefreshSessionByTokenHash = `-- name: FindRefreshSessionByTokenHash :one
+SELECT id, family_id, user_id, token_hash, expires_at,
+       consumed_at, revoked_at, replaced_by, created_at
+FROM refresh_sessions
+WHERE token_hash = $1
+LIMIT 1
+`
+
+func (q *Queries) FindRefreshSessionByTokenHash(ctx context.Context, tokenHash []byte) (RefreshSession, error) {
+	row := q.db.QueryRowContext(ctx, findRefreshSessionByTokenHash, tokenHash)
+	var i RefreshSession
+	err := row.Scan(
+		&i.ID,
+		&i.FamilyID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -122,4 +219,89 @@ func (q *Queries) FindUserByID(ctx context.Context, id int64) (User, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const lockRefreshSessionByTokenHash = `-- name: LockRefreshSessionByTokenHash :one
+SELECT id, family_id, user_id, token_hash, expires_at,
+       consumed_at, revoked_at, replaced_by, created_at
+FROM refresh_sessions
+WHERE token_hash = $1
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) LockRefreshSessionByTokenHash(ctx context.Context, tokenHash []byte) (RefreshSession, error) {
+	row := q.db.QueryRowContext(ctx, lockRefreshSessionByTokenHash, tokenHash)
+	var i RefreshSession
+	err := row.Scan(
+		&i.ID,
+		&i.FamilyID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const lockRefreshSessionForRotation = `-- name: LockRefreshSessionForRotation :one
+SELECT rs.id, rs.family_id, rs.user_id, rs.token_hash, rs.expires_at,
+       rs.consumed_at, rs.revoked_at, rs.replaced_by, rs.created_at,
+       u.email
+FROM refresh_sessions AS rs
+JOIN users AS u ON u.id = rs.user_id
+WHERE rs.token_hash = $1
+LIMIT 1
+FOR UPDATE OF rs
+`
+
+type LockRefreshSessionForRotationRow struct {
+	ID         string
+	FamilyID   string
+	UserID     int64
+	TokenHash  []byte
+	ExpiresAt  time.Time
+	ConsumedAt sql.NullTime
+	RevokedAt  sql.NullTime
+	ReplacedBy sql.NullString
+	CreatedAt  time.Time
+	Email      string
+}
+
+func (q *Queries) LockRefreshSessionForRotation(ctx context.Context, tokenHash []byte) (LockRefreshSessionForRotationRow, error) {
+	row := q.db.QueryRowContext(ctx, lockRefreshSessionForRotation, tokenHash)
+	var i LockRefreshSessionForRotationRow
+	err := row.Scan(
+		&i.ID,
+		&i.FamilyID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.CreatedAt,
+		&i.Email,
+	)
+	return i, err
+}
+
+const revokeRefreshSessionFamily = `-- name: RevokeRefreshSessionFamily :exec
+UPDATE refresh_sessions
+SET revoked_at = $2
+WHERE family_id = $1
+  AND revoked_at IS NULL
+`
+
+type RevokeRefreshSessionFamilyParams struct {
+	FamilyID  string
+	RevokedAt sql.NullTime
+}
+
+func (q *Queries) RevokeRefreshSessionFamily(ctx context.Context, arg RevokeRefreshSessionFamilyParams) error {
+	_, err := q.db.ExecContext(ctx, revokeRefreshSessionFamily, arg.FamilyID, arg.RevokedAt)
+	return err
 }

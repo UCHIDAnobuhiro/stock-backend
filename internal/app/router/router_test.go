@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/router"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles/candleshttp"
@@ -33,15 +34,21 @@ const testJWTSecret = "test-jwt-secret-for-router-tests"
 type stubAuthUsecase struct{}
 
 func (stubAuthUsecase) Signup(_ context.Context, _, _ string) (int64, error) { return 0, nil }
-func (stubAuthUsecase) Login(_ context.Context, _, _ string) (string, error) { return "", nil }
+func (stubAuthUsecase) Login(_ context.Context, _, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{}, nil
+}
+func (stubAuthUsecase) Refresh(_ context.Context, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{AccessToken: "access", RefreshToken: "refresh"}, nil
+}
+func (stubAuthUsecase) Logout(_ context.Context, _ string) error { return nil }
 
 type stubOAuthUsecase struct{}
 
 func (stubOAuthUsecase) BeginAuth(_ context.Context, _ string) (string, string, error) {
 	return "", "", nil
 }
-func (stubOAuthUsecase) HandleCallback(_ context.Context, _, _, _ string) (string, error) {
-	return "", nil
+func (stubOAuthUsecase) HandleCallback(_ context.Context, _, _, _ string) (auth.TokenPair, error) {
+	return auth.TokenPair{}, nil
 }
 
 type stubCandlesUsecase struct{}
@@ -97,6 +104,11 @@ func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler, trustedHops ...in
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	limiter := httpratelimit.NewLimiter(rdb)
+	return newTestRouterWithLimiter(t, oauth, limiter, hops)
+}
+
+func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limiter *httpratelimit.Limiter, hops int) http.Handler {
+	t.Helper()
 
 	noopValidator := func(next http.Handler) http.Handler { return next }
 
@@ -233,6 +245,53 @@ func TestNewRouter_PublicRoutes(t *testing.T) {
 			assert.NotEqual(t, http.StatusServiceUnavailable, rec.Code)
 		})
 	}
+}
+
+func TestNewRouter_RefreshRequiresCookieAndCSRF(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setRefresh     bool
+		setCSRF        bool
+		expectedStatus int
+	}{
+		{name: "error: missing refresh cookie", expectedStatus: http.StatusUnauthorized},
+		{name: "error: missing csrf token", setRefresh: true, expectedStatus: http.StatusForbidden},
+		{name: "success: matching csrf token", setRefresh: true, setCSRF: true, expectedStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := newTestRouter(t, nil)
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+			if tt.setRefresh {
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+			}
+			if tt.setCSRF {
+				req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "csrf-token"})
+				req.Header.Set("X-CSRF-Token", "csrf-token")
+			}
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
+		})
+	}
+}
+
+func TestNewRouter_RefreshFailsOpenWhenRedisUnavailable(t *testing.T) {
+	t.Parallel()
+
+	r := newTestRouterWithLimiter(t, nil, httpratelimit.NewLimiter(nil), 0)
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "csrf-token"})
+	req.Header.Set("X-CSRF-Token", "csrf-token")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // TestNewRouter_OAuthRoutesOptional は Handlers.OAuth が nil の場合に
