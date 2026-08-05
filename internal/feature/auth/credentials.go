@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -27,49 +28,32 @@ const (
 	EnvKeyPasswordPepper = "PASSWORD_PEPPER"
 )
 
+// User はシステムに登録されたユーザーを表します。
+// 認証情報とユーザー管理用のメタデータを含みます。
+type User struct {
+	// ID はユーザーの一意な識別子です。
+	ID int64
+
+	// Email は認証に使用されるユーザーのメールアドレスです。
+	// 全ユーザー間で一意である必要があります。
+	Email string
+
+	// PasswordHash はユーザーのハッシュ化されたパスワードです。
+	// 平文パスワードを保存してはなりません。
+	// OAuth専用ユーザーはパスワードを持たないため nil になります。
+	PasswordHash *string
+
+	// CreatedAt はユーザーが作成された日時です。
+	CreatedAt time.Time
+
+	// UpdatedAt はユーザーが最後に更新された日時です。
+	UpdatedAt time.Time
+}
+
 // UserCreatedHook はユーザー新規作成後に呼び出されるフックのインターフェースです。
 // usecase層でインターフェースを定義することで、transport層への依存を避けます。
 type UserCreatedHook interface {
 	OnUserCreated(ctx context.Context, userID int64) error
-}
-
-// OAuthUserInfo はOAuth2プロバイダーから取得したユーザー情報です。
-type OAuthUserInfo struct {
-	ProviderUID string // プロバイダー側のユーザー一意ID
-	Email       string // 検証済みメールアドレス
-}
-
-// OAuthProvider はOAuth2プロバイダーの抽象化インターフェースです。
-// インターフェースはコンシューマー（usecase）が定義します。
-type OAuthProvider interface {
-	// AuthorizationURL はPKCEのcodeChallenge付きの認可URLを生成します。
-	AuthorizationURL(state, codeChallenge string) string
-	// ExchangeCode はauthorization codeをユーザー情報に交換します。
-	ExchangeCode(ctx context.Context, code, codeVerifier string) (*OAuthUserInfo, error)
-}
-
-// OAuthStateStore はPKCE stateの一時保存を抽象化します。
-type OAuthStateStore interface {
-	// SaveState はstateとcodeVerifierをTTL付きで保存します。
-	SaveState(ctx context.Context, state, codeVerifier string, ttl time.Duration) error
-	// ConsumeState はstateを検索して削除し、codeVerifierを返します。
-	// stateが存在しない・期限切れの場合はErrStateNotFoundを返します。
-	ConsumeState(ctx context.Context, state string) (codeVerifier string, err error)
-}
-
-// OAuthAccountRepository はoauth_accountsテーブルの永続化を抽象化します。
-type OAuthAccountRepository interface {
-	// FindByProvider はプロバイダー名とプロバイダーUIDでOAuthAccountを検索します。
-	FindByProvider(ctx context.Context, provider, providerUID string) (*OAuthAccount, error)
-	// Create はOAuthAccountを新規作成します。
-	Create(ctx context.Context, account *OAuthAccount) error
-}
-
-// OAuthUserCreator はOAuth新規ユーザー作成時にUserとOAuthAccountを
-// トランザクション内で原子的に作成します。
-// 実装はadapters層がDB固有のトランザクション処理を担います。
-type OAuthUserCreator interface {
-	CreateUserWithOAuthAccount(ctx context.Context, user *User, account *OAuthAccount) error
 }
 
 // UserRepository はユーザーエンティティの永続化層を抽象化します。
@@ -86,13 +70,6 @@ type UserRepository interface {
 	// FindByID は指定されたIDに一致するユーザーを取得します。
 	// ユーザーが存在しない場合、エラーを返します。
 	FindByID(ctx context.Context, id int64) (*User, error)
-}
-
-// JWTGenerator はJWTトークン生成のインターフェースを定義します。
-// Goの慣例に従い、インターフェースはプロバイダー（platform/jwt）ではなくコンシューマー（usecase）が定義します。
-type JWTGenerator interface {
-	// GenerateToken は指定されたユーザーの署名済みJWTトークンを生成します。
-	GenerateToken(userID int64, email string) (string, error)
 }
 
 // usecase は認証ビジネスロジックを実装します。
@@ -115,17 +92,6 @@ func NewUsecase(users UserRepository, sessions SessionManager, pepper string) *u
 	dummyHash, _ := bcrypt.GenerateFromPassword([]byte(pepperedDummy), bcrypt.DefaultCost)
 	uc.dummyHash = string(dummyHash)
 	return uc
-}
-
-// pepperPassword はHMAC-SHA256を使用してパスワードにペッパーを適用します。
-// bcryptの72バイト制限を回避するため、HMAC-SHA256で固定長のハッシュを生成します。
-func (u *usecase) pepperPassword(password string) string {
-	if u.pepper == "" {
-		return password
-	}
-	mac := hmac.New(sha256.New, []byte(u.pepper))
-	mac.Write([]byte(password))
-	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // Signup はハッシュ化されたパスワードで新規ユーザーを登録します。
@@ -202,6 +168,25 @@ func (u *usecase) Refresh(ctx context.Context, refreshToken string) (TokenPair, 
 // Logout はリフレッシュトークンが属するセッション系列を失効させます。
 func (u *usecase) Logout(ctx context.Context, refreshToken string) error {
 	return u.sessions.Revoke(ctx, refreshToken)
+}
+
+// NormalizeEmail はメールアドレスを保存・検索の前段で正規化します。
+// 前後の空白を除去し、すべて小文字化することで、
+// `User@Example.com ` と `user@example.com` を同一のメールとして扱います。
+// これにより重複アカウントの作成や OAuth 自動リンクの不一致を防ぎます。
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// pepperPassword はHMAC-SHA256を使用してパスワードにペッパーを適用します。
+// bcryptの72バイト制限を回避するため、HMAC-SHA256で固定長のハッシュを生成します。
+func (u *usecase) pepperPassword(password string) string {
+	if u.pepper == "" {
+		return password
+	}
+	mac := hmac.New(sha256.New, []byte(u.pepper))
+	mac.Write([]byte(password))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // validatePassword はパスワードがセキュリティ要件を満たしているかチェックします。
