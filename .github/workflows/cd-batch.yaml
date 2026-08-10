@@ -28,6 +28,8 @@ jobs:
                       batch_arg: candles
                     - job_name: logo
                       batch_arg: logo
+                    - job_name: auth-session-cleanup
+                      batch_arg: auth-session-cleanup
 
         steps:
             - name: Checkout
@@ -76,12 +78,12 @@ jobs:
                     "--task-timeout=900s"
                     "--cpu=1"
                     "--memory=512Mi"
-                    --set-env-vars=GIN_MODE=release
+                    --set-env-vars=APP_ENV=production
                     "--service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
                     "--add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}"
                     "--vpc-connector=run-connector"
                     "--vpc-egress=private-ranges-only"
-                    "--set-secrets=JWT_SECRET=JWT_SECRET:latest,TWELVE_DATA_API_KEY=TWELVE_DATA_API_KEY:latest,TWELVE_DATA_BASE_URL=TWELVE_DATA_BASE_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,RUN_MIGRATIONS=RUN_MIGRATIONS:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest"
+                    "--set-secrets=TWELVE_DATA_API_KEY=TWELVE_DATA_API_KEY:latest,TWELVE_DATA_BASE_URL=TWELVE_DATA_BASE_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest"
                   )
 
                   if [ "$CMD" = "create" ]; then

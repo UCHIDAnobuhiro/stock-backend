@@ -48,7 +48,7 @@ sequenceDiagram
 アクティブな株式銘柄の一覧を取得します。
 
 **認証方式**（優先順位順）:
-1. `auth_token` Cookie（ブラウザクライアント）+ `X-CSRF-Token` ヘッダー（必須）
+1. `auth_token` Cookie（ブラウザクライアント。GETのためCSRFトークンは不要）
 2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）
 
 **レスポンス**
@@ -75,10 +75,12 @@ sequenceDiagram
   ```
   注: `logo_url` は未取得時 `null` を返します。
 
+- **401 Unauthorized** - JWTが未指定または無効
+
 - **500 Internal Server Error** - データベースエラー
   ```json
   {
-    "error": "database connection failed"
+    "error": "internal server error"
   }
   ```
 
@@ -138,7 +140,7 @@ graph TB
 
 #### Usecase層
 - **Usecase**（[usecase.go](../../internal/feature/symbollist/usecase.go)）: 銘柄一覧取得のビジネスロジックを実装
-  - `Repository` インターフェースを定義（`ListActive(ctx) ([]entity.Symbol, error)`）
+  - `Repository` インターフェースを定義（`ListActive(ctx) ([]Symbol, error)`）
 - **LogoIngestUsecase**（[ingest.go](../../internal/feature/symbollist/ingest.go)）: ロゴ URL バッチ取り込みのビジネスロジック
   - active 銘柄に対し外部 API でロゴ URL を取得し、`symbols.logo_url` / `logo_updated_at` を更新
   - 銘柄単位の失敗では処理を止めず、既存 `logo_url` も保持
@@ -180,7 +182,6 @@ graph TB
 
 ```
 symbollist/                                # package symbollist（コア）
-├── README.md                              # このファイル
 ├── symbol.go                              # Symbolエンティティ定義
 ├── usecase.go                             # 一覧取得ロジック + Repositoryインターフェース
 ├── usecase_test.go                        # Usecaseテスト
@@ -201,18 +202,18 @@ symbollist/                                # package symbollist（コア）
 
 ## テスト
 
-symbollistフィーチャーのすべてのテストは、一貫性と保守性のために**テーブル駆動テストパターン**に従います。
+symbollistフィーチャーでは、複数の入力・エラー条件を扱うテストを中心に**テーブル駆動テストパターン**を使用します。
 
 ### テスト構造とパターン
 
 #### 全テスト共通のパターン
 
-1. **テーブル駆動テスト**: すべてのテスト関数は構造体フィールドを持つ `tests` スライスを使用:
+1. **テーブル駆動テスト**: 複数ケースを扱うテストは構造体フィールドを持つ `tests` スライスを使用:
    - `name`: テストケースの説明（例: `"success: returns active symbols"`）
    - `wantErr`: エラーが期待されるかどうかのboolフラグ
    - 各テストタイプ固有の追加フィールド
 
-2. **並列実行**: すべてのテストは `t.Parallel()` を使用して並行実行を有効化
+2. **並列実行**: 状態共有のないテストでは `t.Parallel()` を使用して並行実行を有効化
 
 3. **ヘルパー関数**: 各テストファイルにはコードの重複を削減するヘルパー関数を含む
 
@@ -259,16 +260,18 @@ candles フィーチャーの `IngestUsecase` が定義する `SymbolRepository`
 
 ```go
 // candles/ingest.go で定義
-type Repository interface {
+type SymbolRepository interface {
     ListActiveSymbols(ctx context.Context) ([]ActiveSymbol, error)
 }
 ```
 
-これに対し symbollist の `repository` は `ListActive(ctx) ([]entity.Symbol, error)` を提供しています。両者は `internal/app/di/ingest_symbol.go` のアダプターで橋渡しされ、フィーチャー間の直接依存を避けています。
+これに対し symbollist の `repository` は `ListActive(ctx) ([]Symbol, error)` を提供しています。両者は `internal/app/di/ingest_symbol.go` のアダプターで橋渡しされ、フィーチャー間の直接依存を避けています。
 
 ### logo バッチ
 
 [cmd/batch](../../cmd/batch) を `logo` job_id（`batch logo`）で起動すると `LogoIngestUsecase` が動き、active 銘柄の `logo_url` を外部 API（TwelveData）から取得して `symbols` テーブルに保存します。レートリミッターで外部 API 呼び出しを制御し、銘柄単位の失敗では中断せず処理を継続します。
+
+バッチ全体のタイムアウトは`LOGO_INGEST_TIMEOUT_HOURS`（既定3時間）、失敗扱いにする銘柄単位失敗率は`LOGO_INGEST_MAX_FAILURE_RATE`（既定0.2）で変更できます。
 
 管理者はデータベースの `is_active` を設定することで、アクティブにトラッキングする銘柄を制御できます。
 

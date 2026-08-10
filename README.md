@@ -11,7 +11,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 - **ユーザー認証**
 
   - メールアドレス/パスワードによるログイン
-  - OAuth2 ソーシャルログイン（Google / GitHub、PKCE 対応。同メールの既存アカウントへの自動リンクは行わない）
+  - OAuth2 ソーシャルログイン（Google / GitHub。Google は PKCE 対応、GitHub は state による CSRF 保護。同メールの既存アカウントへの自動リンクは行わない）
   - JWTの発行（10分の短期アクセストークン + PostgreSQL管理のリフレッシュトークン）
   - トークン検証ミドルウェアによる認可
 
@@ -23,9 +23,9 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 
 - **キャッシュ最適化**
 
-  - ローソク足データ・シンボルデータのRedisキャッシュ
-  - TTL設定と自動リフレッシュ
-  - キャッシュミス時: API呼び出し + DB保存
+  - ローソク足データのRedisキャッシュ
+  - TTL設定とバッチ書き込み後のキャッシュ無効化
+  - キャッシュミス時: PostgreSQLから取得してRedisへ保存
 
 - **ロゴ検出・企業分析**
 
@@ -57,7 +57,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 | DB              | PostgreSQL / Cloud SQL                                              |
 | キャッシュ      | Redis                                                               |
 | AI / ML         | Cloud Vision API / Gemini API（Vertex AI）                          |
-| 認証・セキュリティ | JWT / bcrypt / OAuth2（Google・GitHub, PKCE）/ CSRF（Double Submit Cookie）/ レートリミット |
+| 認証・セキュリティ | JWT / bcrypt / OAuth2（GoogleのみPKCE、Google・GitHubともstate検証）/ CSRF（Double Submit Cookie）/ レートリミット |
 | API仕様         | OpenAPI 3.0.4 / oapi-codegen（型生成）                              |
 | 設定管理        | **docker/.env（ローカル）/ Secret Manager（本番）+ os.Getenv()**|
 | コンテナ        | Docker / Docker Compose                                             |
@@ -73,8 +73,8 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │   └── oapi-codegen.cfg.yaml   # oapi-codegen設定（型のみ生成）
 │
 ├── cmd/
-│   ├── batch/                  # データ取得・取り込み（バッチジョブ: candles / logo）
-│   ├── migrate/                # スキーマのマイグレーション専用バイナリ（CI / Cloud Run pre-deploy 用）
+│   ├── batch/                  # バッチジョブ（auth-session-cleanup / candles / logo）
+│   ├── migrate/                # スキーマのマイグレーション専用バイナリ（CI / Cloud Run Job等で利用）
 │   └── api/                    # APIサーバーのエントリーポイント（main.go）
 │
 ├── internal/
@@ -83,7 +83,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │   │   └── types.gen.go        # 生成コード（手動編集不可）
 │   │
 │   ├── app/                    # アプリケーション基盤
-│   │   ├── batch/              # バッチ実行ロジック（job_id ディスパッチ: candles / logo）
+│   │   ├── batch/              # バッチ実行ロジック（job_id ディスパッチ: auth-session-cleanup / candles / logo）
 │   │   ├── config/             # 環境変数パースの純粋関数ヘルパー
 │   │   ├── di/                 # 依存性注入
 │   │   ├── migrate/            # マイグレーション実行ロジック（goose サブコマンドディスパッチ）
@@ -116,8 +116,10 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │   │   ├── csrf/               # CSRF保護（Double Submit Cookieパターン）
 │   │   ├── handler/            # ヘルスチェックハンドラー
 │   │   ├── httpratelimit/      # Redisベースのスライディングウィンドウレートリミッター（HTTPミドルウェア）
+│   │   ├── httpx/              # JSON・クライアントIP等のHTTP共通処理
 │   │   ├── jwt/                # JWT生成/検証/ミドルウェア（package jwt）
-│   │   └── middleware/         # セキュリティヘッダーミドルウェア
+│   │   ├── middleware/         # セキュリティヘッダー・アクセスログ等のミドルウェア
+│   │   └── openapivalidate/    # OpenAPIリクエスト検証ミドルウェア
 │   │
 │   ├── infra/                  # 技術基盤層（外部リソース接続・横断ユーティリティ）
 │   │   ├── db/                 # データベース接続初期化
@@ -129,7 +131,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │       └── clientratelimit/    # 外部API呼び出し用 in-memory レートリミッター
 │
 ├── docker/                     # Docker関連ファイル
-│   ├── Dockerfile.batch        # バッチ統合用Dockerfile（本番・job_idでcandles/logo切替）
+│   ├── Dockerfile.batch        # バッチ統合用Dockerfile（本番・job_idで3ジョブを切替）
 │   ├── Dockerfile.api          # APIサーバー用Dockerfile（本番）
 │   ├── Dockerfile.api.dev      # APIサーバー用Dockerfile（ローカル開発）
 │   ├── Dockerfile.migrate      # マイグレーション用Dockerfile（Cloud Run Job で実行）
@@ -180,9 +182,9 @@ go generate ./internal/api/...
 
 - 10分のJWTアクセストークンによる認証（Cookieまたは`Authorization: Bearer <token>`ヘッダー）
 - **リフレッシュトークン**: 30日有効の不透明トークンをPostgreSQLでハッシュ管理し、使用ごとにローテーション
-- **OAuth2 ソーシャルログイン**: Google / GitHub（PKCE 対応、state は Redis 管理。同メールの既存アカウントへの自動リンクは行わず 409 を返す）。OAuth 環境変数が設定されている場合のみ有効
+- **OAuth2 ソーシャルログイン**: Google / GitHub（GoogleのみPKCE対応、state は両プロバイダーともRedis管理。同メールの既存アカウントへの自動リンクは行わず、フロントエンドへ `error=account_conflict` 付きでリダイレクト）。OAuth 環境変数が設定されている場合のみ有効
 - **CSRF保護**: Double Submit Cookieパターン（`csrf_token` Cookie + `X-CSRF-Token` ヘッダーの一致を検証）
-- **レートリミット**: Redisスライディングウィンドウ方式（signup: 5回/時、login: 10回/分、oauth callback: 20回/分）
+- **レートリミット**: Redisスライディングウィンドウ方式（signup: 5回/時、login: 10回/分、OAuth認可開始・callback: 各20回/分、logo API: ユーザー単位で各10回/日）
 - **セキュリティヘッダー**: `X-Content-Type-Options`、`X-Frame-Options` 等を全レスポンスに付与
 - **SameSite Cookie**: `Lax` 設定でクロスサイトリクエストを制御
 
@@ -222,8 +224,8 @@ go generate ./internal/api/...
 
 | メソッド | パス                                   | 認証   | 説明                                                    |
 | -------- | -------------------------------------- | ------ | ------------------------------------------------------- |
-| GET      | `/v1/auth/oauth/:provider`             | 不要   | OAuth認可フローを開始（`provider`: `google` / `github`）|
-| GET      | `/v1/auth/oauth/:provider/callback`    | 不要   | OAuth認可コールバック（IPレートリミット: 20回/分）       |
+| GET      | `/v1/auth/oauth/{provider}`             | 不要   | OAuth認可フローを開始（IPレートリミット: 20回/分）       |
+| GET      | `/v1/auth/oauth/{provider}/callback`    | 不要   | OAuth認可コールバック（IPレートリミット: 20回/分）       |
 
 ---
 
@@ -241,8 +243,8 @@ go generate ./internal/api/...
 
 | メソッド | パス                | 認証   | 説明                                              |
 | -------- | ------------------- | ------ | ------------------------------------------------- |
-| POST     | `/v1/logo/detect`   | 必要   | 画像からロゴを検出（multipart/form-data）          |
-| POST     | `/v1/logo/analyze`  | 必要   | 企業分析サマリーを生成（JSON）                     |
+| POST     | `/v1/logo/detect`   | 必要   | 画像からロゴを検出（multipart/form-data、ユーザー単位10回/日） |
+| POST     | `/v1/logo/analyze`  | 必要   | 企業分析サマリーを生成（JSON、ユーザー単位10回/日）            |
 
 ---
 
@@ -252,13 +254,13 @@ go generate ./internal/api/...
 | -------- | ------------------------- | ---- | ----------------------------- |
 | GET      | `/v1/watchlist`           | 必要 | ウォッチリスト一覧取得         |
 | POST     | `/v1/watchlist`           | 必要 | ウォッチリストに銘柄を追加     |
-| DELETE   | `/v1/watchlist/:code`     | 必要 | ウォッチリストから銘柄を削除   |
+| DELETE   | `/v1/watchlist/{code}`     | 必要 | ウォッチリストから銘柄を削除   |
 | PUT      | `/v1/watchlist/order`     | 必要 | ウォッチリストの並び順を更新   |
 
 ### 補足
 
-- `/v1/candles`、`/v1/symbols`、`/v1/watchlist`、`/v1/logo/*` は **JWT認証（`Authorization: Bearer <token>`）** が必要です。
-- 認証済みエンドポイントはすべて **CSRFトークン（`X-CSRF-Token` ヘッダー）** も必須です。
+- `/v1/candles/*`、`/v1/quotes`、`/v1/symbols`、`/v1/watchlist*`、`/v1/logo/*` は **JWT認証** が必要です。`auth_token` Cookieを優先し、Cookieがなければ`Authorization: Bearer <token>`を使用します。
+- CSRFトークンは、Cookie認証でPOST・PUT・PATCH・DELETEを呼ぶ場合に必要です。GET・HEAD・OPTIONSおよびBearer認証では検証をスキップします。
 - `/v1/signup` と `/v1/login` には **IPベースのレートリミット** が適用されています。
 - `/v1/auth/refresh` は `refresh_token` CookieとCSRFトークンを検証し、トークン一式をローテーションします。
 - `/v1/auth/oauth/*` は OAuth 環境変数（`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID` 等）が設定されている場合のみ登録されます。詳細は [auth フィーチャーのドキュメント](docs/features/auth.md) を参照してください。
@@ -268,23 +270,25 @@ go generate ./internal/api/...
 - **Cloud Run**: Dockerイメージをデプロイ
 - **Cloud SQL（PostgreSQL）**: アプリケーションデータの永続化
 - **Redis（Cloud Memorystore）**: キャッシュ管理
-- **Secret Manager**: APIキー・DBパスワード・JWTシークレットキーを安全に管理
-- 起動時に `os.Getenv()` + Secret Manager APIで読み込み
+- **Secret Manager**: APIキー・DBパスワード・JWTシークレット等を安全に管理し、Cloud Runの環境変数として注入
+- アプリケーションは注入された値を起動時に `os.Getenv()` で読み込み
 - **ローカル開発では `docker/.env` から読み込み**
 
 ## CI/CD
 
 - **GitHub Actions** がプルリクエスト作成時に自動テストを実行
-- マージ後、**Cloud Build** がDockerイメージをビルドし、**Artifact Registry** に保存
+- ドキュメントのみの変更でもMarkdown内のローカルリンク切れを検証
+- 手動起動したCDワークフローがGitHub Actions上でDockerイメージをビルドし、**Artifact Registry** に保存
 - **Workload Identity Federation** を使用してGitHubからGCPへ安全にデプロイ
-- **Cloud Run** に自動デプロイし、Secret Manager経由で環境変数を注入
+- **Cloud Run** へのデプロイは現在 `workflow_dispatch` による手動実行で、Secret Manager経由で環境変数を注入
+- API用CDでは、DB・Redis・JWTの各シークレットに加えて `PASSWORD_PEPPER` と `CORS_ALLOWED_ORIGINS` をSecret Managerへ登録しておく必要があります
 
 ## セットアップ
 
 ### 前提条件
 
 - Docker / Docker Compose がインストール済みであること
-- Go のインストールは不要（すべてDocker内で実行）
+- 通常のAPI・バッチ起動だけならGoのインストールは不要。スキーマ文書再生成やホスト上でのテストにはGoが必要
 - `docker/.env` にローカル環境変数を設定
 
 ---
@@ -316,7 +320,7 @@ cp docker/example.env docker/.env
 
 この制限に対応するため、本アプリケーションでは以下を実施しています：
 
-- **スケジュールバッチ（candles）プロセスによるデータの事前取得**
+- **candles バッチによるデータの事前取得**
 - **Redisキャッシュによるリクエスト数の最小化**
 
 ### GCP認証の設定（ロゴ検出・企業分析機能を使用する場合）
@@ -370,6 +374,12 @@ docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps candles
 docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps logo
 ```
 
+### バッチプロセスの起動（期限切れ認証セッション削除）
+
+```bash
+docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps auth-session-cleanup
+```
+
 ### ER 図・テーブル定義書の生成（tbls）
 
 スキーマは [tbls](https://github.com/k1LoW/tbls) で稼働中の PostgreSQL から自動生成されます。
@@ -404,4 +414,4 @@ docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps logo
 - **PostgreSQL**: `localhost:5432`
 - **Redis**: `localhost:6379`
 - **ログ確認**: `docker logs -f stock-backend`
-- **バッチプロセス**: candles コンテナが外部APIから株価を取得し、PostgreSQLに保存
+- **バッチプロセス**: `candles`（株価取り込み）、`logo`（ロゴURL取り込み）、`auth-session-cleanup`（期限切れ認証セッション削除）

@@ -65,7 +65,7 @@ sequenceDiagram
     participant API as Google Gemini API
 
     Client->>Handler: POST /v1/logo/analyze<br/>{"company_name":"任天堂"}
-    Handler->>Handler: ShouldBindJSON(&req)
+    Handler->>Handler: httpx.DecodeJSON(&req)
 
     alt バリデーションエラー
         Handler-->>Client: 400 Bad Request<br/>{"error":"invalid request"}
@@ -97,7 +97,9 @@ sequenceDiagram
 
 **認証方式**（優先順位順）:
 1. `auth_token` Cookie（ブラウザクライアント）+ `X-CSRF-Token` ヘッダー（必須）
-2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）
+2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等。CSRFトークンは不要）
+
+ユーザー単位で10回/日のレートリミットが適用されます。
 
 **Content-Type**: `multipart/form-data`
 
@@ -152,6 +154,12 @@ Content-Type: image/jpeg
   }
   ```
 
+- **401 Unauthorized** - JWTが未指定または無効
+- **403 Forbidden** - Cookie認証時のCSRFトークンが不正
+- **429 Too Many Requests** - ユーザー単位のレートリミット超過
+- **500 Internal Server Error** - 画像読み取り等の内部エラー
+- **503 Service Unavailable** - レートリミット基盤が利用不可
+
 - **502 Bad Gateway** - Vision APIエラー
   ```json
   {
@@ -165,7 +173,9 @@ Content-Type: image/jpeg
 
 **認証方式**（優先順位順）:
 1. `auth_token` Cookie（ブラウザクライアント）+ `X-CSRF-Token` ヘッダー（必須）
-2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）
+2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等。CSRFトークンは不要）
+
+ユーザー単位で10回/日のレートリミットが適用されます。
 
 **Content-Type**: `application/json`
 
@@ -211,6 +221,11 @@ Content-Type: application/json
     "error": "invalid request"
   }
   ```
+
+- **401 Unauthorized** - JWTが未指定または無効
+- **403 Forbidden** - Cookie認証時のCSRFトークンが不正
+- **429 Too Many Requests** - ユーザー単位のレートリミット超過
+- **503 Service Unavailable** - レートリミット基盤が利用不可
 
 - **502 Bad Gateway** - Gemini APIエラー
   ```json
@@ -299,14 +314,14 @@ graph TB
 - Google Cloud Vision API v2（`cloud.google.com/go/vision/v2/apiv1`）を使用
 - ADC（Application Default Credentials）認証
 - `LOGO_DETECTION`フィーチャーによる`BatchAnnotateImagesRequest`
-- コンパイル時インターフェース検証: `var _ usecase.LogoDetector = (*VisionLogoDetector)(nil)`
+- コンパイル時インターフェース検証: `var _ logodetection.LogoDetector = (*VisionLogoDetector)(nil)`
 
 #### アダプター層 - Gemini（[gemini/client.go](../../internal/feature/logodetection/gemini/client.go)）
 - **GeminiAnalyzer**: `CompanyAnalyzer`インターフェースを実装
 - Google GenAIクライアント（`google.golang.org/genai`）を使用
 - デフォルトモデル: `gemini-2.5-flash`
 - Vertex AI経由の利用をサポート（環境変数で設定）
-- コンパイル時インターフェース検証: `var _ usecase.CompanyAnalyzer = (*GeminiAnalyzer)(nil)`
+- コンパイル時インターフェース検証: `var _ logodetection.CompanyAnalyzer = (*GeminiAnalyzer)(nil)`
 
 ### アーキテクチャの特徴
 
@@ -321,18 +336,20 @@ graph TB
 
 ```text
 logodetection/
-├── README.md            # 本ファイル
 ├── logo.go              # DetectedLogoエンティティ（ロゴ名、信頼度）
 ├── analysis.go          # CompanyAnalysisエンティティ（企業名、サマリー）
+├── errors.go            # バリデーションエラー
 ├── usecase.go           # ビジネスロジック + LogoDetector / CompanyAnalyzerインターフェース
 ├── usecase_test.go      # ユースケーステスト
 ├── prompts/
 │   ├── analysis.md      # 企業分析プロンプト（go:embedで埋め込み）
 │   └── format.md        # 出力フォーマットテンプレート（go:embedで埋め込み）
 ├── vision/
-│   └── client.go        # Google Cloud Vision APIクライアント（LogoDetector実装）
+│   ├── client.go        # Google Cloud Vision APIクライアント（LogoDetector実装）
+│   └── client_test.go
 ├── gemini/
-│   └── client.go        # Google Gemini APIクライアント（CompanyAnalyzer実装）
+│   ├── client.go        # Google Gemini APIクライアント（CompanyAnalyzer実装）
+│   └── client_test.go
 └── logodetectionhttp/
     ├── handler.go       # HTTPハンドラー + Usecaseインターフェース
     └── handler_test.go  # ハンドラーテスト
@@ -340,20 +357,20 @@ logodetection/
 
 ## テスト
 
-Logodetectionフィーチャーのすべてのテストは、一貫性と保守性のために**テーブル駆動テストパターン**に従います。
+Logodetectionフィーチャーでは、複数の入力・エラー条件を扱うテストを中心に**テーブル駆動テストパターン**を使用します。
 
 ### テスト構造とパターン
 
 #### 全テスト共通のパターン
 
-1. **テーブル駆動テスト**: 全テスト関数は構造体フィールドを持つ`testCases`/`tests`スライスを使用:
+1. **テーブル駆動テスト**: 複数ケースを扱うテストは構造体フィールドを持つ`testCases`/`tests`スライスを使用:
    - `name`: テストケースの説明（例: `"success: logos detected"`, `"error: empty image data"`）
    - テストタイプ固有の追加フィールド（モック関数、期待値など）
 
 2. **モック実装**: 関数フィールドを持つモック構造体:
    ```go
    type mockLogoDetector struct {
-       DetectLogosFunc  func(ctx context.Context, imageData []byte) ([]entity.DetectedLogo, error)
+       DetectLogosFunc  func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error)
        DetectLogosCalls int
    }
    ```
@@ -371,8 +388,8 @@ Logodetectionフィーチャーのすべてのテストは、一貫性と保守�
 testCases := []struct {
     name          string
     imageData     []byte
-    mockFunc      func(ctx context.Context, imageData []byte) ([]entity.DetectedLogo, error)
-    expectedLogos []entity.DetectedLogo
+    mockFunc      func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error)
+    expectedLogos []logodetection.DetectedLogo
     expectedErr   string
 }{/* ... */}
 ```
@@ -397,7 +414,7 @@ HTTPリクエスト/レスポンス処理をテストするために**モック�
 tests := []struct {
     name           string
     setupRequest   func(t *testing.T) *http.Request
-    mockFunc       func(ctx context.Context, imageData []byte) ([]entity.DetectedLogo, error)
+    mockFunc       func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error)
     expectedStatus int
     expectedBody   string
 }{/* ... */}

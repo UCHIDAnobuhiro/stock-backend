@@ -33,7 +33,7 @@ sequenceDiagram
     Repository-->>Usecase: []UserSymbol
     Usecase-->>Handler: []UserSymbol
     Handler->>Handler: Convert to []api.WatchlistItem
-    Handler-->>Client: 200 OK [{id, symbolCode, sortKey}, ...]
+    Handler-->>Client: 200 OK [{id, symbol_code, sort_key}, ...]
 ```
 
 ### 銘柄追加フロー
@@ -47,7 +47,7 @@ sequenceDiagram
     participant Repository as Repository
     participant DB as PostgreSQL
 
-    Client->>Handler: POST /v1/watchlist {symbolCode: "AAPL"}
+    Client->>Handler: POST /v1/watchlist {symbol_code: "AAPL"}
     Handler->>Handler: Extract userID from JWT context
     Handler->>Usecase: AddSymbol(ctx, userID, symbolCode)
     Usecase->>SymbolChecker: Exists(ctx, symbolCode)
@@ -62,7 +62,7 @@ sequenceDiagram
         SymbolChecker-->>Usecase: true
         Usecase->>Repository: AddWithNextSortKey(ctx, userID, symbolCode)
         Repository->>DB: BEGIN TRANSACTION
-        DB-->>Repository: SELECT MAX(sort_key) FOR UPDATE
+        DB-->>Repository: SELECT MAX(sort_key)
         Repository->>DB: INSERT INTO watchlists ...
         alt 重複エントリ (23505)
             DB-->>Repository: unique_violation
@@ -91,9 +91,12 @@ sequenceDiagram
     Client->>Handler: PUT /v1/watchlist/order {codes: ["AAPL", "MSFT", "GOOGL"]}
     Handler->>Handler: Extract userID from JWT context
     Handler->>Usecase: ReorderSymbols(ctx, userID, codes)
+    Usecase->>Repository: ListByUser(ctx, userID)
+    Usecase->>Usecase: 全件との過不足・重複を検証
     Usecase->>Usecase: Build []UserSymbol with SortKey = index
     Usecase->>Repository: UpdateSortKeys(ctx, userID, entries)
     Repository->>DB: BEGIN TRANSACTION
+    Repository->>DB: SELECT id ... ORDER BY id FOR UPDATE
     Note over Repository,DB: Phase 1: 既存のsort_keyを負値にシフト<br/>（ユニーク制約の一時的衝突を回避）
     loop 各エントリ
         Repository->>DB: UPDATE watchlists SET sort_key=-(i+1) WHERE user_id=? AND symbol_code=?
@@ -115,7 +118,7 @@ sequenceDiagram
 ログインユーザーのウォッチリストを `sort_key` 昇順で取得します。JWT認証が必要です。
 
 **認証方式**（優先順位順）:
-1. `auth_token` Cookie（ブラウザクライアント）+ `X-CSRF-Token` ヘッダー（必須）
+1. `auth_token` Cookie（ブラウザクライアント。GETのためCSRFトークンは不要）
 2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）
 
 **レスポンス**
@@ -123,9 +126,9 @@ sequenceDiagram
 - **200 OK** - 成功
   ```json
   [
-    {"id": 1, "symbolCode": "AAPL", "sortKey": 0},
-    {"id": 2, "symbolCode": "MSFT", "sortKey": 1},
-    {"id": 3, "symbolCode": "GOOGL", "sortKey": 2}
+    {"id": 1, "symbol_code": "AAPL", "sort_key": 0},
+    {"id": 2, "symbol_code": "MSFT", "sort_key": 1},
+    {"id": 3, "symbol_code": "GOOGL", "sort_key": 2}
   ]
   ```
 
@@ -133,11 +136,11 @@ sequenceDiagram
 
 ### POST /v1/watchlist
 
-ウォッチリストに銘柄を追加します。JWT認証（+ CSRFトークン）が必要です。
+ウォッチリストに銘柄を追加します。JWT認証が必要です。Cookie認証ではCSRFトークンも必要ですが、Bearer認証では不要です。
 
 **リクエストボディ**
 ```json
-{"symbolCode": "AAPL"}
+{"symbol_code": "AAPL"}
 ```
 
 **レスポンス**
@@ -146,15 +149,17 @@ sequenceDiagram
 |-----------|------|
 | 201 Created | 追加成功 `{"message": "added to watchlist"}` |
 | 400 Bad Request | リクエストボディが不正 |
+| 401 Unauthorized | JWTが未指定または無効 |
+| 403 Forbidden | Cookie認証時のCSRFトークンが不正 |
 | 404 Not Found | `symbols` テーブルに存在しない銘柄コード |
 | 409 Conflict | 既にウォッチリストに登録済みの銘柄 |
 | 500 Internal Server Error | サーバー内部エラー |
 
 ---
 
-### DELETE /v1/watchlist/:code
+### DELETE /v1/watchlist/{code}
 
-ウォッチリストから銘柄を削除します。JWT認証（+ CSRFトークン）が必要です。
+ウォッチリストから銘柄を削除します。JWT認証が必要です。Cookie認証ではCSRFトークンも必要ですが、Bearer認証では不要です。
 
 **パスパラメータ**
 | パラメータ | 説明 | 例 |
@@ -166,7 +171,9 @@ sequenceDiagram
 | ステータス | 説明 |
 |-----------|------|
 | 204 No Content | 削除成功 |
-| 400 Bad Request | 銘柄コードが未指定 |
+| 400 Bad Request | 銘柄コードの形式が不正 |
+| 401 Unauthorized | JWTが未指定または無効 |
+| 403 Forbidden | Cookie認証時のCSRFトークンが不正 |
 | 404 Not Found | ウォッチリストに存在しない銘柄 |
 | 500 Internal Server Error | サーバー内部エラー |
 
@@ -174,7 +181,7 @@ sequenceDiagram
 
 ### PUT /v1/watchlist/order
 
-ウォッチリストの並び順を一括更新します。JWT認証（+ CSRFトークン）が必要です。
+ウォッチリストの並び順を一括更新します。JWT認証が必要です。Cookie認証ではCSRFトークンも必要ですが、Bearer認証では不要です。
 
 **リクエストボディ**
 ```json
@@ -187,7 +194,9 @@ sequenceDiagram
 | ステータス | 説明 |
 |-----------|------|
 | 204 No Content | 更新成功 |
-| 400 Bad Request | リクエストボディが不正 |
+| 400 Bad Request | リクエストボディが不正、または`codes`が現在のウォッチリスト全件と一致しない |
+| 401 Unauthorized | JWTが未指定または無効 |
+| 403 Forbidden | Cookie認証時のCSRFトークンが不正 |
 | 500 Internal Server Error | サーバー内部エラー |
 
 ## 依存関係図
@@ -274,7 +283,7 @@ graph TB
 - **repository**: RepositoryインターフェースのPostgreSQL実装
   - `ListByUser`: `sort_key ASC` 順でリスト返却
   - `Add`: エントリ追加（PostgreSQLエラーコードで `ErrAlreadyInWatchlist` / `ErrSymbolNotFound` に変換）
-  - `AddWithNextSortKey`: `SELECT MAX(sort_key) FOR UPDATE` + INSERT をトランザクション内で実行（並行追加時の重複順位防止）
+  - `AddWithNextSortKey`: `SELECT MAX(sort_key)` + INSERT をトランザクション内で実行し、`(user_id, sort_key)`ユニーク制約で重複順位を防止
   - `Remove`: 削除（`RowsAffected == 0` の場合 `ErrNotInWatchlist` を返す）
   - `UpdateSortKeys`: 2フェーズ更新でユニーク制約衝突を回避（負値シフト→最終値）
 
@@ -283,19 +292,20 @@ graph TB
 1. **クリーンアーキテクチャ**: ドメイン層がインフラストラクチャから独立
 2. **インターフェース所有権**: `Repository` は usecase 層で定義、`Usecase` は watchlisthttp 層で定義
 3. **フィーチャー分離**: `SymbolExistsChecker` 最小インターフェースにより symbollist への直接依存を回避
-4. **並行安全**: `AddWithNextSortKey` でトランザクション + `FOR UPDATE` により重複 sort_key を防止
+4. **並行安全**: `AddWithNextSortKey` はトランザクションと`(user_id, sort_key)`ユニーク制約により重複 sort_key の永続化を防止（競合した追加は409になり得る）
 5. **2フェーズ sort_key 更新**: ユニーク制約を一時的に違反しないよう、負値シフト後に最終値を設定
 
 ## ディレクトリ構成
 
 ```
 watchlist/                            # package watchlist（コア）
-├── README.md                         # 本ファイル
 ├── user_symbol.go                    # UserSymbol エンティティ
 ├── usecase.go                        # ビジネスロジック + Repository / SymbolExistsChecker インターフェース
+├── usecase_test.go                   # ユースケーステスト
 ├── errors.go                         # ErrSymbolNotFound / ErrAlreadyInWatchlist / ErrNotInWatchlist
 ├── repository.go                     # Repository の PostgreSQL 実装
 ├── repository_test.go                # リポジトリの統合テスト
+├── repository_concurrent_test.go     # 並び順更新・削除の並行テスト
 ├── sqlc/                             # package watchlistsqlc（sqlc 生成コード）
 │   ├── db.go
 │   ├── models.go
@@ -303,35 +313,18 @@ watchlist/                            # package watchlist（コア）
 │   ├── queries.sql
 │   └── queries.sql.go
 └── watchlisthttp/
-    └── handler.go                    # package watchlisthttp（HTTPハンドラー + Usecase インターフェース）
+    ├── handler.go                    # package watchlisthttp（HTTPハンドラー + Usecase インターフェース）
+    └── handler_test.go               # HTTPハンドラーテスト
 ```
 
 ## テスト
 
-### 現在のテスト構造
+現在は以下を実装しています。
 
-#### リポジトリテスト（`repository_test.go`）
-リポジトリの統合テスト。
-
-- `AddWithNextSortKey` の並行安全性テスト
-- `UpdateSortKeys` の 2フェーズ更新テスト
-- 重複追加・存在しない銘柄削除のエラー変換テスト
-
-### 推奨テスト構造（未作成）
-
-#### ユースケーステスト（`usecase_test.go`）
-モックリポジトリとモック SymbolExistsChecker を使用してビジネスロジックをテスト。
-
-- `TestWatchlistUsecase_ListUserSymbols`: リスト取得の正常系・エラー系
-- `TestWatchlistUsecase_AddSymbol`: 銘柄存在確認・追加成功・ErrSymbolNotFound・ErrAlreadyInWatchlist
-- `TestWatchlistUsecase_RemoveSymbol`: 削除成功・ErrNotInWatchlist
-- `TestWatchlistUsecase_ReorderSymbols`: 並び順更新の正常系・エラー系
-
-#### ハンドラーテスト（`watchlisthttp/handler_test.go`）
-モックユースケースを使用して HTTP リクエスト/レスポンスをテスト。
-
-- 各エンドポイントの HTTP ステータスコード検証
-- エラーケース（404/409/500）のレスポンスボディ検証
+- `usecase_test.go`: 一覧、追加、削除、全件一致を要求する並び替え、デフォルト銘柄初期化
+- `repository_test.go`: PostgreSQLを使った追加・削除・2フェーズ並び順更新と制約エラー変換
+- `repository_concurrent_test.go`: 並び順更新同士、および並び順更新と削除の競合
+- `watchlisthttp/handler_test.go`: 各HTTPステータス、snake_caseリクエスト、入力検証、ドメインエラー変換
 
 ### テスト実行コマンド
 
