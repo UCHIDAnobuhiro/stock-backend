@@ -252,26 +252,19 @@ paths:
           description: OAuthプロバイダー名
       responses:
         "302":
-          description: プロバイダー認可画面へリダイレクト
-        "400":
-          description: 未サポートのプロバイダー
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "429":
-          description: リクエスト過多（IPレートリミット超過）
+          description: |
+            成功時はプロバイダー認可画面へリダイレクト。
+            レートリミット拒否時は `{FRONTEND_URL}/login?error=<code>` へリダイレクト。
+            code は以下のいずれか:
+              - `rate_limited`: IPレートリミット超過
+              - `service_unavailable`: レートリミット基盤障害
           headers:
             Retry-After:
-              description: 再試行までの秒数
+              description: "`rate_limited` の場合の再試行までの秒数"
               schema:
                 type: integer
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
-          description: サービス一時利用不可（レートリミット基盤障害時）
+        "400":
+          description: 未サポートのプロバイダー
           content:
             application/json:
               schema:
@@ -315,23 +308,13 @@ paths:
               - `account_conflict`: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
               - `oauth_failed`: 上記以外のすべてのエラー（state不正・期限切れ、プロバイダーAPIエラー、
                 未サポートのプロバイダー、内部エラー等）
-        "429":
-          description: リクエスト過多（IPレートリミット超過）
+              - `rate_limited`: IPレートリミット超過
+              - `service_unavailable`: レートリミット基盤障害
           headers:
             Retry-After:
-              description: 再試行までの秒数
+              description: "`rate_limited` の場合の再試行までの秒数"
               schema:
                 type: integer
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
-          description: サービス一時利用不可（レートリミット基盤障害時）
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /v1/candles/{code}:
     get:

@@ -180,12 +180,18 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client
+    participant RateLimit as IP Rate Limiter
     participant Handler as OAuthHandler
     participant Usecase as OAuthUsecase
     participant StateStore as OAuthStateStore<br/>(Redis)
     participant Provider as OAuthProvider<br/>(Google/GitHub)
 
-    Client->>Handler: GET /v1/auth/oauth/{provider}
+    Client->>RateLimit: GET /v1/auth/oauth/{provider}
+    RateLimit->>RateLimit: Check IP rate limit (20 req/min)
+    alt Rate limit exceeded / unavailable
+        RateLimit-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=rate_limited|service_unavailable
+    end
+    RateLimit->>Handler: Request forwarded
     Handler->>Usecase: BeginAuth(provider)
 
     alt Unknown Provider
@@ -220,6 +226,9 @@ sequenceDiagram
 
     Provider->>RateLimit: GET /v1/auth/oauth/{provider}/callback?code=...&state=...
     RateLimit->>RateLimit: Check IP rate limit (20 req/min)
+    alt Rate limit exceeded / unavailable
+        RateLimit-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=rate_limited|service_unavailable
+    end
     RateLimit->>Handler: Request forwarded
     Handler->>Handler: Validate code/state present
 
@@ -458,7 +467,11 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 
 **レスポンス**
 
-- **302 Found** - プロバイダーの認可URLへリダイレクト
+- **302 Found**
+  - 成功時: プロバイダーの認可URLへリダイレクト
+  - レートリミット拒否時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト
+    - `code=rate_limited`: IPレートリミット超過（`Retry-After`ヘッダーに再試行までの秒数を付与）
+    - `code=service_unavailable`: レートリミット基盤障害
 - **400 Bad Request** - 未対応のプロバイダー
   ```json
   { "error": "unsupported provider" }
@@ -494,8 +507,8 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
   - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）
     - `code=account_conflict`: 同メールアドレスの既存アカウントが存在（乗っ取り防止のため自動リンクは行わない）
     - `code=oauth_failed`: 上記以外のすべてのエラー（code/state 欠落、`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、未対応のプロバイダー、内部エラー等）
-- **429 Too Many Requests** - レートリミット超過（IPベース: 20回/分）
-- **503 Service Unavailable** - レートリミット基盤（Redis）障害により判定不能（fail-closed、issue #266）
+    - `code=rate_limited`: IPレートリミット超過（`Retry-After`ヘッダーに再試行までの秒数を付与）
+    - `code=service_unavailable`: レートリミット基盤（Redis）障害により判定不能（fail-closed、issue #266）
 
 ## レートリミット
 
@@ -525,6 +538,10 @@ Redis Sorted Setを使用したSliding Window Logアルゴリズム:
 **fail-closed** です。Redisが利用できない場合（未接続・Luaスクリプト実行エラー）、
 判定不能としてリクエストを拒否し、**503 Service Unavailable**
 （`{"error": "service temporarily unavailable"}`、`Retry-After`ヘッダーなし）を返します。
+
+OAuth 認可開始・コールバックはブラウザのトップレベル遷移で開かれるため、例外として
+`{OAUTH_FRONTEND_REDIRECT_URL}/login?error=service_unavailable` へ **302 Found** でリダイレクトします。
+レートリミット判定自体は fail-closed のままで、OAuth 処理は実行されません。
 
 Redis障害時にレートリミットを無効化（fail-open）してしまうと、ブルートフォース攻撃・
 アカウント列挙対策が働かないままアプリケーションが動作し続けてしまうため、
@@ -871,7 +888,7 @@ go test ./internal/feature/auth/... -v -race -cover
 ```
 JWT_SECRET=your-super-secret-key-change-this-in-production
 PASSWORD_PEPPER=your-password-pepper-change-this-in-production
-OAUTH_FRONTEND_REDIRECT_URL=https://app.example.com/auth/callback
+OAUTH_FRONTEND_REDIRECT_URL=https://app.example.com
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
