@@ -1,6 +1,8 @@
 # AGENTS.md
 
-このファイルは、Codex（Codex.ai/code）がこのリポジトリのコードを扱う際のガイダンスを提供します。
+このファイルは、コーディングエージェント（Claude Code / Codex 等）がこのリポジトリのコードを扱う際のガイダンスを提供します。
+エージェント向けガイダンスは本ファイルに一本化しており、`CLAUDE.md` は本ファイルを読み込むだけの参照ファイルです。
+内容を更新する場合は、常に本ファイルを編集してください。
 
 ## 開発コマンド
 
@@ -169,7 +171,8 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 - 型定義・コンストラクタ（`New*`）→ 公開API（エントリポイント）→ それらが使う非公開ヘルパー、の順
 - 例: `internal/feature/auth/authhttp/handler.go` は
-  `NewHandler` → `Signup` → `Login` → `Logout` → `setAuthCookie`（ヘルパーは末尾）
+  `NewHandler` → `Signup` → `Login` → `Refresh` → `Logout` →
+  `setSessionCookiesWithCSRF` → `clearSessionCookies` → `setAuthCookie`（ヘルパーは末尾）
 - 例: `internal/feature/candles/ingest.go` は
   `NewIngestUsecase` → `IngestAll`（公開エントリ）→ `ingestOne` → `dedupCandles`
 - 例外: 複数の公開関数から共有される小さなキー生成ヘルパー等（`stateKey` / `blacklistKey` 等）は、
@@ -212,11 +215,15 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 ### 認証
 - JWT認証（`transport/jwt/AuthRequired()`）
-- 公開: `/healthz`, `/v1/signup`, `/v1/login`, `/v1/logout`, `/v1/auth/oauth/{provider}`（+ `/callback`） / 保護: その他すべて
+- 公開（認証不要）: `/healthz`, `/v1/signup`, `/v1/login`, `/v1/auth/refresh`, `/v1/logout`,
+  `/v1/auth/oauth/{provider}`（+ `/callback`。OAuth 用の環境変数が設定されている場合のみ登録）
+- 保護（`AuthRequired` + CSRF）: その他すべて
+- `/v1/auth/refresh` と `/v1/logout` は、期限切れアクセストークンでも実行できるようJWT認証を要求しません。
+  ただし CSRF（Double Submit Cookie）の検証は行います
 
 ### テストに関する注意事項
 
-テスト生成の詳細なルール（テーブル駆動テスト、モック定義、レイヤー別戦略等）は `/test-generate` スキル（`.claude/skills/test-generate/SKILL.md`）を参照してください。
+テスト生成の詳細なルール（テーブル駆動テスト、モック定義、レイヤー別戦略等）は `/test-generate` スキル（`test-generate/SKILL.md`）を参照してください。スキルの配置場所は「スキル」セクションを参照。
 
 ## 新機能の追加
 
@@ -249,7 +256,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 重要なアーキテクチャ上の決定は `docs/adr/` にADRとして記録します。
 
-- ADRの作成: `/adr <決定トピック>` スキル（`.claude/skills/adr/SKILL.md`）を使用
+- ADRの作成: `/adr <決定トピック>` スキル（`adr/SKILL.md`）を使用
 - テンプレート: `docs/adr/template.md`
 - 一覧・運用ルール: `docs/adr/README.md`
 
@@ -257,7 +264,22 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 コミットメッセージおよびプルリクエストのタイトル・説明はすべて**日本語**で記述してください。
 
-- コミット前のコードレビューは `/code-check` スキル（`.claude/skills/code-check/SKILL.md`）を参照
+- コミット前のコードレビューは `/code-check` スキル（`code-check/SKILL.md`）を参照
+
+## スキル
+
+リポジトリ固有のスキルは、エージェントごとに同一内容を 2 箇所に配置しています。
+
+| スキル | 用途 |
+|---|---|
+| `/adr` | アーキテクチャ決定記録（ADR）の作成 |
+| `/code-check` | コミット前のコード品質レビュー |
+| `/test-generate` | テストコードの生成 |
+
+- Claude Code: `.claude/skills/<name>/SKILL.md`
+- Codex: `.agents/skills/<name>/SKILL.md`
+
+スキルを追加・変更した場合は、**両方のディレクトリに同じ内容を反映**してください。
 
 ## Git ブランチ操作のルール
 
