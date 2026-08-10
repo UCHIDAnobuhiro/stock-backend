@@ -73,6 +73,45 @@ func TestOAuthHandler_BeginAuth_SetsStateCookie(t *testing.T) {
 	assert.Contains(t, stateCookie, "SameSite=Lax", "oauth_state should have SameSite=Lax")
 }
 
+// TestOAuthHandler_RedirectRateLimitError は OAuth のレートリミット拒否が
+// 生の JSON ではなく、理由を識別できるログイン画面へリダイレクトされることを検証します。
+func TestOAuthHandler_RedirectRateLimitError(t *testing.T) {
+	t.Parallel()
+
+	const frontendURL = "http://localhost:3000"
+	tests := []struct {
+		name             string
+		status           int
+		expectedLocation string
+	}{
+		{
+			name:             "rate limited",
+			status:           http.StatusTooManyRequests,
+			expectedLocation: frontendURL + "/login?error=rate_limited",
+		},
+		{
+			name:             "rate limiter unavailable",
+			status:           http.StatusServiceUnavailable,
+			expectedLocation: frontendURL + "/login?error=service_unavailable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := authhttp.NewOAuthHandler(nil, false, frontendURL)
+			req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google", nil)
+			w := httptest.NewRecorder()
+
+			h.RedirectRateLimitError(w, req, tt.status)
+
+			assert.Equal(t, http.StatusFound, w.Code)
+			assert.Equal(t, tt.expectedLocation, w.Header().Get("Location"))
+		})
+	}
+}
+
 // TestOAuthHandler_Callback_StateBinding はコールバック時の state Cookie 照合
 // （ログイン CSRF 対策）を検証します。
 func TestOAuthHandler_Callback_StateBinding(t *testing.T) {

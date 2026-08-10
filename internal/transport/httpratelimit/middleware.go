@@ -12,6 +12,9 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
 
+// RejectionHandler はレートリミット拒否時のレスポンス生成を差し替える関数です。
+type RejectionHandler func(http.ResponseWriter, *http.Request, int)
+
 // RateLimitConfig はレートリミットの設定を保持します（キー方式に依存しない共通設定）。
 type RateLimitConfig struct {
 	Prefix string        // Redisキーのプレフィックス（例: "rl:login:ip"）
@@ -21,6 +24,9 @@ type RateLimitConfig struct {
 	// ゼロ値はFailClosed（secure by default）です。非クリティカルな用途でfail-openに
 	// したい場合はFailOpenを明示的に指定してください。
 	Policy Policy
+	// OnRejected は拒否時のレスポンスをルート固有に差し替えます。nil の場合は
+	// 従来どおり 429 / 503 の JSON レスポンスを返します。
+	OnRejected RejectionHandler
 }
 
 // ByIP はIPアドレスベースのレートリミットミドルウェアを返します。
@@ -32,7 +38,7 @@ func ByIP(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Handler
 			result := limiter.Allow(r.Context(), key, cfg.Limit, cfg.Window, cfg.Policy)
 
 			if !result.Allowed {
-				writeRateLimitResult(w, result, "ip", "ip", ip, "prefix", cfg.Prefix)
+				writeRateLimitResult(w, r, result, cfg.OnRejected, "ip", "ip", ip, "prefix", cfg.Prefix)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -61,7 +67,7 @@ func ByUserID(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Han
 			result := limiter.Allow(r.Context(), key, cfg.Limit, cfg.Window, cfg.Policy)
 
 			if !result.Allowed {
-				writeRateLimitResult(w, result, "user", "user_id", userID, "prefix", cfg.Prefix)
+				writeRateLimitResult(w, r, result, cfg.OnRejected, "user", "user_id", userID, "prefix", cfg.Prefix)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -72,11 +78,22 @@ func ByUserID(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Han
 // writeRateLimitResult は Allow() の結果に応じて 503/429 レスポンスを書き込む共通処理です。
 // ログ属性はキー方式ごとに異なるため、呼び出し側から logType と追加の slog 属性を受け取ります。
 // 許可された場合は何も書き込みません（呼び出し側が next.ServeHTTP を続行します）。
-func writeRateLimitResult(w http.ResponseWriter, result Result, logType string, logArgs ...any) {
+func writeRateLimitResult(
+	w http.ResponseWriter,
+	r *http.Request,
+	result Result,
+	onRejected RejectionHandler,
+	logType string,
+	logArgs ...any,
+) {
 	if result.ServiceUnavailable {
 		slog.Error("rate limiter unavailable, rejecting request",
 			append([]any{"type", logType}, logArgs...)...,
 		)
+		if onRejected != nil {
+			onRejected(w, r, http.StatusServiceUnavailable)
+			return
+		}
 		httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{
 			Error: "service temporarily unavailable",
 		})
@@ -86,6 +103,10 @@ func writeRateLimitResult(w http.ResponseWriter, result Result, logType string, 
 		append([]any{"type", logType}, logArgs...)...,
 	)
 	w.Header().Set("Retry-After", strconv.Itoa(int(result.RetryAfter.Seconds())))
+	if onRejected != nil {
+		onRejected(w, r, http.StatusTooManyRequests)
+		return
+	}
 	httpx.WriteJSON(w, http.StatusTooManyRequests, api.ErrorResponse{
 		Error: "too many requests",
 	})

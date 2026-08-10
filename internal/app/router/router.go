@@ -114,16 +114,18 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 			if h.OAuth != nil {
 				r.Route("/auth/oauth", func(r chi.Router) {
 					r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
-						Prefix: "rl:oauth:begin:ip",
-						Limit:  20,
-						Window: 1 * time.Minute,
-						Policy: httpratelimit.FailClosed,
+						Prefix:     "rl:oauth:begin:ip",
+						Limit:      20,
+						Window:     1 * time.Minute,
+						Policy:     httpratelimit.FailClosed,
+						OnRejected: h.OAuth.RedirectRateLimitError,
 					})).Get("/{provider}", h.OAuth.BeginAuth)
 					r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
-						Prefix: "rl:oauth:callback:ip",
-						Limit:  20,
-						Window: 1 * time.Minute,
-						Policy: httpratelimit.FailClosed,
+						Prefix:     "rl:oauth:callback:ip",
+						Limit:      20,
+						Window:     1 * time.Minute,
+						Policy:     httpratelimit.FailClosed,
+						OnRejected: h.OAuth.RedirectRateLimitError,
 					})).Get("/{provider}/callback", h.OAuth.Callback)
 				})
 			}

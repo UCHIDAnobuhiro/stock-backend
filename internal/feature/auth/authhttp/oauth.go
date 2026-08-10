@@ -25,11 +25,13 @@ const oauthStateCookie = "oauth_state"
 // 認可フロー完了までの猶予として usecase 側の state TTL（10分）と揃えます。
 const oauthStateCookieMaxAge = 600
 
-// oauthErrAccountConflict / oauthErrOAuthFailed はコールバックのエラー時に
-// フロントエンドへ渡す識別コードです。メッセージ本文はクエリに含めません。
+// OAuth エラーコードはフロントエンドへ渡す識別子です。
+// メッセージ本文はクエリに含めません。
 const (
 	oauthErrAccountConflict = "account_conflict"
 	oauthErrOAuthFailed     = "oauth_failed"
+	oauthErrRateLimited     = "rate_limited"
+	oauthErrUnavailable     = "service_unavailable"
 )
 
 // OAuthUsecase はOAuth2認証フローのユースケースインターフェースです。
@@ -136,9 +138,19 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, h.frontendURL, http.StatusFound)
 }
 
-// redirectWithError はコールバックのユーザー向けエラーをフロントエンドの
-// ログイン画面へのリダイレクトで返します。コールバックはブラウザのトップレベル
-// 遷移で開かれるため、JSON を返すと生の JSON がユーザーに表示されてしまう。
+// RedirectRateLimitError はブラウザ遷移で呼ばれる OAuth ルートのレートリミット拒否を、
+// 生の JSON ではなくフロントエンドのログイン画面へのリダイレクトに変換します。
+func (h *OAuthHandler) RedirectRateLimitError(w http.ResponseWriter, r *http.Request, status int) {
+	code := oauthErrRateLimited
+	if status == http.StatusServiceUnavailable {
+		code = oauthErrUnavailable
+	}
+	h.redirectWithError(w, r, code)
+}
+
+// redirectWithError は OAuth のユーザー向けエラーをフロントエンドの
+// ログイン画面へのリダイレクトで返します。OAuth ルートはブラウザのトップレベル
+// 遷移で開かれるため、JSON を返すと生の JSON がユーザーに表示されてしまいます。
 // クエリには識別コードのみを渡し、文言はフロントエンド側でマッピングする。
 func (h *OAuthHandler) redirectWithError(w http.ResponseWriter, r *http.Request, code string) {
 	http.Redirect(w, r, strings.TrimSuffix(h.frontendURL, "/")+"/login?error="+code, http.StatusFound)

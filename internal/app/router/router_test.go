@@ -374,35 +374,63 @@ func TestNewRouter_LogoRateLimit(t *testing.T) {
 	})
 }
 
-// TestNewRouter_OAuthBeginAuthRateLimit は issue #270 対応: /v1/auth/oauth/{provider}
-// （BeginAuth）が Callback と同じ IP 単位 20回/分でレートリミットされることを検証します。
-// 同一ルーターインスタンスへの逐次リクエストでカウント順序を検証するため、
-// リクエストを発行するサブテストは t.Parallel() を使わない。
-func TestNewRouter_OAuthBeginAuthRateLimit(t *testing.T) {
+// TestNewRouter_OAuthRateLimitRedirectsToLogin は OAuth 認可開始・コールバックが
+// IP 単位 20回/分でレートリミットされ、拒否時にログイン画面へ戻ることを検証します。
+func TestNewRouter_OAuthRateLimitRedirectsToLogin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "begin", path: "/v1/auth/oauth/google"},
+		{name: "callback", path: "/v1/auth/oauth/google/callback?code=auth-code&state=state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+			r := newTestRouter(t, oauthHandler)
+
+			requestOAuth := func(t *testing.T) *httptest.ResponseRecorder {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+				rec := httptest.NewRecorder()
+				r.ServeHTTP(rec, req)
+				return rec
+			}
+
+			for i := 0; i < 20; i++ {
+				rec := requestOAuth(t)
+				assert.NotContains(t, rec.Header().Get("Location"), "error=rate_limited", "リクエスト%d回目で拒否されてはいけない", i+1)
+			}
+
+			rec := requestOAuth(t)
+			assert.Equal(t, http.StatusFound, rec.Code)
+			assert.Equal(t, "http://localhost:3000/login?error=rate_limited", rec.Header().Get("Location"))
+			assert.NotEmpty(t, rec.Header().Get("Retry-After"))
+		})
+	}
+}
+
+func TestNewRouter_OAuthRateLimiterUnavailableRedirectsToLogin(t *testing.T) {
 	t.Parallel()
 
 	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
-	r := newTestRouter(t, oauthHandler)
+	r := newTestRouterWithLimiter(t, oauthHandler, httpratelimit.NewLimiter(nil), 0)
 
-	getBeginAuth := func(t *testing.T) int {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/google", nil)
+	for _, path := range []string{
+		"/v1/auth/oauth/google",
+		"/v1/auth/oauth/google/callback?code=auth-code&state=state",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
-		return rec.Code
+
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "http://localhost:3000/login?error=service_unavailable", rec.Header().Get("Location"))
+		assert.Empty(t, rec.Header().Get("Retry-After"))
 	}
-
-	t.Run("success: 20回までは429にならない", func(t *testing.T) {
-		for i := 0; i < 20; i++ {
-			code := getBeginAuth(t)
-			assert.NotEqual(t, http.StatusTooManyRequests, code, "リクエスト%d回目で429になってはいけない", i+1)
-		}
-	})
-
-	t.Run("error: 21回目は429になる", func(t *testing.T) {
-		code := getBeginAuth(t)
-		assert.Equal(t, http.StatusTooManyRequests, code)
-	})
 }
 
 // TestNewRouter_TrustedProxyHops は TrustedProxyHops の設定に応じて
