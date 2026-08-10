@@ -61,12 +61,12 @@ jobs:
                     --region "${{ env.REGION }}" \
                     --platform managed \
                     --allow-unauthenticated \
-                    --set-env-vars=GIN_MODE=release,TRUSTED_PROXY_HOPS=1 \
+                    --set-env-vars=APP_ENV=production,COOKIE_SECURE=true,TRUSTED_PROXY_HOPS=1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${{ secrets.GCP_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ env.REGION }} \
                     --service-account "${{ env.RUNTIME_SERVICE_ACCOUNT }}" \
                     --add-cloudsql-instances "${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}" \
                     --vpc-connector run-connector \
                     --vpc-egress private-ranges-only \
-                    --set-secrets JWT_SECRET=JWT_SECRET:latest,TWELVE_DATA_API_KEY=TWELVE_DATA_API_KEY:latest,TWELVE_DATA_BASE_URL=TWELVE_DATA_BASE_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,RUN_MIGRATIONS=RUN_MIGRATIONS:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest \
+                    --set-secrets JWT_SECRET=JWT_SECRET:latest,PASSWORD_PEPPER=PASSWORD_PEPPER:latest,CORS_ALLOWED_ORIGINS=CORS_ALLOWED_ORIGINS:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest \
                     $EXTRA \
                     --quiet
 

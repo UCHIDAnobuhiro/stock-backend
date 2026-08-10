@@ -104,7 +104,7 @@ api/
 internal/
 ├── api/              # OpenAPIから自動生成された型定義（types.gen.go）
 ├── app/
-│   ├── batch/        # バッチ実行ロジック（job_id ディスパッチ: candles / logo）
+│   ├── batch/        # バッチ実行ロジック（job_id: auth-session-cleanup / candles / logo）
 │   ├── config/       # 環境変数パースの純粋関数ヘルパー
 │   ├── di/           # 依存性注入ファクトリ
 │   ├── migrate/      # マイグレーション実行ロジック（goose サブコマンドディスパッチ）
@@ -119,8 +119,10 @@ internal/
 │   ├── csrf/         # CSRF保護（Double Submit Cookieパターン）
 │   ├── handler/      # プラットフォームレベルのHTTPハンドラー（ヘルスチェック等）
 │   ├── httpratelimit/ # Redisベースのスライディングウィンドウレートリミッター（HTTPミドルウェア）
+│   ├── httpx/        # JSON・クライアントIP等のHTTP共通処理
 │   ├── jwt/          # JWT生成・認証ミドルウェア（package jwt）
-│   └── middleware/   # 共通HTTPミドルウェア（セキュリティヘッダー等）
+│   ├── middleware/   # 共通HTTPミドルウェア（セキュリティヘッダー等）
+│   └── openapivalidate/ # OpenAPIリクエスト検証ミドルウェア
 ├── infra/            # 技術基盤層（外部リソース接続・横断ユーティリティ）
 │   ├── db/           # データベース初期化
 │   ├── httpclient/   # 外部API呼び出し用HTTPクライアント設定（outbound）
@@ -200,7 +202,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 5. **3つのエントリーポイント**:
    - `cmd/api/main.go`: REST APIサーバー（ポート8080）の起動・DIワイヤリング
      - 環境変数パースの純粋関数ヘルパーは `internal/app/config/`（`CORS_ALLOWED_ORIGINS` / `COOKIE_SECURE` 等）
-   - `cmd/batch/main.go`: バッチジョブ統合エントリーポイント。コマンド引数 `job_id` で実行内容を切替（`candles`: TwelveData APIから株価データ取得 / `logo`: ロゴURL取得）
+   - `cmd/batch/main.go`: バッチジョブ統合エントリーポイント。コマンド引数 `job_id` で実行内容を切替（`auth-session-cleanup`: 期限切れ認証セッション削除 / `candles`: TwelveData APIから株価データ取得 / `logo`: ロゴURL取得）
    - `cmd/migrate/main.go`: goose 埋め込みマイグレーションを適用する専用バイナリ（Cloud Run Job 等で起動）
 
 ### 外部依存

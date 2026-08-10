@@ -49,6 +49,18 @@ jobs:
             echo "code_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Markdown内のローカルリンク切れを、ドキュメントのみのPRでも検出する。
+  docs-link-check:
+    name: Docs Link Check
+    needs: docs-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Check local Markdown links
+        run: bash scripts/check-doc-links.sh
+
   # 静的解析（golangci-lint）
   lint:
     name: Lint
@@ -212,19 +224,21 @@ jobs:
   # GitHub Branch Protectionではこのジョブだけをrequiredに設定する
   ci-gate:
     name: CI Gate
-    needs: [lint, arch-lint, vuln-scan, build-test, schema-doc-check]
+    needs: [docs-link-check, lint, arch-lint, vuln-scan, build-test, schema-doc-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check CI results
         run: |
           LINT="${{ needs.lint.result }}"
+          DOCS_LINK="${{ needs.docs-link-check.result }}"
           ARCH_LINT="${{ needs.arch-lint.result }}"
           VULN_SCAN="${{ needs.vuln-scan.result }}"
           BUILD_TEST="${{ needs.build-test.result }}"
           SCHEMA_DOC="${{ needs.schema-doc-check.result }}"
-          echo "lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} build-test=${BUILD_TEST} schema-doc=${SCHEMA_DOC}"
-          if [[ "${LINT}" == "success" || "${LINT}" == "skipped" ]] && \
+          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} build-test=${BUILD_TEST} schema-doc=${SCHEMA_DOC}"
+          if [[ "${DOCS_LINK}" == "success" ]] && \
+             [[ "${LINT}" == "success" || "${LINT}" == "skipped" ]] && \
              [[ "${ARCH_LINT}" == "success" || "${ARCH_LINT}" == "skipped" ]] && \
              [[ "${VULN_SCAN}" == "success" || "${VULN_SCAN}" == "skipped" ]] && \
              [[ "${BUILD_TEST}" == "success" || "${BUILD_TEST}" == "skipped" ]] && \

@@ -8,10 +8,11 @@ Auth フィーチャーは、短期JWTとサーバー管理リフレッシュト
 
 - **ユーザー登録（Signup）**: メールアドレスとパスワードで新規ユーザーを登録
 - **ログイン**: 認証情報を検証し、JWTとリフレッシュトークンを発行
-- **OAuth2 ログイン**: Google / GitHub プロバイダーによるソーシャルログイン（PKCE 対応。同メールの既存アカウントへの自動リンクは行わず、フロントエンドのログイン画面へ `error=account_conflict` 付きでリダイレクトする）
+- **OAuth2 ログイン**: Google / GitHub プロバイダーによるソーシャルログイン（GoogleはPKCE対応、GitHubはstateによるCSRF保護。同メールの既存アカウントへの自動リンクは行わず、フロントエンドのログイン画面へ `error=account_conflict` 付きでリダイレクトする）
 - **パスワード暗号化**: HMAC-SHA256ペッパー + bcryptによる安全なパスワードハッシュ化
 - **JWT認証**: 保護エンドポイントへのアクセス制御用に有効期限10分のJWTトークンを発行
 - **セッション更新**: 30日有効のリフレッシュトークンを使用ごとにローテーションし、再利用を検知した系列を失効
+- **セッション整理**: `auth-session-cleanup` バッチで期限切れ・失効済みリフレッシュセッションを削除（Cloud Scheduler などから定期起動可能）
 - **レートリミット**: Redis Sorted Setによるスライディングウィンドウ方式でブルートフォース攻撃を防止
 
 ## シーケンス図
@@ -113,11 +114,11 @@ sequenceDiagram
         Handler-->>Client: 401 Unauthorized<br/>{error: "invalid email or password"}
     end
 
+    Handler->>Handler: GenerateCSRFToken()
     Usecase->>Session: Issue(userID, email)
     Session->>DB: INSERT refresh_sessions (token hash only)
     Session-->>Usecase: TokenPair
     Usecase-->>Handler: TokenPair
-    Handler->>Handler: GenerateCSRFToken()
     Handler->>Handler: SetCookie auth_token / refresh_token / csrf_token
     Handler-->>Client: 200 OK<br/>{"message":"ok"}
     Note over Handler,Client: auth_token / refresh_token are HttpOnly
@@ -159,12 +160,12 @@ sequenceDiagram
     participant Sessions as RefreshSessionRepository<br/>(PostgreSQL)
 
     Client->>Handler: DELETE /v1/logout
-    Handler->>Sessions: refresh token familyを失効
     Handler->>Handler: リクエストからJWT抽出（Cookie優先→Authorizationヘッダー）
     alt トークンが有効（署名OK・未期限切れ）
         Handler->>Blacklist: Revoke(jti, ttl=exp-now)
         Note over Blacklist: jwt:blacklist:<jti> をttl付きでSET<br/>Redis未接続時は警告ログのみ（グレースフルデグレード）
     end
+    Handler->>Sessions: refresh token familyを失効
     Handler->>Handler: Clear auth_token / refresh_token / csrf_token
     Handler-->>Client: 200 OK {"message":"ok"}
     Note over Handler,Client: 認証CookieはすべてMax-Age 0
@@ -184,7 +185,7 @@ sequenceDiagram
     participant StateStore as OAuthStateStore<br/>(Redis)
     participant Provider as OAuthProvider<br/>(Google/GitHub)
 
-    Client->>Handler: GET /v1/auth/oauth/:provider
+    Client->>Handler: GET /v1/auth/oauth/{provider}
     Handler->>Usecase: BeginAuth(provider)
 
     alt Unknown Provider
@@ -193,7 +194,7 @@ sequenceDiagram
     end
 
     Usecase->>Usecase: Generate state (32B random)
-    Usecase->>Usecase: Generate PKCE codeVerifier (32B random)<br/>codeChallenge = BASE64URL(SHA256(codeVerifier))
+    Usecase->>Usecase: Generate codeVerifier (32B random)<br/>GoogleのみcodeChallenge = BASE64URL(SHA256(codeVerifier))を使用
     Usecase->>StateStore: SaveState(state, codeVerifier, TTL=10min)
     Usecase->>Provider: AuthorizationURL(state, codeChallenge)
     Provider-->>Usecase: Authorization URL
@@ -217,7 +218,7 @@ sequenceDiagram
     participant Hooks as UserCreatedHook(s)
     participant JWT as JWTGenerator
 
-    Provider->>RateLimit: GET /v1/auth/oauth/:provider/callback?code=...&state=...
+    Provider->>RateLimit: GET /v1/auth/oauth/{provider}/callback?code=...&state=...
     RateLimit->>RateLimit: Check IP rate limit (20 req/min)
     RateLimit->>Handler: Request forwarded
     Handler->>Handler: Validate code/state present
@@ -287,7 +288,7 @@ sequenceDiagram
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "password1234"
 }
 ```
 
@@ -341,7 +342,7 @@ sequenceDiagram
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "password1234"
 }
 ```
 
@@ -366,6 +367,7 @@ sequenceDiagram
   **JWTクレーム（auth_token内）:**
   - `sub`: ユーザーID（int64を文字列として格納）
   - `email`: ユーザーのメールアドレス
+  - `jti`: JWTの一意ID（ログアウト時の即時失効に使用）
   - `iat`: 発行日時（Unixタイムスタンプ）
   - `exp`: 有効期限（発行日時 + 10分）
 
@@ -447,7 +449,7 @@ Redis障害時はレートリミットを例外的にfail-openとし、PostgreSQ
 
 **注意**: 期限切れトークンを持つクライアントでも必ずログアウトできるよう、認証不要のエンドポイントに設定されています。
 
-### GET /v1/auth/oauth/:provider
+### GET /v1/auth/oauth/{provider}
 
 OAuth2 認可フローを開始し、プロバイダーの認可画面へリダイレクトします。OAuth 環境変数（`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID`）が設定されている場合のみルートが登録されます。
 
@@ -461,8 +463,10 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
   ```json
   { "error": "unsupported provider" }
   ```
+- **429 Too Many Requests** - レートリミット超過（IPベース: 20回/分）
+- **503 Service Unavailable** - レートリミット基盤（Redis）が利用不可
 
-### GET /v1/auth/oauth/:provider/callback
+### GET /v1/auth/oauth/{provider}/callback
 
 プロバイダーから認可コードを受け取り、ユーザー認証・認証セッション発行・フロントエンドへのリダイレクトを行います。
 
@@ -502,7 +506,8 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 | `POST /v1/login` | IPアドレス | 10回 | 1分 | HTTPミドルウェア |
 | `POST /v1/login` | メールアドレス | 5回 | 15分 | Handler内 |
 | `POST /v1/signup` | IPアドレス | 5回 | 1時間 | HTTPミドルウェア |
-| `GET /v1/auth/oauth/:provider/callback` | IPアドレス | 20回 | 1分 | HTTPミドルウェア |
+| `GET /v1/auth/oauth/{provider}` | IPアドレス | 20回 | 1分 | HTTPミドルウェア |
+| `GET /v1/auth/oauth/{provider}/callback` | IPアドレス | 20回 | 1分 | HTTPミドルウェア |
 | `POST /v1/auth/refresh` | IPアドレス | 30回 | 1分 | HTTPミドルウェア |
 
 ### アルゴリズム
@@ -516,7 +521,7 @@ Redis Sorted Setを使用したSliding Window Logアルゴリズム:
 
 ### Redis障害時の挙動
 
-認証系エンドポイント（signup / login IP・メール / OAuth コールバック）のレートリミットは
+認証系エンドポイント（signup / login IP・メール / OAuth 認可開始・コールバック）のレートリミットは
 **fail-closed** です。Redisが利用できない場合（未接続・Luaスクリプト実行エラー）、
 判定不能としてリクエストを拒否し、**503 Service Unavailable**
 （`{"error": "service temporarily unavailable"}`、`Retry-After`ヘッダーなし）を返します。
@@ -554,8 +559,8 @@ graph TB
     end
 
     subgraph "Usecase Interfaces"
-        RepoInterface[UserRepository Interface<br/>usecase.go]
-        JWTInterface[JWTGenerator Interface<br/>usecase.go]
+        RepoInterface[UserRepository Interface<br/>credentials.go]
+        JWTInterface[JWTGenerator Interface<br/>session.go]
         Errors[Domain Errors<br/>errors.go]
     end
 
@@ -612,11 +617,12 @@ graph TB
   - `api.LoginRequest`: ログインリクエスト
 
 #### Usecase層
-- **Usecase**（[usecase.go](../../internal/feature/auth/usecase.go)）: 認証ビジネスロジックを実装
+- **Usecase**（[credentials.go](../../internal/feature/auth/credentials.go)）: メール・パスワード認証ビジネスロジックを実装
   - パスワードバリデーション（最低12文字）
   - パスワードハッシュ化（bcrypt + HMAC-SHA256 ペッパー）
   - タイミング攻撃を防止するパスワード検証（ユーザー未検出時もbcrypt比較を実行）
-  - UserRepository / JWTGenerator / UserCreatedHook インターフェースを定義
+  - UserRepository / UserCreatedHook インターフェースを定義し、SessionManagerを利用
+- **SessionService**（[session.go](../../internal/feature/auth/session.go)）: JWTとリフレッシュセッションの発行・更新・失効を実装し、JWTGenerator / RefreshSessionRepositoryインターフェースを定義
 - **OAuthUsecase**（[oauth.go](../../internal/feature/auth/oauth.go)）: OAuth2 認証フローを実装
   - PKCE（S256）の state / codeVerifier 生成（`BeginAuth` は state を呼び出し側に返却し、ブラウザ Cookie への紐付けを可能にする）
   - 同メールの既存ユーザーが存在する場合は自動リンクせず `ErrOAuthEmailConflict` を返却（アカウント乗っ取り防止）
@@ -635,8 +641,8 @@ graph TB
   - `ErrUnknownProvider`: 未対応の OAuth プロバイダー指定
 
 #### Domain層
-- **User Entity**（[user.go](../../internal/feature/auth/user.go)）: ユーザードメインモデル（OAuth 専用ユーザーは `Password = nil`）
-- **OAuthAccount Entity**（[oauth_account.go](../../internal/feature/auth/oauth_account.go)）: OAuth プロバイダーとユーザーの紐付け
+- **User Entity**（[credentials.go](../../internal/feature/auth/credentials.go)）: ユーザードメインモデル（OAuth 専用ユーザーは `PasswordHash = nil`）
+- **OAuthAccount Entity**（[oauth.go](../../internal/feature/auth/oauth.go)）: OAuth プロバイダーとユーザーの紐付け
   - `(provider, provider_uid)` の複合ユニーク制約
   - `oauth_accounts` テーブルにマッピング
 
@@ -654,10 +660,10 @@ graph TB
 #### Adapters層
 - **userRepository**（[user_repository.go](../../internal/feature/auth/user_repository.go)）: UserRepository / OAuthUserCreator の sqlc + database/sql 実装
 - **oauthAccountRepository**（[oauth_account_repository.go](../../internal/feature/auth/oauth_account_repository.go)）: OAuthAccountRepository の sqlc + database/sql 実装
-- **refreshSessionRepository**（[refresh_session_repository.go](../../internal/feature/auth/refresh_session_repository.go)）: refreshセッションのPostgreSQL実装
+- **refreshSessionRepository**（[session_repository.go](../../internal/feature/auth/session_repository.go)）: refreshセッションのPostgreSQL実装
 - **redisOAuthStateStore**（[oauth_state_store.go](../../internal/feature/auth/oauth_state_store.go)）: OAuthStateStore の Redis 実装（`GETDEL` で atomic に消費）
-- **GoogleProvider**（[google_provider.go](../../internal/feature/auth/google_provider.go)）: Google OAuth2 実装（PKCE S256 対応、`/oauth2/v3/userinfo` でメール取得）
-- **GitHubProvider**（[github_provider.go](../../internal/feature/auth/github_provider.go)）: GitHub OAuth2 実装（GitHub は PKCE 非対応、state による CSRF 保護のみ）
+- **GoogleProvider**（[oauth_provider_google.go](../../internal/feature/auth/oauth_provider_google.go)）: Google OAuth2 実装（PKCE S256 対応、`/oauth2/v3/userinfo` でメール取得）
+- **GitHubProvider**（[oauth_provider_github.go](../../internal/feature/auth/oauth_provider_github.go)）: GitHub OAuth2 実装（GitHub は PKCE 非対応、state による CSRF 保護のみ）
 
 ### アーキテクチャ上の特徴
 
@@ -681,45 +687,48 @@ graph TB
 
 ```
 auth/                                  # package auth（フィーチャー直下にコアを集約）
-├── README.md                          # このファイル
-├── user.go                            # Userエンティティ定義
-├── oauth_account.go                   # OAuthAccountエンティティ定義
-├── refresh_session.go                 # RefreshSession / TokenPair
-├── session.go                         # セッション発行・更新・失効
-├── refresh_session_repository.go      # PostgreSQLセッションリポジトリ
-├── usecase.go                         # 認証ビジネスロジック + UserRepository等インターフェース
-├── usecase_test.go                    # Usecaseテスト
+├── credentials.go                     # User、メール/パスワード認証、UserRepository
+├── credentials_email_test.go          # メール正規化テスト
+├── credentials_test.go                # 認証ユースケーステスト
+├── session.go                         # RefreshSession / TokenPair、セッション発行・更新・失効
+├── session_test.go                    # セッションサービステスト
+├── session_repository.go              # PostgreSQLセッションリポジトリ
+├── session_repository_test.go         # セッションリポジトリテスト
+├── session_cleanup.go                 # 期限切れセッション削除ユースケース
+├── session_cleanup_test.go
 ├── oauth.go                           # OAuth2ビジネスロジック + OAuth関連インターフェース
+├── oauth_test.go
 ├── errors.go                          # ドメインエラー定義
 ├── user_repository.go                 # UserRepository/OAuthUserCreator 実装
 ├── user_repository_test.go            # リポジトリテスト
 ├── oauth_account_repository.go        # OAuthAccountRepository 実装
 ├── oauth_state_store.go               # OAuthStateStoreのRedis実装
-├── google_provider.go                 # Google OAuth2プロバイダー実装
-├── github_provider.go                 # GitHub OAuth2プロバイダー実装
+├── oauth_provider_google.go           # Google OAuth2プロバイダー実装
+├── oauth_provider_github.go           # GitHub OAuth2プロバイダー実装
 ├── sqlc/                              # package authsqlc（sqlc 生成コード・編集禁止）
 │   ├── queries.sql                    # クエリ定義
 │   └── *.go                           # 型安全な生成コード
 └── authhttp/                         # package authhttp
     ├── handler.go                     # 認証HTTPハンドラー（signup/login/refresh/logout）
     ├── handler_test.go                # ハンドラーテスト
-    └── oauth.go                       # OAuth2 HTTPハンドラー（begin/callback）
+    ├── oauth.go                       # OAuth2 HTTPハンドラー（begin/callback）
+    └── oauth_test.go
 ```
 
 ## テスト
 
-auth フィーチャーのすべてのテストは、一貫性と保守性のために**テーブル駆動テストパターン**に従っています。
+auth フィーチャーでは、複数の入力・エラー条件を扱うテストを中心に**テーブル駆動テストパターン**を使用しています。
 
 ### テスト構造とパターン
 
 #### 全テスト共通のパターン
 
-1. **テーブル駆動テスト**: すべてのテスト関数は `tests` スライスと構造体フィールドを使用:
+1. **テーブル駆動テスト**: 複数ケースを扱うテストは `tests` スライスと構造体フィールドを使用:
    - `name`: テストケースの説明（例: `"success: user creation"`, `"failure: duplicate email"`）
    - `wantErr`: エラーが期待されるかどうかを示すブールフラグ
    - テストタイプ固有の追加フィールド（後述）
 
-2. **並列実行**: すべてのテストは `t.Parallel()` を使用して並行実行を有効化:
+2. **並列実行**: 状態共有のないテストでは `t.Parallel()` を使用して並行実行を有効化:
    ```go
    func TestSomething(t *testing.T) {
        t.Parallel()  // 並列実行を有効化
@@ -740,7 +749,7 @@ auth フィーチャーのすべてのテストは、一貫性と保守性のた
    - Handler: `makeRequest()`, `assertJSONResponse()`
    - Repository: `setupTestDB()`, `seedUser()`
 
-#### Usecaseテスト（[usecase_test.go](../../internal/feature/auth/usecase_test.go)）
+#### Usecaseテスト（[credentials_test.go](../../internal/feature/auth/credentials_test.go)）
 
 **モックリポジトリ**を使用してビジネスロジックを単独でテストします。
 
@@ -803,9 +812,9 @@ tests := []struct {
     name         string
     email        string          // （テストによってはuser, userIDなど）
     wantErr      bool
-    expectedErr  error           // 特定のエラー型（例: usecase.ErrUserNotFound）
-    setupFunc    func(t *testing.T, db *sql.DB) *entity.User  // テストデータの準備
-    validateFunc func(t *testing.T, expected, found *entity.User)  // 結果の検証
+    expectedErr  error           // 特定のエラー型（例: auth.ErrUserNotFound）
+    setupFunc    func(t *testing.T, db *sql.DB) *User  // テストデータの準備
+    validateFunc func(t *testing.T, expected, found *User)  // 結果の検証
 }{/* ... */}
 ```
 

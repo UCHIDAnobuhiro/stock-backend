@@ -100,6 +100,22 @@ services:
       db:
         condition: service_healthy
 
+  auth-session-cleanup:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api.dev
+    env_file:
+      - ./.env
+    volumes:
+      - ..:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    command: ["go", "run", "./cmd/batch", "auth-session-cleanup"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
   # マイグレーション専用バイナリ。本番では同 Dockerfile を Cloud Run Job 等にデプロイ。
   # backend 起動時に依存として自動実行される。
   # 個別実行: docker compose -f docker/docker-compose.yml -p stock run --rm migrate [up|status|down|...]

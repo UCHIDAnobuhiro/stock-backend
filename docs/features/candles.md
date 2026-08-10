@@ -2,7 +2,7 @@
 
 ## 概要
 
-Candlesフィーチャーは、株式市場のローソク足（OHLCV）データ管理を提供します。REST APIによるリアルタイムデータ取得と、外部マーケットデータプロバイダーからのバッチデータ取り込みの両方を処理します。
+Candlesフィーチャーは、株式市場のローソク足（OHLCV）データ管理を提供します。REST APIによるPostgreSQL保存済みデータの取得と、外部マーケットデータプロバイダーからのバッチデータ取り込みを処理します。
 
 ### 主な機能
 
@@ -27,10 +27,9 @@ sequenceDiagram
     participant Redis
     participant DB as PostgreSQL
 
-    Client->>Handler: GET /candles/:code?interval=1day&outputsize=200
+    Client->>Handler: GET /v1/candles/{code}?interval=1day&outputsize=200
     Handler->>Handler: Parse params (defaults: interval=1day, outputsize=200)
     Handler->>Usecase: GetCandles(symbol, interval, outputsize)
-    Usecase->>Usecase: Apply defaults if needed
     Usecase->>Cache: Find(symbol, interval, outputsize)
 
     alt Redis Available
@@ -129,13 +128,13 @@ sequenceDiagram
 
 ## API仕様
 
-### GET /candles/:code
+### GET /v1/candles/{code}
 
 指定された銘柄のローソク足データを取得します。JWT認証が必要です。
 
 **認証方式**（優先順位順）:
-1. `auth_token` Cookie（ブラウザクライアント）+ `X-CSRF-Token` ヘッダー（必須）
-2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）— この場合CSRFチェックをスキップ
+1. `auth_token` Cookie（ブラウザクライアント。GETのためCSRFトークンは不要）
+2. `Authorization: Bearer <token>` ヘッダー（APIクライアント・curl等）
 
 **パスパラメータ**
 | パラメータ | 説明 | 例 |
@@ -152,7 +151,6 @@ sequenceDiagram
 ```http
 GET /v1/candles/7203.T?interval=1day&outputsize=100
 Cookie: auth_token=eyJhbGc...
-X-CSRF-Token: <csrf_token Cookieの値>
 ```
 
 **リクエスト例（Bearerヘッダー）**
@@ -193,24 +191,17 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   }
   ```
 
-- **403 Forbidden** - CSRFトークンが不正（Cookieベース認証時）
+- **500 Internal Server Error** - リポジトリまたはキャッシュ層のエラー
   ```json
   {
-    "error": "invalid csrf token"
+    "error": "internal server error"
   }
   ```
 
-- **502 Bad Gateway** - データベースまたは上流サービスのエラー
-  ```json
-  {
-    "error": "database connection failed"
-  }
-  ```
-
-### GET /quotes
+### GET /v1/quotes
 
 複数銘柄の最新終値・前日比・スパークライン用終値配列を1リクエストで取得します（ウォッチリストが
-銘柄ごとに `GET /candles/:code` を呼ぶ N+1 を回避するためのバッチAPI）。JWT認証が必要です。
+銘柄ごとに `GET /v1/candles/{code}` を呼ぶN+1を回避するためのバッチAPIです）。JWT認証が必要です。
 新しいSQL/sqlcクエリは追加せず、既存の `Repository.Find`（`CachingRepository` 経由でワイヤリング
 済み）を銘柄ごとに並行呼び出しして実現しています（並行数は `quoteConcurrency`（8）で上限管理）。
 
@@ -225,7 +216,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```http
 GET /v1/quotes?codes=AAPL,GOOGL,7203.T&interval=1day&bars=60
 Cookie: auth_token=eyJhbGc...
-X-CSRF-Token: <csrf_token Cookieの値>
 ```
 
 **レスポンス**
@@ -388,8 +378,8 @@ graph TB
 
 ```
 candles/                               # package candles（コア: domain/usecase/adapters を統合）
-├── README.md                          # 本ファイル
 ├── candle.go                          # Candleエンティティ（OHLCVデータ）
+├── errors.go                          # 入力不変条件のエラー
 ├── usecase.go                         # クエリロジック + Repositoryインターフェース
 ├── usecase_test.go                    # ユースケーステスト
 ├── quotes.go                          # Quoteエンティティ + GetQuotes（複数銘柄の一括取得。既存Repositoryを並行呼び出し）
@@ -402,6 +392,7 @@ candles/                               # package candles（コア: domain/usecas
 ├── repository_test.go                 # リポジトリテスト
 ├── caching_repository.go              # Redisキャッシュデコレータ
 ├── caching_repository_test.go
+├── caching_repository_concurrent_test.go
 ├── sqlc/                              # package candlessqlc（sqlc 生成コード、手動編集禁止）
 │   ├── db.go
 │   ├── models.go
@@ -422,13 +413,13 @@ candles/                               # package candles（コア: domain/usecas
 
 ## テスト
 
-Candlesフィーチャーの全テストは、一貫性と保守性のために**テーブル駆動テストパターン**に従います。
+Candlesフィーチャーでは、複数の入力・エラー条件を扱うテストを中心に**テーブル駆動テストパターン**を使用します。
 
 ### テスト構造とパターン
 
 #### 全テスト共通のパターン
 
-1. **テーブル駆動テスト**: 全テスト関数は構造体フィールドを持つ`tests`スライスを使用:
+1. **テーブル駆動テスト**: 複数ケースを扱うテストは構造体フィールドを持つ`tests`スライスを使用:
    - `name`: テストケースの説明（例: `"success: all parameters specified"`, `"error: repository returns error"`）
    - `wantErr`: エラーが期待されるかどうかを示すブール値フラグ
    - テストタイプ固有の追加フィールド
@@ -462,8 +453,8 @@ tests := []struct {
     inputSymbol        string
     inputInterval      string
     inputOutputsize    int
-    mockFindFunc       func(...) ([]entity.Candle, error)
-    expectedCandles    []entity.Candle
+    mockFindFunc       func(...) ([]candles.Candle, error)
+    expectedCandles    []candles.Candle
     expectedErr        error
     expectedInterval   string  // モックに渡されるべき値
     expectedOutputsize int     // モックに渡されるべき値
@@ -489,7 +480,7 @@ HTTPリクエスト/レスポンス処理をテストするために**モック�
 tests := []struct {
     name           string
     url            string
-    mockGetCandles func(...) ([]entity.Candle, error)
+    mockGetCandles func(...) ([]candles.Candle, error)
     expectedStatus int
     expectedBody   string  // JSON文字列比較
 }{/* ... */}
@@ -519,7 +510,7 @@ tests := []struct {
     outputsize   int
     wantErr      bool
     setupFunc    func(t *testing.T, db *sql.DB)
-    validateFunc func(t *testing.T, candles []entity.Candle)
+    validateFunc func(t *testing.T, candles []Candle)
 }{/* ... */}
 ```
 
@@ -539,21 +530,6 @@ go test ./internal/feature/candles/... -v
 
 ```bash
 go test ./internal/feature/candles/... -v -race -cover
-```
-
-### テスト出力例
-
-```
-=== RUN   TestCandlesUsecase_GetCandles
-=== RUN   TestCandlesUsecase_GetCandles/success:_all_parameters_specified
-=== RUN   TestCandlesUsecase_GetCandles/success:_default_value_used_when_interval_is_empty
-=== RUN   TestCandlesUsecase_GetCandles/success:_default_value_used_when_outputsize_is_0
-=== RUN   TestCandlesUsecase_GetCandles/success:_default_value_used_when_outputsize_exceeds_max
-=== RUN   TestCandlesUsecase_GetCandles/error:_repository_returns_error
---- PASS: TestCandlesUsecase_GetCandles (0.00s)
-    --- PASS: TestCandlesUsecase_GetCandles/success:_all_parameters_specified (0.00s)
-    --- PASS: TestCandlesUsecase_GetCandles/success:_default_value_used_when_interval_is_empty (0.00s)
-    ...
 ```
 
 ## キャッシュ戦略
@@ -595,6 +571,10 @@ go test ./internal/feature/candles/... -v -race -cover
 | 変数 | 説明 | 必須 |
 |------|------|------|
 | `TWELVE_DATA_API_KEY` | TwelveDataマーケットデータのAPIキー | はい（取り込み用） |
+| `TWELVE_DATA_BASE_URL` | TwelveData APIのベースURL | いいえ |
+| `INGEST_TIMEOUT_HOURS` | candlesバッチ全体のタイムアウト時間（既定3時間） | いいえ |
+| `INGEST_MAX_FAILURE_RATE` | candlesバッチを失敗扱いにする銘柄単位失敗率（既定0.2） | いいえ |
+| `CANDLES_CACHE_TTL` | RedisキャッシュTTL（既定24時間） | いいえ |
 
 **注:** RedisとPostgreSQLの接続設定は、このフィーチャー固有ではなくアプリケーションレベルで設定されます。
 

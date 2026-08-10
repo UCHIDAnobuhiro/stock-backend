@@ -236,7 +236,8 @@ paths:
       summary: OAuthログイン開始
       description: |
         指定プロバイダー（google/github）のOAuth2認可画面へリダイレクトします。
-        state + PKCEコードチャレンジを生成しRedisに保存します（TTL: 10分）。
+        state とコード検証用のランダム値を生成しRedisに保存します（TTL: 10分）。
+        GoogleではPKCE（S256）を使用し、PKCE非対応のGitHubではstateによるCSRF保護のみを使用します。
       operationId: beginOAuth
       tags:
         - auth
@@ -254,6 +255,23 @@ paths:
           description: プロバイダー認可画面へリダイレクト
         "400":
           description: 未サポートのプロバイダー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: リクエスト過多（IPレートリミット超過）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: サービス一時利用不可（レートリミット基盤障害時）
           content:
             application/json:
               schema:
@@ -297,6 +315,17 @@ paths:
               - `account_conflict`: 同メールアドレスの既存アカウントが存在（自動リンクは行わない）
               - `oauth_failed`: 上記以外のすべてのエラー（state不正・期限切れ、プロバイダーAPIエラー、
                 未サポートのプロバイダー、内部エラー等）
+        "429":
+          description: リクエスト過多（IPレートリミット超過）
+          headers:
+            Retry-After:
+              description: 再試行までの秒数
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: サービス一時利用不可（レートリミット基盤障害時）
           content:

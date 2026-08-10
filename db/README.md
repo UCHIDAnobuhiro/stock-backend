@@ -19,7 +19,7 @@ db/
 
 ## マイグレーションの実行方法
 
-### 1. cmd/migrate バイナリ（推奨・本番ジョブと同じ経路）
+### 1. cmd/migrate バイナリ（推奨・本番ジョブでも利用可能な経路）
 
 埋め込み済み migrations を使うので、SQL ファイルを別途配布する必要がありません。
 
@@ -31,7 +31,7 @@ go run ./cmd/migrate status
 go run ./cmd/migrate down
 go run ./cmd/migrate up-to 1
 
-# Docker（本番 Cloud Run Job と同等のイメージ）
+# Docker（Cloud Run Jobへデプロイ可能なものと同じイメージ）
 docker compose -f docker/docker-compose.yml -p stock run --rm migrate         # up
 docker compose -f docker/docker-compose.yml -p stock run --rm migrate status
 ```
@@ -72,8 +72,9 @@ go tool goose down
 
 ## 本番・ステージング環境での適用
 
-`docker/Dockerfile.migrate` でビルドした `migrate` バイナリを Cloud Run Job などで起動し、
-デプロイの前段で `migrate up` を実行してから `cmd/api` のデプロイへ進みます。
+`docker/Dockerfile.migrate` でビルドした `migrate` バイナリは Cloud Run Job などで実行できます。
+現在のGitHub Actions CDはマイグレーションジョブを自動作成・実行しないため、本番・ステージングでは
+APIデプロイ前に運用側で `migrate up` を明示的に実行してください。
 
 接続情報はサーバーと同じ環境変数（`DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_HOST` / `DB_PORT` /
 `INSTANCE_CONNECTION_NAME`）から読み取ります。
