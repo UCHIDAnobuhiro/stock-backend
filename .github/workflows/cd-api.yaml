@@ -12,15 +12,23 @@ permissions:
 env:
     REGION: asia-northeast1
     SERVICE_NAME: backend
-    REGISTRY: asia-northeast1-docker.pkg.dev/stock-app-473503/stock-registry
     IMAGE_TAG: ${{ github.sha }}
     DOCKERFILE_PATH: docker/Dockerfile.api
     BUILD_CONTEXT: .
-    RUNTIME_SERVICE_ACCOUNT: cr-service-runner@stock-app-473503.iam.gserviceaccount.com
 
 jobs:
+    migrate:
+        uses: ./.github/workflows/cd-migrate.yaml
+        secrets: inherit
+        with:
+            migrate_command: up
+
     deploy-api:
+        needs: migrate
         runs-on: ubuntu-latest
+        env:
+            REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry
+            RUNTIME_SERVICE_ACCOUNT: cr-service-runner@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
         steps:
             - name: Checkout code
               uses: actions/checkout@v7

@@ -72,9 +72,14 @@ go tool goose down
 
 ## 本番・ステージング環境での適用
 
-`docker/Dockerfile.migrate` でビルドした `migrate` バイナリは Cloud Run Job などで実行できます。
-現在のGitHub Actions CDはマイグレーションジョブを自動作成・実行しないため、本番・ステージングでは
-APIデプロイ前に運用側で `migrate up` を明示的に実行してください。
+`docker/Dockerfile.migrate` でビルドした `migrate` バイナリは Cloud Run Job（`migrate`）として
+デプロイされています。`.github/workflows/cd-api.yaml`（`workflow_dispatch`）を実行すると、APIの
+デプロイ本体に進む前に `.github/workflows/cd-migrate.yaml` が自動的に呼び出され、`migrate up` を
+実行します。マイグレーションが失敗した場合はAPIのデプロイに進みません。
+
+`status` 確認や `down` ロールバックなど `up` 以外のサブコマンドを個別に実行したい場合は、
+`.github/workflows/cd-migrate.yaml` を GitHub Actions 上で直接 `workflow_dispatch` 実行し、
+`migrate_command` 入力（例: `status` / `down` / `up-to,1`。複数引数はカンマ区切り）を指定してください。
 
 接続情報はサーバーと同じ環境変数（`DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_HOST` / `DB_PORT` /
 `INSTANCE_CONNECTION_NAME`）から読み取ります。

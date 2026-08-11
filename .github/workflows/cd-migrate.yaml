@@ -1,9 +1,20 @@
-name: CD to Cloud Run Jobs (Batch, all secrets)
+name: CD to Cloud Run Jobs (Migrate)
 
 on:
-    workflow_dispatch:  # 手動実行のみ
-    # push:
-    #     branches: [main]
+    workflow_call:
+        inputs:
+            migrate_command:
+                description: "goose サブコマンド（up / status / down / up-to,N など。複数引数はカンマ区切り）"
+                type: string
+                default: up
+                required: false
+    workflow_dispatch:  # 単独手動実行（status確認・down等）
+        inputs:
+            migrate_command:
+                description: "goose サブコマンド（up / status / down / up-to,N など。複数引数はカンマ区切り）"
+                type: string
+                default: up
+                required: false
 
 permissions:
     contents: read
@@ -11,27 +22,17 @@ permissions:
 
 env:
     REGION: asia-northeast1
+    JOB_NAME: migrate
     IMAGE_TAG: ${{ github.sha }}
-    DOCKERFILE_PATH: docker/Dockerfile.batch
+    DOCKERFILE_PATH: docker/Dockerfile.migrate
     BUILD_CONTEXT: .
 
 jobs:
-    deploy-batch:
+    deploy-migrate:
         runs-on: ubuntu-latest
         env:
             REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry
-            RUNTIME_SERVICE_ACCOUNT: cr-jobs-runner@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-
-        strategy:
-            matrix:
-                include:
-                    - job_name: candles
-                      batch_arg: candles
-                    - job_name: logo
-                      batch_arg: logo
-                    - job_name: auth-session-cleanup
-                      batch_arg: auth-session-cleanup
-
+            RUNTIME_SERVICE_ACCOUNT: cr-migrate-runner@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
         steps:
             - name: Checkout
               uses: actions/checkout@v7
@@ -50,12 +51,10 @@ jobs:
             - name: Configure Docker for Artifact Registry
               run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-            - name: Build & Push batch image
+            - name: Build & Push migrate image
               run: |
                   set -euo pipefail
-                  # 統合バイナリの単一イメージ。job_id はジョブ設定の --args で切り替えるため
-                  # candles / logo のジョブは同一イメージを共有する（同一タグへの再 push は冪等）。
-                  IMAGE=${{ env.REGISTRY }}/batch:${{ env.IMAGE_TAG }}
+                  IMAGE=${{ env.REGISTRY }}/migrate:${{ env.IMAGE_TAG }}
                   DOCKER_BUILDKIT=1 docker build -t "$IMAGE" -f "${{ env.DOCKERFILE_PATH }}" "${{ env.BUILD_CONTEXT }}"
                   docker push "$IMAGE"
                   echo "IMAGE=$IMAGE" >> $GITHUB_ENV
@@ -64,7 +63,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  if gcloud run jobs describe "${{ matrix.job_name }}" --region "${{ env.REGION }}" >/dev/null 2>&1; then
+                  if gcloud run jobs describe "${{ env.JOB_NAME }}" --region "${{ env.REGION }}" >/dev/null 2>&1; then
                     CMD="update"
                   else
                     CMD="create"
@@ -73,9 +72,9 @@ jobs:
                   ARGS=(
                     "--image=$IMAGE"
                     "--region=${{ env.REGION }}"
-                    "--args=${{ matrix.batch_arg }}"
+                    "--args=${{ inputs.migrate_command }}"
                     "--tasks=1"
-                    "--max-retries=1"
+                    "--max-retries=0"
                     "--task-timeout=900s"
                     "--cpu=1"
                     "--memory=512Mi"
@@ -84,11 +83,18 @@ jobs:
                     "--add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}"
                     "--vpc-connector=run-connector"
                     "--vpc-egress=private-ranges-only"
-                    "--set-secrets=TWELVE_DATA_API_KEY=TWELVE_DATA_API_KEY:latest,TWELVE_DATA_BASE_URL=TWELVE_DATA_BASE_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest"
+                    "--set-secrets=DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest"
                   )
 
                   if [ "$CMD" = "create" ]; then
-                    gcloud run jobs create "${{ matrix.job_name }}" "${ARGS[@]}"
+                    gcloud run jobs create "${{ env.JOB_NAME }}" "${ARGS[@]}"
                   else
-                    gcloud run jobs update "${{ matrix.job_name }}" "${ARGS[@]}"
+                    gcloud run jobs update "${{ env.JOB_NAME }}" "${ARGS[@]}"
                   fi
+
+            - name: Execute migrate job and wait for completion
+              run: |
+                  set -euo pipefail
+                  gcloud run jobs execute "${{ env.JOB_NAME }}" \
+                    --region "${{ env.REGION }}" \
+                    --wait
