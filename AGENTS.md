@@ -275,6 +275,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 | `/adr` | アーキテクチャ決定記録（ADR）の作成 |
 | `/code-check` | コミット前のコード品質レビュー |
 | `/test-generate` | テストコードの生成 |
+| `/schema-doc-sync` | migration変更後の docs/schema/ 再生成 |
 
 - Claude Code: `.claude/skills/<name>/SKILL.md`
 - Codex: `.agents/skills/<name>/SKILL.md`
