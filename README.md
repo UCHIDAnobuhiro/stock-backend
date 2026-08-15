@@ -284,10 +284,13 @@ go generate ./internal/api/...
 - backendのCDはcommit SHA付きイメージのpushと、既存Cloud Runリソースのイメージ更新・traffic切替だけを担当
 - API用CD（`cd-api.yaml`）は、前段で `cd-migrate.yaml` を呼び出し、`migrate up` が成功した場合のみAPIイメージを更新
 - migrateのサブコマンドはJob定義を書き換えず、実行時の `--args` overrideとして渡す
+- batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す
 
 新規環境では、TerraformでCloud Runを作成する前にAPI・batch・migrateの各ワークフローを
 `publish_only=true` で実行し、初回作成に使うイメージをArtifact Registryへpushします。
 通常運用では `publish_only=false` のまま実行します。CDから環境変数やSecret参照を変更してはいけません。
+バッチイメージの更新だけを行う場合は `execute=false`、更新後にバッチも起動する場合は
+`execute=true` と実行対象の `job_id` を指定します。
 
 ## セットアップ
 

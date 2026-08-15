@@ -1,4 +1,4 @@
-name: CD to Cloud Run Jobs (Batch image)
+name: CD to Cloud Run Job (Batch image and optional execute)
 
 on:
     workflow_dispatch:
@@ -7,6 +7,18 @@ on:
                 description: "イメージのbuild/pushだけを行う（Cloud Run初回構築用）"
                 type: boolean
                 default: false
+            execute:
+                description: "デプロイ後に選択したバッチを実行する"
+                type: boolean
+                default: false
+            job_id:
+                description: "実行するバッチのjob_id（execute=trueの場合のみ使用）"
+                type: choice
+                options:
+                    - candles
+                    - logo
+                    - auth-session-cleanup
+                default: candles
     # push:
     #     branches: [main]
 
@@ -16,17 +28,16 @@ permissions:
 
 env:
     REGION: asia-northeast1
+    JOB_NAME: batch
     IMAGE_TAG: ${{ github.sha }}
     DOCKERFILE_PATH: docker/Dockerfile.batch
     BUILD_CONTEXT: .
 
 jobs:
-    publish-batch:
+    deploy-batch:
         runs-on: ubuntu-latest
         env:
             REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry
-        outputs:
-            image: ${{ steps.publish.outputs.image }}
 
         steps:
             - name: Checkout
@@ -47,49 +58,38 @@ jobs:
               run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
             - name: Build and push batch image
-              id: publish
               run: |
                   set -euo pipefail
                   IMAGE=${{ env.REGISTRY }}/batch:${{ env.IMAGE_TAG }}
                   DOCKER_BUILDKIT=1 docker build -t "$IMAGE" -f "${{ env.DOCKERFILE_PATH }}" "${{ env.BUILD_CONTEXT }}"
                   docker push "$IMAGE"
-                  echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+                  echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+            - name: Deploy image
+              if: ${{ !inputs.publish_only }}
+              run: |
+                  set -euo pipefail
+                  gcloud run jobs update "${{ env.JOB_NAME }}" \
+                    --image "$IMAGE" \
+                    --region "${{ env.REGION }}" \
+                    --quiet
+
+            - name: Execute batch job and wait for completion
+              if: ${{ !inputs.publish_only && inputs.execute }}
+              env:
+                  JOB_ID: ${{ inputs.job_id }}
+              run: |
+                  set -euo pipefail
+                  gcloud run jobs execute "${{ env.JOB_NAME }}" \
+                    --region "${{ env.REGION }}" \
+                    --args="$JOB_ID" \
+                    --wait
 
             - name: Write image summary
               run: |
                   {
                     echo "### Batch image"
                     echo '```text'
-                    echo "${{ steps.publish.outputs.image }}"
+                    echo "$IMAGE"
                     echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
-
-    deploy-batch:
-        needs: publish-batch
-        if: ${{ !inputs.publish_only }}
-        runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                job_name:
-                    - candles
-                    - logo
-                    - auth-session-cleanup
-        steps:
-            - name: Auth to Google Cloud (OIDC/WIF)
-              uses: google-github-actions/auth@v3
-              with:
-                  workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
-                  service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
-
-            - name: Setup gcloud
-              uses: google-github-actions/setup-gcloud@v3
-              with:
-                  project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-            - name: Deploy image
-              run: |
-                  set -euo pipefail
-                  gcloud run jobs update "${{ matrix.job_name }}" \
-                    --image "${{ needs.publish-batch.outputs.image }}" \
-                    --region "${{ env.REGION }}" \
-                    --quiet
