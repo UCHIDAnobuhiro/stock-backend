@@ -3,7 +3,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-# バッチ統合（job_id 引数で candles / logo を切替）
+# バッチ統合（job_id 引数で candles / logo / auth-session-cleanup を切替）
 RUN CGO_ENABLED=0 GOOS=linux go build -o batch ./cmd/batch
 
 FROM alpine:3.21
@@ -16,6 +16,6 @@ COPY --from=builder /app/batch .
 RUN addgroup -S app && adduser -S app -G app && chown app:app /app/batch
 USER app
 
-# デフォルトは candles（株価）。Cloud Run Job / compose から logo 等を args で渡せる。
+# デフォルトは candles（株価）。単一のCloud Run Job / composeからjob_idをargsで渡して切り替える。
 ENTRYPOINT ["./batch"]
 CMD ["candles"]
