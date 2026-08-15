@@ -1,4 +1,4 @@
-name: CD to Cloud Run Jobs (Migrate)
+name: CD to Cloud Run Jobs (Migrate image and execute)
 
 on:
     workflow_call:
@@ -8,6 +8,11 @@ on:
                 type: string
                 default: up
                 required: false
+            publish_only:
+                description: "イメージのbuild/pushだけを行う（Cloud Run初回構築用）"
+                type: boolean
+                default: false
+                required: false
     workflow_dispatch:  # 単独手動実行（status確認・down等）
         inputs:
             migrate_command:
@@ -15,6 +20,10 @@ on:
                 type: string
                 default: up
                 required: false
+            publish_only:
+                description: "イメージのbuild/pushだけを行う（Cloud Run初回構築用）"
+                type: boolean
+                default: false
 
 permissions:
     contents: read
@@ -32,7 +41,6 @@ jobs:
         runs-on: ubuntu-latest
         env:
             REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry
-            RUNTIME_SERVICE_ACCOUNT: cr-migrate-runner@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
         steps:
             - name: Checkout
               uses: actions/checkout@v7
@@ -59,42 +67,31 @@ jobs:
                   docker push "$IMAGE"
                   echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-            - name: Create/Update Cloud Run Job
-              shell: bash
+            - name: Deploy image
+              if: ${{ !inputs.publish_only }}
               run: |
                   set -euo pipefail
-                  if gcloud run jobs describe "${{ env.JOB_NAME }}" --region "${{ env.REGION }}" >/dev/null 2>&1; then
-                    CMD="update"
-                  else
-                    CMD="create"
-                  fi
-
-                  ARGS=(
-                    "--image=$IMAGE"
-                    "--region=${{ env.REGION }}"
-                    "--args=${{ inputs.migrate_command }}"
-                    "--tasks=1"
-                    "--max-retries=0"
-                    "--task-timeout=900s"
-                    "--cpu=1"
-                    "--memory=512Mi"
-                    --set-env-vars=APP_ENV=production
-                    "--service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
-                    "--add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}"
-                    "--vpc-connector=run-connector"
-                    "--vpc-egress=private-ranges-only"
-                    "--set-secrets=DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest"
-                  )
-
-                  if [ "$CMD" = "create" ]; then
-                    gcloud run jobs create "${{ env.JOB_NAME }}" "${ARGS[@]}"
-                  else
-                    gcloud run jobs update "${{ env.JOB_NAME }}" "${ARGS[@]}"
-                  fi
+                  gcloud run jobs update "${{ env.JOB_NAME }}" \
+                    --image "$IMAGE" \
+                    --region "${{ env.REGION }}" \
+                    --quiet
 
             - name: Execute migrate job and wait for completion
+              if: ${{ !inputs.publish_only }}
+              env:
+                  MIGRATE_COMMAND: ${{ inputs.migrate_command }}
               run: |
                   set -euo pipefail
                   gcloud run jobs execute "${{ env.JOB_NAME }}" \
                     --region "${{ env.REGION }}" \
+                    --args="$MIGRATE_COMMAND" \
                     --wait
+
+            - name: Write image summary
+              run: |
+                  {
+                    echo "### Migrate image"
+                    echo '```text'
+                    echo "$IMAGE"
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"

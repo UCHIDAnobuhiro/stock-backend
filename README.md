@@ -50,7 +50,7 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 
 | カテゴリ        | 技術                                                                |
 | --------------- | ------------------------------------------------------------------- |
-| 言語            | Go (1.26.5)                                                          |
+| 言語            | Go (1.26.6)                                                          |
 | Webフレームワーク | net/http（標準ライブラリ）+ chi（ルーター）                         |
 | DB アクセス     | sqlc + database/sql + pgx/v5 stdlib                                 |
 | DB マイグレーション | goose（埋め込み SQL ベース）                                      |
@@ -280,11 +280,14 @@ go generate ./internal/api/...
 - ドキュメントのみの変更でもMarkdown内のローカルリンク切れを検証
 - 手動起動したCDワークフローがGitHub Actions上でDockerイメージをビルドし、**Artifact Registry** に保存
 - **Workload Identity Federation** を使用してGitHubからGCPへ安全にデプロイ
-- **Cloud Run** へのデプロイは現在 `workflow_dispatch` による手動実行で、Secret Manager経由で環境変数を注入
-- API用CD（`cd-api.yaml`）は、デプロイ本体の前段で `cd-migrate.yaml`（マイグレーション用Cloud Run Job）を呼び出し、`migrate up` が成功した場合のみ Cloud Run へのデプロイに進みます
-- `cd-migrate.yaml` は単独でも `workflow_dispatch` 実行でき、`migrate_command` 入力で `status` / `down` 等の任意のgooseサブコマンドを個別に実行できます
-- API用CDでは、DB・Redis・JWTの各シークレットに加えて `PASSWORD_PEPPER` と `CORS_ALLOWED_ORIGINS` をSecret Managerへ登録しておく必要があります
-- 全く新しいGCP環境を構築する場合は、既存の `cr-service-runner` / `cr-jobs-runner` に加えて、マイグレーション実行専用の `cr-migrate-runner` サービスアカウント（Cloud SQL Client権限 + DB系SecretへのSecret Manager アクセス権限）を事前に作成しておく必要があります
+- Cloud RunサービスとJobs、環境変数、Secret参照、ネットワーク、ランタイムSAは **stock-infraのTerraform** が管理
+- backendのCDはcommit SHA付きイメージのpushと、既存Cloud Runリソースのイメージ更新・traffic切替だけを担当
+- API用CD（`cd-api.yaml`）は、前段で `cd-migrate.yaml` を呼び出し、`migrate up` が成功した場合のみAPIイメージを更新
+- migrateのサブコマンドはJob定義を書き換えず、実行時の `--args` overrideとして渡す
+
+新規環境では、TerraformでCloud Runを作成する前にAPI・batch・migrateの各ワークフローを
+`publish_only=true` で実行し、初回作成に使うイメージをArtifact Registryへpushします。
+通常運用では `publish_only=false` のまま実行します。CDから環境変数やSecret参照を変更してはいけません。
 
 ## セットアップ
 
