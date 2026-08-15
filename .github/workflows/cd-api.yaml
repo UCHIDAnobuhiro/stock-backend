@@ -1,18 +1,26 @@
 name: CD to Cloud Run (API image)
 
 on:
+    push:
+        branches: [main]
+        paths-ignore:
+            - "**.md"
+            - "docs/**"
+            - "LICENSE"
     workflow_dispatch:
         inputs:
             publish_only:
                 description: "イメージのbuild/pushだけを行う（Cloud Run初回構築用）"
                 type: boolean
                 default: false
-    # push:
-    #     branches: [main]
 
 permissions:
     contents: read
     id-token: write
+
+concurrency:
+    group: cd-api
+    cancel-in-progress: false
 
 env:
     REGION: asia-northeast1
@@ -22,15 +30,51 @@ env:
     BUILD_CONTEXT: .
 
 jobs:
+    detect-migration-change:
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push'
+        outputs:
+            changed: ${{ steps.check.outputs.changed }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+
+            - name: Check if db/migrations changed
+              id: check
+              shell: bash
+              env:
+                  BEFORE_SHA: ${{ github.event.before }}
+                  AFTER_SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+                  if git rev-parse --verify "${BEFORE_SHA}^{commit}" >/dev/null 2>&1; then
+                      CHANGED_FILES="$(git diff --name-only "${BEFORE_SHA}" "${AFTER_SHA}")"
+                  else
+                      # force-push直後等でbeforeが取得できない場合は安全側でmigrateを実行する
+                      CHANGED_FILES="db/migrations/"
+                  fi
+                  echo "Changed files:"
+                  echo "${CHANGED_FILES}"
+                  if echo "${CHANGED_FILES}" | grep -q '^db/migrations/'; then
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
+                  fi
+
     migrate:
+        needs: detect-migration-change
+        if: ${{ always() && (github.event_name != 'push' || needs.detect-migration-change.outputs.changed == 'true') }}
         uses: ./.github/workflows/cd-migrate.yaml
         secrets: inherit
         with:
             migrate_command: up
-            publish_only: ${{ inputs.publish_only }}
+            publish_only: ${{ inputs.publish_only || false }}
 
     deploy-api:
-        needs: migrate
+        needs: [detect-migration-change, migrate]
+        if: ${{ always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
         runs-on: ubuntu-latest
         env:
             REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry

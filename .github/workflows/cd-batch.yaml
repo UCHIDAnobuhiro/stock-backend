@@ -1,6 +1,12 @@
 name: CD to Cloud Run Job (Batch image and optional execute)
 
 on:
+    push:
+        branches: [main]
+        paths-ignore:
+            - "**.md"
+            - "docs/**"
+            - "LICENSE"
     workflow_dispatch:
         inputs:
             publish_only:
@@ -19,12 +25,14 @@ on:
                     - logo
                     - auth-session-cleanup
                 default: candles
-    # push:
-    #     branches: [main]
 
 permissions:
     contents: read
     id-token: write
+
+concurrency:
+    group: cd-batch
+    cancel-in-progress: false
 
 env:
     REGION: asia-northeast1
