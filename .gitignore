@@ -14,6 +14,7 @@ todo_backend
 .env
 .env.*
 docker/.env
+gha-creds-*.json
 
 # データベース
 *.db

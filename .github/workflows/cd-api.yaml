@@ -1,7 +1,12 @@
-name: CD to Cloud Run (API, all secrets)
+name: CD to Cloud Run (API image)
 
 on:
-    workflow_dispatch:  # 手動実行のみ
+    workflow_dispatch:
+        inputs:
+            publish_only:
+                description: "イメージのbuild/pushだけを行う（Cloud Run初回構築用）"
+                type: boolean
+                default: false
     # push:
     #     branches: [main]
 
@@ -22,13 +27,13 @@ jobs:
         secrets: inherit
         with:
             migrate_command: up
+            publish_only: ${{ inputs.publish_only }}
 
     deploy-api:
         needs: migrate
         runs-on: ubuntu-latest
         env:
             REGISTRY: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stock-registry
-            RUNTIME_SERVICE_ACCOUNT: cr-service-runner@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
         steps:
             - name: Checkout code
               uses: actions/checkout@v7
@@ -55,32 +60,30 @@ jobs:
                   docker push "$IMAGE"
                   echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 
-            - name: Deploy (create or update)
+            - name: Deploy image without traffic
+              if: ${{ !inputs.publish_only }}
               run: |
                   set -euo pipefail
-                  if gcloud run services describe "${{ env.SERVICE_NAME }}" --region "${{ env.REGION }}" >/dev/null 2>&1; then
-                    EXTRA="--no-traffic"
-                  else
-                    EXTRA=""
-                  fi
-
-                  gcloud run deploy "${{ env.SERVICE_NAME }}" \
+                  gcloud run services update "${{ env.SERVICE_NAME }}" \
                     --image "$IMAGE" \
                     --region "${{ env.REGION }}" \
-                    --platform managed \
-                    --allow-unauthenticated \
-                    --set-env-vars=APP_ENV=production,COOKIE_SECURE=true,TRUSTED_PROXY_HOPS=1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${{ secrets.GCP_PROJECT_ID }},GOOGLE_CLOUD_LOCATION=${{ env.REGION }} \
-                    --service-account "${{ env.RUNTIME_SERVICE_ACCOUNT }}" \
-                    --add-cloudsql-instances "${{ secrets.INSTANCE_CONNECTION_NAME_FOR_DEPLOY }}" \
-                    --vpc-connector run-connector \
-                    --vpc-egress private-ranges-only \
-                    --set-secrets JWT_SECRET=JWT_SECRET:latest,PASSWORD_PEPPER=PASSWORD_PEPPER:latest,CORS_ALLOWED_ORIGINS=CORS_ALLOWED_ORIGINS:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_NAME=DB_NAME:latest,INSTANCE_CONNECTION_NAME=INSTANCE_CONNECTION_NAME:latest,REDIS_HOST=REDIS_HOST:latest,REDIS_PORT=REDIS_PORT:latest,REDIS_PASSWORD=REDIS_PASSWORD:latest \
-                    $EXTRA \
+                    --no-traffic \
                     --quiet
 
             - name: Shift traffic to latest
+              if: ${{ !inputs.publish_only }}
               run: |
+                  set -euo pipefail
                   gcloud run services update-traffic "${{ env.SERVICE_NAME }}" \
                     --region "${{ env.REGION }}" \
                     --to-latest \
                     --quiet
+
+            - name: Write image summary
+              run: |
+                  {
+                    echo "### API image"
+                    echo '```text'
+                    echo "$IMAGE"
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
