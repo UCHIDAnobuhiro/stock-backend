@@ -278,18 +278,24 @@ go generate ./internal/api/...
 
 - **GitHub Actions** がプルリクエスト作成時に自動テストを実行
 - ドキュメントのみの変更でもMarkdown内のローカルリンク切れを検証
-- 手動起動したCDワークフローがGitHub Actions上でDockerイメージをビルドし、**Artifact Registry** に保存
+- API用・batch用のCDワークフローは、mainへのマージ（コード変更を含むpush）で自動起動する。
+  ドキュメントのみの変更（`**.md` / `docs/**` / `LICENSE`）では起動しない
+- 手動実行（`workflow_dispatch`）も引き続き可能で、新規環境構築時や初回リソース作成時に使用する
+- 自動起動したCDワークフローがGitHub Actions上でDockerイメージをビルドし、**Artifact Registry** に保存
 - **Workload Identity Federation** を使用してGitHubからGCPへ安全にデプロイ
 - Cloud RunサービスとJobs、環境変数、Secret参照、ネットワーク、ランタイムSAは **stock-infraのTerraform** が管理
 - backendのCDはcommit SHA付きイメージのpushと、既存Cloud Runリソースのイメージ更新・traffic切替だけを担当
-- API用CD（`cd-api.yaml`）は、前段で `cd-migrate.yaml` を呼び出し、`migrate up` が成功した場合のみAPIイメージを更新
+- API用CD（`cd-api.yaml`）は、前段で `cd-migrate.yaml` を呼び出し、`migrate up` が成功した場合のみAPIイメージを更新。
+  push起動時は `db/migrations/` に変更がある場合だけmigrateを実行し、変更がなければスキップしてそのままAPIをデプロイする
 - migrateのサブコマンドはJob定義を書き換えず、実行時の `--args` overrideとして渡す
-- batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す
+- batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す。
+  push起動時は常にイメージ更新のみを行い、バッチの実行は行わない
 
 新規環境では、TerraformでCloud Runを作成する前にAPI・batch・migrateの各ワークフローを
-`publish_only=true` で実行し、初回作成に使うイメージをArtifact Registryへpushします。
-通常運用では `publish_only=false` のまま実行します。CDから環境変数やSecret参照を変更してはいけません。
-バッチイメージの更新だけを行う場合は `execute=false`、更新後にバッチも起動する場合は
+`publish_only=true` で手動実行（`workflow_dispatch`）し、初回作成に使うイメージをArtifact Registryへpushします。
+通常運用ではmainへのマージにより自動実行され、`publish_only=false` 相当で動作します。
+CDから環境変数やSecret参照を変更してはいけません。
+手動実行でバッチイメージの更新だけを行う場合は `execute=false`、更新後にバッチも起動する場合は
 `execute=true` と実行対象の `job_id` を指定します。
 
 ## セットアップ
