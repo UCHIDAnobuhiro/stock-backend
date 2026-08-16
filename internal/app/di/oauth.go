@@ -45,7 +45,7 @@ func NewOAuthHandler(
 	userStore OAuthUserStore,
 	sessions auth.SessionIssuer,
 	onUserCreated auth.UserCreatedHook,
-	secureCookie bool,
+	cookies authhttp.SessionCookieConfig,
 ) (*authhttp.OAuthHandler, error) {
 	if rdb == nil {
 		return nil, fmt.Errorf("OAuth requires Redis but Redis is unavailable")
@@ -80,5 +80,5 @@ func NewOAuthHandler(
 		onUserCreated,
 	)
 
-	return authhttp.NewOAuthHandler(oauthUC, secureCookie, cfg.FrontendURL), nil
+	return authhttp.NewOAuthHandler(oauthUC, cookies, cfg.FrontendURL), nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
 )
 
 // stubOAuthUserStore は OAuthUserStore（UserRepository + OAuthUserCreator）の最小実装。
@@ -48,7 +49,7 @@ func TestNewOAuthHandler_RequiresRedis(t *testing.T) {
 		Google:      &ProviderCredentials{ClientID: "id", ClientSecret: "secret", RedirectURL: "http://localhost/cb"},
 	}
 
-	h, err := NewOAuthHandler(cfg, nil, nil, &stubOAuthUserStore{}, &stubJWTGenerator{}, &stubUserCreatedHook{}, false)
+	h, err := NewOAuthHandler(cfg, nil, nil, &stubOAuthUserStore{}, &stubJWTGenerator{}, &stubUserCreatedHook{}, authhttp.SessionCookieConfig{})
 	if err == nil {
 		t.Fatal("expected error when Redis is unavailable, got nil")
 	}
@@ -72,7 +73,7 @@ func TestNewOAuthHandler_BuildsHandler(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	h, err := NewOAuthHandler(cfg, db, rdb, &stubOAuthUserStore{}, &stubJWTGenerator{}, &stubUserCreatedHook{}, true)
+	h, err := NewOAuthHandler(cfg, db, rdb, &stubOAuthUserStore{}, &stubJWTGenerator{}, &stubUserCreatedHook{}, authhttp.SessionCookieConfig{Secure: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -39,8 +39,12 @@ func newOAuthRouter(h *authhttp.OAuthHandler) http.Handler {
 
 // findCookie は Set-Cookie ヘッダーから指定名の Cookie 文字列を返します。
 func findCookie(w *httptest.ResponseRecorder, name string) string {
+	return findCookieMatching(w, name, func(string) bool { return true })
+}
+
+func findCookieMatching(w *httptest.ResponseRecorder, name string, matches func(string) bool) string {
 	for _, c := range w.Header().Values("Set-Cookie") {
-		if strings.HasPrefix(c, name+"=") {
+		if strings.HasPrefix(c, name+"=") && matches(c) {
 			return c
 		}
 	}
@@ -57,7 +61,10 @@ func TestOAuthHandler_BeginAuth_SetsStateCookie(t *testing.T) {
 			return "https://provider.example.com/authorize?state=abc", "abc", nil
 		},
 	}
-	h := authhttp.NewOAuthHandler(uc, false, "http://localhost:3000")
+	h := authhttp.NewOAuthHandler(uc, authhttp.SessionCookieConfig{
+		Secure: true,
+		Domain: "stockviewapp.com",
+	}, "http://localhost:3000")
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google", nil)
 	w := httptest.NewRecorder()
@@ -71,6 +78,8 @@ func TestOAuthHandler_BeginAuth_SetsStateCookie(t *testing.T) {
 	assert.Contains(t, stateCookie, "oauth_state=abc")
 	assert.Contains(t, stateCookie, "HttpOnly", "oauth_state should be HttpOnly")
 	assert.Contains(t, stateCookie, "SameSite=Lax", "oauth_state should have SameSite=Lax")
+	assert.Contains(t, stateCookie, "Secure", "oauth_state should have Secure attribute")
+	assert.NotContains(t, stateCookie, "Domain=", "oauth_state must remain host-only")
 }
 
 // TestOAuthHandler_RedirectRateLimitError は OAuth のレートリミット拒否が
@@ -100,7 +109,7 @@ func TestOAuthHandler_RedirectRateLimitError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := authhttp.NewOAuthHandler(nil, false, frontendURL)
+			h := authhttp.NewOAuthHandler(nil, authhttp.SessionCookieConfig{}, frontendURL)
 			req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google", nil)
 			w := httptest.NewRecorder()
 
@@ -172,7 +181,8 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 					return auth.TokenPair{AccessToken: "dummy-jwt-token", RefreshToken: "dummy-refresh-token"}, nil
 				},
 			}
-			h := authhttp.NewOAuthHandler(uc, false, frontendURL)
+			cookies := authhttp.SessionCookieConfig{Secure: true, Domain: "stockviewapp.com"}
+			h := authhttp.NewOAuthHandler(uc, cookies, frontendURL)
 
 			req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback"+tt.query, nil)
 			if tt.stateCookie != "" {
@@ -190,14 +200,22 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 				stateCookie := findCookie(w, "oauth_state")
 				if stateCookie != "" {
 					assert.Contains(t, stateCookie, "Max-Age=0", "oauth_state should be cleared")
+					assert.NotContains(t, stateCookie, "Domain=", "oauth_state deletion must remain host-only")
 				}
 			}
 
 			// 成功時は認証Cookieがセットされ、失敗時はセットされないこと。
 			if tt.callbackCalled {
-				assert.NotEmpty(t, findCookie(w, "auth_token"), "auth_token should be set on success")
-				assert.NotEmpty(t, findCookie(w, "refresh_token"), "refresh_token should be set on success")
-				assert.NotEmpty(t, findCookie(w, "csrf_token"), "csrf_token should be set on success")
+				for _, name := range []string{"auth_token", "refresh_token", "csrf_token"} {
+					issued := findCookieMatching(w, name, func(cookie string) bool {
+						return !strings.Contains(cookie, "Max-Age=0")
+					})
+					assert.Contains(t, issued, "Domain="+cookies.Domain, name+" should use the configured parent domain")
+					legacyDeletion := findCookieMatching(w, name, func(cookie string) bool {
+						return strings.Contains(cookie, "Max-Age=0") && !strings.Contains(cookie, "Domain=")
+					})
+					assert.NotEmpty(t, legacyDeletion, name+" legacy host-only cookie should be deleted")
+				}
 			} else {
 				assert.Empty(t, findCookie(w, "auth_token"), "auth_token must not be set on failure")
 				assert.Empty(t, findCookie(w, "refresh_token"), "refresh_token must not be set on failure")
@@ -218,7 +236,7 @@ func TestOAuthHandler_Callback_StateNotFound(t *testing.T) {
 			return auth.TokenPair{}, auth.ErrStateNotFound
 		},
 	}
-	h := authhttp.NewOAuthHandler(uc, false, frontendURL)
+	h := authhttp.NewOAuthHandler(uc, authhttp.SessionCookieConfig{}, frontendURL)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=auth-code&state=abc", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})
@@ -243,7 +261,7 @@ func TestOAuthHandler_Callback_EmailConflict(t *testing.T) {
 			return auth.TokenPair{}, auth.ErrOAuthEmailConflict
 		},
 	}
-	h := authhttp.NewOAuthHandler(uc, false, frontendURL)
+	h := authhttp.NewOAuthHandler(uc, authhttp.SessionCookieConfig{}, frontendURL)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=auth-code&state=abc", nil)
 	req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})

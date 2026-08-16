@@ -14,6 +14,7 @@ func clearEnv(t *testing.T) {
 		jwt.EnvKeyJWTSecret,
 		auth.EnvKeyPasswordPepper,
 		"COOKIE_SECURE",
+		"COOKIE_DOMAIN",
 		"APP_ENV",
 		"CORS_ALLOWED_ORIGINS",
 		"GOOGLE_CLIENT_ID",

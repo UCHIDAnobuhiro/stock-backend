@@ -113,7 +113,7 @@ func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limite
 	noopValidator := func(next http.Handler) http.Handler { return next }
 
 	h := router.Handlers{
-		Auth:      authhttp.NewHandler(stubAuthUsecase{}, limiter, false, testJWTSecret, nil),
+		Auth:      authhttp.NewHandler(stubAuthUsecase{}, limiter, authhttp.SessionCookieConfig{}, testJWTSecret, nil),
 		OAuth:     oauth,
 		Candles:   candleshttp.NewHandler(stubCandlesUsecase{}),
 		Symbol:    symbollisthttp.NewHandler(stubSymbolUsecase{}),
@@ -149,7 +149,7 @@ func tokenForUser(t *testing.T, userID int64) string {
 func TestNewRouter_ProtectedRoutes(t *testing.T) {
 	t.Parallel()
 
-	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, authhttp.SessionCookieConfig{}, "http://localhost:3000")
 
 	tests := []struct {
 		name   string
@@ -210,7 +210,7 @@ func TestNewRouter_ProtectedRoutes(t *testing.T) {
 func TestNewRouter_PublicRoutes(t *testing.T) {
 	t.Parallel()
 
-	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, authhttp.SessionCookieConfig{}, "http://localhost:3000")
 
 	t.Run("success: healthz returns exactly 200", func(t *testing.T) {
 		t.Parallel()
@@ -313,7 +313,7 @@ func TestNewRouter_OAuthRoutesOptional(t *testing.T) {
 func TestNewRouter_UnknownRoute(t *testing.T) {
 	t.Parallel()
 
-	r := newTestRouter(t, authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000"))
+	r := newTestRouter(t, authhttp.NewOAuthHandler(stubOAuthUsecase{}, authhttp.SessionCookieConfig{}, "http://localhost:3000"))
 	req := httptest.NewRequest(http.MethodGet, "/v1/nonexistent", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -389,7 +389,7 @@ func TestNewRouter_OAuthRateLimitRedirectsToLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+			oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, authhttp.SessionCookieConfig{}, "http://localhost:3000")
 			r := newTestRouter(t, oauthHandler)
 
 			requestOAuth := func(t *testing.T) *httptest.ResponseRecorder {
@@ -416,7 +416,7 @@ func TestNewRouter_OAuthRateLimitRedirectsToLogin(t *testing.T) {
 func TestNewRouter_OAuthRateLimiterUnavailableRedirectsToLogin(t *testing.T) {
 	t.Parallel()
 
-	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, false, "http://localhost:3000")
+	oauthHandler := authhttp.NewOAuthHandler(stubOAuthUsecase{}, authhttp.SessionCookieConfig{}, "http://localhost:3000")
 	r := newTestRouterWithLimiter(t, oauthHandler, httpratelimit.NewLimiter(nil), 0)
 
 	for _, path := range []string{

@@ -14,6 +14,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -77,6 +78,7 @@ type ServerConfig struct {
 	JWTSecret      string
 	PasswordPepper string
 	SecureCookie   bool
+	CookieDomain   string
 	CORSOrigins    []string
 	GCPProjectID   string // GOOGLE_CLOUD_PROJECT。未設定可（トレース相関に使用）
 	// TrustedProxyHops は X-Forwarded-For を信頼するリバースプロキシの段数。
@@ -223,6 +225,11 @@ func readServer(warn *[]string) (ServerConfig, error) {
 		*warn = append(*warn, fmt.Sprintf("invalid COOKIE_SECURE value %q, falling back to default %v", cookieSecureRaw, secureCookie))
 	}
 
+	cookieDomain, err := ParseCookieDomain(os.Getenv("COOKIE_DOMAIN"))
+	if err != nil {
+		return ServerConfig{}, err
+	}
+
 	// CORS許可オリジン（デフォルト: http://localhost:3000）
 	corsOrigins := ParseCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS"))
 	if corsOrigins == nil {
@@ -235,6 +242,7 @@ func readServer(warn *[]string) (ServerConfig, error) {
 		JWTSecret:        jwtSecret,
 		PasswordPepper:   passwordPepper,
 		SecureCookie:     secureCookie,
+		CookieDomain:     cookieDomain,
 		CORSOrigins:      corsOrigins,
 		GCPProjectID:     os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		TrustedProxyHops: trustedProxyHops,
@@ -361,6 +369,23 @@ func readDuration(key string, warn *[]string) time.Duration {
 		return 0
 	}
 	return d
+}
+
+// ParseCookieDomain はセッションCookieへ設定するDomain属性を検証・正規化する。
+// 空文字はローカル開発向けのhost-only Cookieとして許可する。
+func ParseCookieDomain(raw string) (string, error) {
+	domain := strings.ToLower(strings.TrimSpace(raw))
+	if domain == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(domain, ".") {
+		return "", fmt.Errorf("COOKIE_DOMAIN must not start with a dot")
+	}
+	cookie := http.Cookie{Name: "cookie_domain_validation", Value: "valid", Domain: domain, Path: "/"}
+	if err := cookie.Valid(); err != nil {
+		return "", fmt.Errorf("invalid COOKIE_DOMAIN %q: %w", raw, err)
+	}
+	return domain, nil
 }
 
 // ParseCORSOrigins は CORS_ALLOWED_ORIGINS env の生文字列を、カンマ区切りで

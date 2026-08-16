@@ -147,6 +147,36 @@ func TestReadCache(t *testing.T) {
 	}
 }
 
+func TestParseCookieDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "空文字はhost-only", raw: "", want: ""},
+		{name: "前後空白と大文字を正規化", raw: "  StockViewApp.COM  ", want: "stockviewapp.com"},
+		{name: "先頭ドットは拒否", raw: ".stockviewapp.com", wantErr: true},
+		{name: "スキームは拒否", raw: "https://stockviewapp.com", wantErr: true},
+		{name: "ポートは拒否", raw: "stockviewapp.com:443", wantErr: true},
+		{name: "パスは拒否", raw: "stockviewapp.com/path", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseCookieDomain(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseCookieDomain(%q) error = %v, wantErr %v", tt.raw, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("ParseCookieDomain(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestParseCORSOrigins は CORS_ALLOWED_ORIGINS env の生文字列パースが
 // trim・空要素除去・複数要素対応を正しく行うことを検証します。
 func TestParseCORSOrigins(t *testing.T) {

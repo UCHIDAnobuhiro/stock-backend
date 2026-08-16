@@ -17,6 +17,7 @@ func clearServerEnv(t *testing.T) {
 		jwt.EnvKeyJWTSecret,
 		auth.EnvKeyPasswordPepper,
 		"COOKIE_SECURE",
+		"COOKIE_DOMAIN",
 		"APP_ENV",
 		"CORS_ALLOWED_ORIGINS",
 		"GOOGLE_CLIENT_ID",
@@ -108,6 +109,32 @@ func TestLoadAPI(t *testing.T) {
 		}
 		if !cfg.Server.SecureCookie {
 			t.Error("secureCookie should be true when APP_ENV=production")
+		}
+	})
+
+	t.Run("COOKIE_DOMAIN を読み込む", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		t.Setenv("COOKIE_DOMAIN", "stockviewapp.com")
+
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Server.CookieDomain != "stockviewapp.com" {
+			t.Errorf("CookieDomain = %q, want stockviewapp.com", cfg.Server.CookieDomain)
+		}
+	})
+
+	t.Run("不正な COOKIE_DOMAIN はエラー", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		t.Setenv("COOKIE_DOMAIN", "https://stockviewapp.com")
+
+		if _, err := LoadAPI(); err == nil {
+			t.Fatal("expected error for invalid COOKIE_DOMAIN, got nil")
 		}
 	})
 

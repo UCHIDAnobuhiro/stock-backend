@@ -107,20 +107,19 @@ func assertJSONResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStat
 	assert.Equal(t, expectedBody, responseBody)
 }
 
-// assertLoginCookies はログイン成功時のSet-CookieヘッダーにCookieが正しく設定されていることを検証します。
-// secureCookie=true の場合は Secure 属性も検証します。
-func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie bool) {
+// assertSessionCookies はセッション発行時のSet-CookieヘッダーにCookieが正しく設定されていることを検証します。
+func assertSessionCookies(t *testing.T, w *httptest.ResponseRecorder, cookies authhttp.SessionCookieConfig) {
 	t.Helper()
 
 	var authTokenCookie, refreshTokenCookie, csrfTokenCookie string
 	for _, c := range w.Header().Values("Set-Cookie") {
-		if strings.HasPrefix(c, "auth_token=") {
+		if strings.HasPrefix(c, "auth_token=") && !strings.Contains(c, "Max-Age=0") {
 			authTokenCookie = c
 		}
-		if strings.HasPrefix(c, "csrf_token=") {
+		if strings.HasPrefix(c, "csrf_token=") && !strings.Contains(c, "Max-Age=0") {
 			csrfTokenCookie = c
 		}
-		if strings.HasPrefix(c, "refresh_token=") {
+		if strings.HasPrefix(c, "refresh_token=") && !strings.Contains(c, "Max-Age=0") {
 			refreshTokenCookie = c
 		}
 	}
@@ -139,7 +138,7 @@ func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie
 	assert.Contains(t, csrfTokenCookie, "SameSite=Lax", "csrf_token should have SameSite=Lax")
 
 	// secureCookie=true の場合: 両Cookieに Secure 属性が付くこと / false の場合: 付かないこと
-	if secureCookie {
+	if cookies.Secure {
 		assert.Contains(t, authTokenCookie, "Secure", "auth_token should have Secure attribute")
 		assert.Contains(t, refreshTokenCookie, "Secure", "refresh_token should have Secure attribute")
 		assert.Contains(t, csrfTokenCookie, "Secure", "csrf_token should have Secure attribute")
@@ -147,6 +146,21 @@ func assertLoginCookies(t *testing.T, w *httptest.ResponseRecorder, secureCookie
 		assert.NotContains(t, authTokenCookie, "Secure", "auth_token must not have Secure attribute")
 		assert.NotContains(t, refreshTokenCookie, "Secure", "refresh_token must not have Secure attribute")
 		assert.NotContains(t, csrfTokenCookie, "Secure", "csrf_token must not have Secure attribute")
+	}
+
+	for _, cookie := range []string{authTokenCookie, refreshTokenCookie, csrfTokenCookie} {
+		if cookies.Domain == "" {
+			assert.NotContains(t, cookie, "Domain=", "host-only cookie must not have Domain attribute")
+		} else {
+			assert.Contains(t, cookie, "Domain="+cookies.Domain, "session cookie should have configured Domain")
+		}
+	}
+	if cookies.Domain != "" {
+		for _, name := range []string{"auth_token", "refresh_token", "csrf_token"} {
+			assert.NotEmpty(t, findSetCookieMatching(w, name, func(cookie string) bool {
+				return strings.Contains(cookie, "Max-Age=0") && !strings.Contains(cookie, "Domain=")
+			}), "legacy host-only cookie should be deleted")
+		}
 	}
 }
 
@@ -187,7 +201,7 @@ func TestAuthHandler_Signup(t *testing.T) {
 			t.Parallel()
 
 			mockUC := &mockUsecase{SignupFunc: tt.mockSignupFunc}
-			h := authhttp.NewHandler(mockUC, nil, false, "", nil)
+			h := authhttp.NewHandler(mockUC, nil, authhttp.SessionCookieConfig{}, "", nil)
 
 			w := makeRequest(t, h.Signup, http.MethodPost, "/signup", tt.requestBody)
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
@@ -208,7 +222,7 @@ func TestAuthHandler_Signup_HookFailureIsNonFatal(t *testing.T) {
 			return errors.New("watchlist init failed")
 		},
 	}
-	h := authhttp.NewHandler(mockUC, nil, false, "", nil, hook)
+	h := authhttp.NewHandler(mockUC, nil, authhttp.SessionCookieConfig{}, "", nil, hook)
 
 	w := makeRequest(t, h.Signup, http.MethodPost, "/signup", H{
 		"email":    "test@example.com",
@@ -234,7 +248,7 @@ func TestAuthHandler_Signup_HookRunsWithoutCancelOnClientDisconnect(t *testing.T
 			return nil
 		},
 	}
-	h := authhttp.NewHandler(mockUC, nil, false, "", nil, hook)
+	h := authhttp.NewHandler(mockUC, nil, authhttp.SessionCookieConfig{}, "", nil, hook)
 
 	bodyBytes, err := json.Marshal(H{"email": "test@example.com", "password": "password12345"})
 	require.NoError(t, err)
@@ -274,7 +288,7 @@ func TestAuthHandler_Login_RateLimited(t *testing.T) {
 			return auth.TokenPair{}, errors.New("should not be called")
 		},
 	}
-	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
+	h := authhttp.NewHandler(mockUC, limiter, authhttp.SessionCookieConfig{}, "", nil)
 
 	w := makeRequest(t, h.Login, http.MethodPost, "/login", H{
 		"email":    "test@example.com",
@@ -316,7 +330,7 @@ func TestAuthHandler_Login_RateLimiterUnavailable(t *testing.T) {
 			return auth.TokenPair{}, errors.New("should not be called")
 		},
 	}
-	h := authhttp.NewHandler(mockUC, limiter, false, "", nil)
+	h := authhttp.NewHandler(mockUC, limiter, authhttp.SessionCookieConfig{}, "", nil)
 
 	w := makeRequest(t, h.Login, http.MethodPost, "/login", H{
 		"email":    "test@example.com",
@@ -366,6 +380,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		expectedBody   H
 		checkCookies   bool
 		secureCookie   bool
+		cookieDomain   string
 	}{
 		{
 			name:        "success: user login",
@@ -388,6 +403,18 @@ func TestAuthHandler_Login(t *testing.T) {
 			expectedBody:   H{"message": "ok"},
 			checkCookies:   true,
 			secureCookie:   true,
+		},
+		{
+			name:        "success: user login (parent domain)",
+			requestBody: H{"email": "test@example.com", "password": "password12345"},
+			mockLoginFunc: func(ctx context.Context, email, password string) (auth.TokenPair, error) {
+				return auth.TokenPair{AccessToken: "dummy-jwt-token", RefreshToken: "dummy-refresh-token"}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   H{"message": "ok"},
+			checkCookies:   true,
+			secureCookie:   true,
+			cookieDomain:   "stockviewapp.com",
 		},
 		// 注: email 形式・必須項目等のスキーマバリデーションは OpenAPI バリデーション
 		// ミドルウェアの責務に移行したため、その検証は middleware_test.go で実施する。
@@ -427,12 +454,13 @@ func TestAuthHandler_Login(t *testing.T) {
 			mockUC := &mockUsecase{LoginFunc: tt.mockLoginFunc}
 			email, _ := tt.requestBody["email"].(string)
 			limiter := newAllowingLimiter(t, email)
-			h := authhttp.NewHandler(mockUC, limiter, tt.secureCookie, "", nil)
+			cookies := authhttp.SessionCookieConfig{Secure: tt.secureCookie, Domain: tt.cookieDomain}
+			h := authhttp.NewHandler(mockUC, limiter, cookies, "", nil)
 
 			w := makeRequest(t, h.Login, http.MethodPost, "/login", tt.requestBody)
 			assertJSONResponse(t, w, tt.expectedStatus, tt.expectedBody)
 			if tt.checkCookies {
-				assertLoginCookies(t, w, tt.secureCookie)
+				assertSessionCookies(t, w, cookies)
 			}
 		})
 	}
@@ -445,33 +473,38 @@ func TestAuthHandler_Logout(t *testing.T) {
 	tests := []struct {
 		name         string
 		secureCookie bool
+		cookieDomain string
 	}{
 		{name: "secureCookie=false", secureCookie: false},
 		{name: "secureCookie=true", secureCookie: true},
+		{name: "parent domain", secureCookie: true, cookieDomain: "stockviewapp.com"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := authhttp.NewHandler(&mockUsecase{}, nil, tt.secureCookie, "", nil)
+			cookies := authhttp.SessionCookieConfig{Secure: tt.secureCookie, Domain: tt.cookieDomain}
+			h := authhttp.NewHandler(&mockUsecase{}, nil, cookies, "", nil)
 
 			w := makeRequest(t, h.Logout, http.MethodDelete, "/logout", H{})
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var authTokenCookie, refreshTokenCookie, csrfTokenCookie string
-			for _, c := range w.Header().Values("Set-Cookie") {
-				if strings.HasPrefix(c, "auth_token=") {
-					authTokenCookie = c
-				}
-				if strings.HasPrefix(c, "csrf_token=") {
-					csrfTokenCookie = c
-				}
-				if strings.HasPrefix(c, "refresh_token=") {
-					refreshTokenCookie = c
-				}
+			findDeletion := func(name string) string {
+				return findSetCookieMatching(w, name, func(cookie string) bool {
+					if !strings.Contains(cookie, "Max-Age=0") {
+						return false
+					}
+					if cookies.Domain == "" {
+						return !strings.Contains(cookie, "Domain=")
+					}
+					return strings.Contains(cookie, "Domain="+cookies.Domain)
+				})
 			}
+			authTokenCookie := findDeletion("auth_token")
+			refreshTokenCookie := findDeletion("refresh_token")
+			csrfTokenCookie := findDeletion("csrf_token")
 
 			// ログアウト時は Max-Age=0 でCookieを削除すること
 			assert.NotEmpty(t, authTokenCookie, "auth_token cookie should be present in response")
@@ -491,6 +524,14 @@ func TestAuthHandler_Logout(t *testing.T) {
 				assert.NotContains(t, authTokenCookie, "Secure", "auth_token must not have Secure attribute")
 				assert.NotContains(t, refreshTokenCookie, "Secure", "refresh_token must not have Secure attribute")
 				assert.NotContains(t, csrfTokenCookie, "Secure", "csrf_token must not have Secure attribute")
+			}
+
+			if cookies.Domain != "" {
+				for _, name := range []string{"auth_token", "refresh_token", "csrf_token"} {
+					assert.NotEmpty(t, findSetCookieMatching(w, name, func(cookie string) bool {
+						return strings.Contains(cookie, "Max-Age=0") && !strings.Contains(cookie, "Domain=")
+					}), "legacy host-only cookie should also be deleted")
+				}
 			}
 		})
 	}
@@ -523,7 +564,7 @@ func TestAuthHandler_Logout_RevokesToken(t *testing.T) {
 	match.ExpectSet("ignored", "1", time.Hour).SetVal("OK")
 
 	blacklist := jwt.NewBlacklist(rdb)
-	h := authhttp.NewHandler(&mockUsecase{}, nil, false, secret, blacklist)
+	h := authhttp.NewHandler(&mockUsecase{}, nil, authhttp.SessionCookieConfig{}, secret, blacklist)
 
 	req := httptest.NewRequest(http.MethodDelete, "/logout", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -543,6 +584,7 @@ func TestAuthHandler_Refresh(t *testing.T) {
 		refreshFunc    func(context.Context, string) (auth.TokenPair, error)
 		expectedStatus int
 		expectCookies  bool
+		cookies        authhttp.SessionCookieConfig
 	}{
 		{
 			name:           "error: missing refresh token",
@@ -559,6 +601,20 @@ func TestAuthHandler_Refresh(t *testing.T) {
 			expectCookies:  true,
 		},
 		{
+			name:         "success: rotate token pair with parent domain",
+			refreshToken: "old-refresh-token",
+			refreshFunc: func(_ context.Context, token string) (auth.TokenPair, error) {
+				assert.Equal(t, "old-refresh-token", token)
+				return auth.TokenPair{AccessToken: "new-access", RefreshToken: "new-refresh"}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectCookies:  true,
+			cookies: authhttp.SessionCookieConfig{
+				Secure: true,
+				Domain: "stockviewapp.com",
+			},
+		},
+		{
 			name:         "error: reused refresh token",
 			refreshToken: "reused-refresh-token",
 			refreshFunc: func(context.Context, string) (auth.TokenPair, error) {
@@ -566,6 +622,10 @@ func TestAuthHandler_Refresh(t *testing.T) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectCookies:  true,
+			cookies: authhttp.SessionCookieConfig{
+				Secure: true,
+				Domain: "stockviewapp.com",
+			},
 		},
 		{
 			name:         "error: concurrent rotation",
@@ -596,7 +656,7 @@ func TestAuthHandler_Refresh(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := authhttp.NewHandler(&mockUsecase{RefreshFunc: tt.refreshFunc}, nil, false, "", nil)
+			h := authhttp.NewHandler(&mockUsecase{RefreshFunc: tt.refreshFunc}, nil, tt.cookies, "", nil)
 			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
 			if tt.refreshToken != "" {
 				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: tt.refreshToken})
@@ -609,6 +669,19 @@ func TestAuthHandler_Refresh(t *testing.T) {
 				assert.NotEmpty(t, findSetCookie(w, "auth_token"))
 				assert.NotEmpty(t, findSetCookie(w, "refresh_token"))
 				assert.NotEmpty(t, findSetCookie(w, "csrf_token"))
+			}
+			if tt.expectedStatus == http.StatusOK {
+				assertSessionCookies(t, w, tt.cookies)
+			}
+			if tt.expectedStatus == http.StatusUnauthorized && tt.cookies.Domain != "" {
+				for _, name := range []string{"auth_token", "refresh_token", "csrf_token"} {
+					assert.NotEmpty(t, findSetCookieMatching(w, name, func(cookie string) bool {
+						return strings.Contains(cookie, "Max-Age=0") && strings.Contains(cookie, "Domain="+tt.cookies.Domain)
+					}))
+					assert.NotEmpty(t, findSetCookieMatching(w, name, func(cookie string) bool {
+						return strings.Contains(cookie, "Max-Age=0") && !strings.Contains(cookie, "Domain=")
+					}))
+				}
 			}
 			if tt.expectedStatus == http.StatusConflict {
 				assert.Empty(t, w.Header().Values("Set-Cookie"))
@@ -658,7 +731,7 @@ func TestAuthHandler_Logout_RefreshRevocationFailure(t *testing.T) {
 					received = refreshToken
 					return tt.logoutErr
 				},
-			}, nil, false, secret, jwt.NewBlacklist(rdb))
+			}, nil, authhttp.SessionCookieConfig{}, secret, jwt.NewBlacklist(rdb))
 			req := httptest.NewRequest(http.MethodDelete, "/v1/logout", nil)
 			req.Header.Set("Authorization", "Bearer "+token)
 			req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "refresh-token"})
@@ -682,7 +755,7 @@ func TestAuthHandler_RefreshConflictSetsRetryAfter(t *testing.T) {
 		RefreshFunc: func(context.Context, string) (auth.TokenPair, error) {
 			return auth.TokenPair{}, auth.ErrRefreshTokenConflict
 		},
-	}, nil, false, "", nil)
+	}, nil, authhttp.SessionCookieConfig{}, "", nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", nil)
 	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "concurrent-refresh-token"})
 	w := httptest.NewRecorder()
@@ -695,8 +768,12 @@ func TestAuthHandler_RefreshConflictSetsRetryAfter(t *testing.T) {
 }
 
 func findSetCookie(w *httptest.ResponseRecorder, name string) string {
+	return findSetCookieMatching(w, name, func(string) bool { return true })
+}
+
+func findSetCookieMatching(w *httptest.ResponseRecorder, name string, matches func(string) bool) string {
 	for _, cookie := range w.Header().Values("Set-Cookie") {
-		if strings.HasPrefix(cookie, name+"=") {
+		if strings.HasPrefix(cookie, name+"=") && matches(cookie) {
 			return cookie
 		}
 	}
