@@ -43,17 +43,17 @@ type OAuthUsecase interface {
 
 // OAuthHandler はOAuth2フローのHTTPリクエストを処理します。
 type OAuthHandler struct {
-	oauth        OAuthUsecase
-	secureCookie bool
-	frontendURL  string // OAUTH_FRONTEND_REDIRECT_URL: 認証完了後のリダイレクト先
+	oauth       OAuthUsecase
+	cookies     SessionCookieConfig
+	frontendURL string // OAUTH_FRONTEND_REDIRECT_URL: 認証完了後のリダイレクト先
 }
 
 // NewOAuthHandler はOAuthHandlerの新しいインスタンスを生成します。
-func NewOAuthHandler(oauth OAuthUsecase, secureCookie bool, frontendURL string) *OAuthHandler {
+func NewOAuthHandler(oauth OAuthUsecase, cookies SessionCookieConfig, frontendURL string) *OAuthHandler {
 	return &OAuthHandler{
-		oauth:        oauth,
-		secureCookie: secureCookie,
-		frontendURL:  frontendURL,
+		oauth:       oauth,
+		cookies:     cookies,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -71,7 +71,7 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 	// state をブラウザ側にも紐付ける（HttpOnly / SameSite=Lax / Secure の短命 Cookie）。
 	// コールバック時にクエリの state とこの Cookie 値の一致を必須とすることで、
 	// 攻撃者が取得した code+state を被害者に踏ませるログイン CSRF を防ぐ。
-	setAuthCookie(w, oauthStateCookie, state, oauthStateCookieMaxAge, SessionCookieConfig{Secure: h.secureCookie}, true)
+	setAuthCookie(w, oauthStateCookie, state, oauthStateCookieMaxAge, h.cookies.hostOnly(), true)
 
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -98,13 +98,13 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if err != nil || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(state)) != 1 {
 		slog.Warn("oauth callback: state cookie mismatch", "provider", provider)
 		// 照合に失敗した場合でも state Cookie は不要になるため削除する。
-		setAuthCookie(w, oauthStateCookie, "", -1, SessionCookieConfig{Secure: h.secureCookie}, true)
+		setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
 
 	// 照合に成功したので state Cookie は使い捨て（リプレイ防止のため削除）。
-	setAuthCookie(w, oauthStateCookie, "", -1, SessionCookieConfig{Secure: h.secureCookie}, true)
+	setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
@@ -131,7 +131,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookiesWithCSRF(w, pair, csrfToken, SessionCookieConfig{Secure: h.secureCookie})
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.cookies)
 
 	slog.Info("oauth login successful", "provider", provider)
 

@@ -127,11 +127,15 @@ func run() int {
 	candlesUC := candles.NewUsecase(cachedCandleRepo)
 	logoUC := logodetection.NewUsecase(visionDetector, geminiAnalyzer)
 	watchlistUC := watchlist.NewUsecase(watchlistRepo, symbolRepo)
+	sessionCookies := authhttp.SessionCookieConfig{
+		Secure: cfg.Server.SecureCookie,
+		Domain: cfg.Server.CookieDomain,
+	}
 
 	// OAuth ハンドラー（cfg.OAuth が nil の場合はOAuth機能なしで起動）
 	var oauthH *authhttp.OAuthHandler
 	if cfg.OAuth != nil {
-		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, sessionService, watchlistUC, cfg.Server.SecureCookie)
+		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, sessionService, watchlistUC, sessionCookies)
 		if err != nil {
 			slog.Error("failed to set up OAuth", "error", err)
 			return 1
@@ -139,10 +143,7 @@ func run() int {
 	}
 
 	// ハンドラー
-	authH := authhttp.NewHandler(authUC, rateLimiter, authhttp.SessionCookieConfig{
-		Secure: cfg.Server.SecureCookie,
-		Domain: cfg.Server.CookieDomain,
-	}, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
+	authH := authhttp.NewHandler(authUC, rateLimiter, sessionCookies, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
 	symbolH := symbollisthttp.NewHandler(symbolUC)
 	candlesH := candleshttp.NewHandler(candlesUC)
 	logoH := logodetectionhttp.NewHandler(logoUC)

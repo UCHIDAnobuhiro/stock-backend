@@ -501,10 +501,10 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 
 - **302 Found**
   - 成功時: `OAUTH_FRONTEND_REDIRECT_URL` へリダイレクト
-    - `Set-Cookie: auth_token=<JWT>; HttpOnly; SameSite=Lax; Max-Age=600`
-    - `Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=Lax; Max-Age=2592000`
-    - `Set-Cookie: csrf_token=<token>; SameSite=Lax; Max-Age=2592000`
-    - `Set-Cookie: oauth_state=; Max-Age=0`（使い捨て: 照合後に削除）
+    - `Set-Cookie: auth_token=<JWT>; HttpOnly; SameSite=Lax; Max-Age=600`（`COOKIE_DOMAIN` 設定時は `Domain` 付き）
+    - `Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=Lax; Max-Age=2592000`（`COOKIE_DOMAIN` 設定時は `Domain` 付き）
+    - `Set-Cookie: csrf_token=<token>; SameSite=Lax; Max-Age=2592000`（`COOKIE_DOMAIN` 設定時は `Domain` 付き）
+    - `Set-Cookie: oauth_state=; Max-Age=0`（使い捨て: 照合後に削除。常にhost-only）
   - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）
     - `code=account_conflict`: 同メールアドレスの既存アカウントが存在（乗っ取り防止のため自動リンクは行わない）
     - `code=oauth_failed`: 上記以外のすべてのエラー（code/state 欠落、`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、未対応のプロバイダー、内部エラー等）
@@ -699,7 +699,7 @@ graph TB
    - JWTトークンはHS256アルゴリズムで署名（`transport/jwt` で実装）
    - 署名には環境変数 `JWT_SECRET` を使用
    - ハンドラーレベルで汎用エラーメッセージを返却し、列挙攻撃を防止
-   - OAuth state のブラウザ側バインディング: `BeginAuth` で `oauth_state` Cookie（HttpOnly / SameSite=Lax / Secure）を発行し、コールバック時にクエリの `state` と定数時間比較で照合（ログイン CSRF / セッションフィクセーション対策）
+   - OAuth state のブラウザ側バインディング: `BeginAuth` でhost-onlyの `oauth_state` Cookie（HttpOnly / SameSite=Lax / Secure）を発行し、コールバック時にクエリの `state` と定数時間比較で照合（ログイン CSRF / セッションフィクセーション対策）
 
 ## ディレクトリ構成
 
@@ -875,7 +875,7 @@ go test ./internal/feature/auth/... -v -race -cover
 |--------|------|------|
 | `JWT_SECRET` | JWTトークン署名用の秘密鍵 | ✅ |
 | `PASSWORD_PEPPER` | パスワードハッシュ用ペッパー（HMAC-SHA256のキー） | ✅ |
-| `COOKIE_DOMAIN` | メール認証のセッションCookieを共有する親ドメイン。空ならhost-only | 任意 |
+| `COOKIE_DOMAIN` | セッションCookieを共有する親ドメイン。空ならhost-only。`oauth_state` には適用しない | 任意 |
 | `OAUTH_FRONTEND_REDIRECT_URL` | OAuth 認証完了後のリダイレクト先 URL | OAuth有効時 |
 | `GOOGLE_CLIENT_ID` | Google OAuth クライアント ID | Google有効時 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth クライアントシークレット | Google有効時 |
