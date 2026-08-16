@@ -21,9 +21,9 @@ require (
 	golang.org/x/crypto v0.54.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/api v0.292.0
+	google.golang.org/api v0.293.0
 	google.golang.org/genai v1.67.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260807164820-c8921c73eeea
 	google.golang.org/grpc v1.83.0
 )
 
@@ -31,7 +31,7 @@ require (
 	cdr.dev/slog v1.4.2-0.20221206192828-e4803b10ae17 // indirect
 	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.22.0 // indirect
+	cloud.google.com/go/auth v0.23.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
@@ -91,7 +91,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.19 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.20 // indirect
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
