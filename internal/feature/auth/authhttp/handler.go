@@ -52,6 +52,11 @@ type SessionCookieConfig struct {
 	Domain string
 }
 
+func (c SessionCookieConfig) hostOnly() SessionCookieConfig {
+	c.Domain = ""
+	return c
+}
+
 // Handler は認証操作のHTTPリクエストを処理します。
 // Usecaseインターフェースに依存し、JSONリクエスト/レスポンスを処理します。
 type Handler struct {
