@@ -45,24 +45,32 @@ const (
 	refreshConflictRetryAfterSeconds = 1
 )
 
+// SessionCookieConfig は認証セッションCookieに共通する属性を保持します。
+// Domain が空の場合はhost-only Cookieを発行します。
+type SessionCookieConfig struct {
+	Secure bool
+	Domain string
+}
+
 // Handler は認証操作のHTTPリクエストを処理します。
 // Usecaseインターフェースに依存し、JSONリクエスト/レスポンスを処理します。
 type Handler struct {
-	uc           Usecase
-	limiter      *httpratelimit.Limiter
-	secureCookie bool
-	jwtSecret    string
-	blacklist    *jwt.Blacklist
-	postHooks    []auth.UserCreatedHook
+	uc        Usecase
+	limiter   *httpratelimit.Limiter
+	cookies   SessionCookieConfig
+	jwtSecret string
+	blacklist *jwt.Blacklist
+	postHooks []auth.UserCreatedHook
 }
 
 // NewHandler はHandlerの新しいインスタンスを生成します。
 // 依存性注入用のコンストラクタで、外部からUsecaseとレートリミッターを注入します。
-// secureCookie が true の場合、Secure属性付きのCookieを設定します（本番環境用）。
+// cookies.Secure が true の場合、Secure属性付きのCookieを設定します（本番環境用）。
+// cookies.Domain が空でない場合、指定した親ドメインへセッションCookieを共有します。
 // jwtSecret と blacklist はログアウト時のトークン即時失効（Logout）に使用します。
 // postHooks にはサインアップ後に実行するフックを任意で渡せます。
-func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, secureCookie bool, jwtSecret string, blacklist *jwt.Blacklist, postHooks ...auth.UserCreatedHook) *Handler {
-	return &Handler{uc: uc, limiter: limiter, secureCookie: secureCookie, jwtSecret: jwtSecret, blacklist: blacklist, postHooks: postHooks}
+func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, cookies SessionCookieConfig, jwtSecret string, blacklist *jwt.Blacklist, postHooks ...auth.UserCreatedHook) *Handler {
+	return &Handler{uc: uc, limiter: limiter, cookies: cookies, jwtSecret: jwtSecret, blacklist: blacklist, postHooks: postHooks}
 }
 
 // Signup はユーザー登録APIエンドポイントを処理します。
@@ -160,7 +168,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookiesWithCSRF(w, pair, csrfToken, h.secureCookie)
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.cookies)
 
 	slog.Info("user login successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
@@ -192,7 +200,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, auth.ErrRefreshTokenInvalid) ||
 			errors.Is(err, auth.ErrRefreshTokenExpired) ||
 			errors.Is(err, auth.ErrRefreshTokenReused) {
-			clearSessionCookies(w, h.secureCookie)
+			clearSessionCookies(w, h.cookies)
 			httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid refresh token"})
 			return
 		}
@@ -205,7 +213,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
-	setSessionCookiesWithCSRF(w, pair, csrfToken, h.secureCookie)
+	setSessionCookiesWithCSRF(w, pair, csrfToken, h.cookies)
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
@@ -224,7 +232,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	refreshErr := h.uc.Logout(r.Context(), refreshToken)
-	clearSessionCookies(w, h.secureCookie)
+	clearSessionCookies(w, h.cookies)
 	if refreshErr != nil {
 		slog.Error("failed to revoke refresh session on logout", "error", refreshErr)
 		if errors.Is(refreshErr, auth.ErrSessionUnavailable) {
@@ -238,22 +246,34 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
-func setSessionCookiesWithCSRF(w http.ResponseWriter, pair auth.TokenPair, csrfToken string, secure bool) {
-	setAuthCookie(w, authTokenCookieName, pair.AccessToken, authCookieMaxAge, secure, true)
-	setAuthCookie(w, refreshTokenCookieName, pair.RefreshToken, refreshCookieMaxAge, secure, true)
-	setAuthCookie(w, csrf.CookieName, csrfToken, refreshCookieMaxAge, secure, false)
+func setSessionCookiesWithCSRF(w http.ResponseWriter, pair auth.TokenPair, csrfToken string, cookies SessionCookieConfig) {
+	// host-only Cookieから親ドメインCookieへ移行した利用者に同名Cookieを残さない。
+	if cookies.Domain != "" {
+		clearSessionCookiesForConfig(w, SessionCookieConfig{Secure: cookies.Secure})
+	}
+	setAuthCookie(w, authTokenCookieName, pair.AccessToken, authCookieMaxAge, cookies, true)
+	setAuthCookie(w, refreshTokenCookieName, pair.RefreshToken, refreshCookieMaxAge, cookies, true)
+	setAuthCookie(w, csrf.CookieName, csrfToken, refreshCookieMaxAge, cookies, false)
 }
 
-func clearSessionCookies(w http.ResponseWriter, secure bool) {
-	setAuthCookie(w, authTokenCookieName, "", -1, secure, true)
-	setAuthCookie(w, refreshTokenCookieName, "", -1, secure, true)
-	setAuthCookie(w, csrf.CookieName, "", -1, secure, false)
+func clearSessionCookies(w http.ResponseWriter, cookies SessionCookieConfig) {
+	clearSessionCookiesForConfig(w, cookies)
+	if cookies.Domain != "" {
+		clearSessionCookiesForConfig(w, SessionCookieConfig{Secure: cookies.Secure})
+	}
+}
+
+func clearSessionCookiesForConfig(w http.ResponseWriter, cookies SessionCookieConfig) {
+	setAuthCookie(w, authTokenCookieName, "", -1, cookies, true)
+	setAuthCookie(w, refreshTokenCookieName, "", -1, cookies, true)
+	setAuthCookie(w, csrf.CookieName, "", -1, cookies, false)
 }
 
 // setAuthCookie は SameSite=Lax の認証関連 Cookie をレスポンスへ設定します。
 // 認証関連Cookieの設定・削除に共通利用します。
+// cookies.Domain が空の場合はDomain属性を省略してhost-onlyにします。
 // maxAge は秒数（削除時は -1）です。
-func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure, httpOnly bool) {
+func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, cookies SessionCookieConfig, httpOnly bool) {
 	expires := time.Unix(1, 0).UTC()
 	if maxAge > 0 {
 		expires = time.Now().Add(time.Duration(maxAge) * time.Second).UTC()
@@ -262,9 +282,10 @@ func setAuthCookie(w http.ResponseWriter, name, value string, maxAge int, secure
 		Name:     name,
 		Value:    value,
 		Path:     "/",
+		Domain:   cookies.Domain,
 		MaxAge:   maxAge,
 		Expires:  expires,
-		Secure:   secure,
+		Secure:   cookies.Secure,
 		HttpOnly: httpOnly,
 		SameSite: http.SameSiteLaxMode,
 	})

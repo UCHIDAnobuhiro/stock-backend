@@ -113,7 +113,7 @@ func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limite
 	noopValidator := func(next http.Handler) http.Handler { return next }
 
 	h := router.Handlers{
-		Auth:      authhttp.NewHandler(stubAuthUsecase{}, limiter, false, testJWTSecret, nil),
+		Auth:      authhttp.NewHandler(stubAuthUsecase{}, limiter, authhttp.SessionCookieConfig{}, testJWTSecret, nil),
 		OAuth:     oauth,
 		Candles:   candleshttp.NewHandler(stubCandlesUsecase{}),
 		Symbol:    symbollisthttp.NewHandler(stubSymbolUsecase{}),

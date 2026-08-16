@@ -372,6 +372,7 @@ sequenceDiagram
   - `auth_token`: JWTトークン（`HttpOnly; SameSite=Lax; Max-Age=600`）— JavaScriptから読み取り不可
   - `refresh_token`: 不透明トークン（`HttpOnly; SameSite=Lax; Max-Age=2592000`）— DBにはSHA-256ハッシュのみ保存
   - `csrf_token`: CSRFトークン（`SameSite=Lax; Max-Age=2592000`）— JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット
+  - `COOKIE_DOMAIN` 設定時は3つとも同じ `Domain` 属性を持ち、未設定時はhost-onlyになる
 
   **JWTクレーム（auth_token内）:**
   - `sub`: ユーザーID（int64を文字列として格納）
@@ -874,6 +875,7 @@ go test ./internal/feature/auth/... -v -race -cover
 |--------|------|------|
 | `JWT_SECRET` | JWTトークン署名用の秘密鍵 | ✅ |
 | `PASSWORD_PEPPER` | パスワードハッシュ用ペッパー（HMAC-SHA256のキー） | ✅ |
+| `COOKIE_DOMAIN` | メール認証のセッションCookieを共有する親ドメイン。空ならhost-only | 任意 |
 | `OAUTH_FRONTEND_REDIRECT_URL` | OAuth 認証完了後のリダイレクト先 URL | OAuth有効時 |
 | `GOOGLE_CLIENT_ID` | Google OAuth クライアント ID | Google有効時 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth クライアントシークレット | Google有効時 |
@@ -888,6 +890,7 @@ go test ./internal/feature/auth/... -v -race -cover
 ```
 JWT_SECRET=your-super-secret-key-change-this-in-production
 PASSWORD_PEPPER=your-password-pepper-change-this-in-production
+COOKIE_DOMAIN=example.com
 OAUTH_FRONTEND_REDIRECT_URL=https://app.example.com
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
@@ -903,6 +906,7 @@ GOOGLE_REDIRECT_URL=https://api.example.com/v1/auth/oauth/google/callback
    - `refresh_token`（httpOnly）: DBにはSHA-256ハッシュだけを保存し、使用ごとに交換
    - `csrf_token`（非httpOnly）: JavaScriptが読み取り `X-CSRF-Token` ヘッダーにセット → CSRF攻撃を防止
    - `SameSite=Lax` 設定でクロスサイトリクエストを制限
+   - `COOKIE_DOMAIN` を指定すると対象Cookieが全サブドメインへ送信されるため、信頼できないサブドメインを作成しない
 4. **トークンの有効期限**: JWTは10分、リフレッシュトークンは30日で失効。ログアウト時はJWTの`jti`をRedisブラックリストへ登録し、リフレッシュセッション系列をPostgreSQLで失効させる
    - 消費後30秒以内の再提示は並行更新として409を返し、Cookieとセッション系列を維持
    - 30秒を超えた再利用ではトークン系列全体を失効

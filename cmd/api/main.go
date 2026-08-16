@@ -139,7 +139,10 @@ func run() int {
 	}
 
 	// ハンドラー
-	authH := authhttp.NewHandler(authUC, rateLimiter, cfg.Server.SecureCookie, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
+	authH := authhttp.NewHandler(authUC, rateLimiter, authhttp.SessionCookieConfig{
+		Secure: cfg.Server.SecureCookie,
+		Domain: cfg.Server.CookieDomain,
+	}, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
 	symbolH := symbollisthttp.NewHandler(symbolUC)
 	candlesH := candleshttp.NewHandler(candlesUC)
 	logoH := logodetectionhttp.NewHandler(logoUC)
