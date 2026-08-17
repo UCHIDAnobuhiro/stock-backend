@@ -158,13 +158,27 @@ func TestLogoDetectionHandler_AnalyzeCompany(t *testing.T) {
 			requestBody: `{"company_name":"任天堂"}`,
 			mockFunc: func(ctx context.Context, companyName string) (*logodetection.CompanyAnalysis, error) {
 				assert.Equal(t, "任天堂", companyName)
+				ticker := "7974"
 				return &logodetection.CompanyAnalysis{
 					CompanyName: "任天堂",
+					Ticker:      &ticker,
 					Summary:     "任天堂の強みは...",
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `{"company_name":"任天堂","summary":"任天堂の強みは..."}`,
+			expectedBody:   `{"company_name":"任天堂","ticker":"7974","summary":"任天堂の強みは..."}`,
+		},
+		{
+			name:        "success: ticker is null when unknown",
+			requestBody: `{"company_name":"非上場企業"}`,
+			mockFunc: func(ctx context.Context, companyName string) (*logodetection.CompanyAnalysis, error) {
+				return &logodetection.CompanyAnalysis{
+					CompanyName: "非上場企業",
+					Summary:     "企業分析...",
+				}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"company_name":"非上場企業","ticker":null,"summary":"企業分析..."}`,
 		},
 		// 注: company_name の必須・空文字チェックは OpenAPI バリデーションミドルウェアの
 		// 責務に移行したため、その検証は middleware_test.go で実施する。

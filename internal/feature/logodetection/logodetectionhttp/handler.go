@@ -134,6 +134,7 @@ func (h *Handler) AnalyzeCompany(w http.ResponseWriter, r *http.Request) {
 
 	httpx.WriteJSON(w, http.StatusOK, api.CompanyAnalysisResponse{
 		CompanyName: analysis.CompanyName,
+		Ticker:      analysis.Ticker,
 		Summary:     analysis.Summary,
 	})
 }

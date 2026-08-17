@@ -29,16 +29,16 @@ func (m *mockLogoDetector) DetectLogos(ctx context.Context, imageData []byte) ([
 
 // mockCompanyAnalyzer はCompanyAnalyzerインターフェースのモック実装です。
 type mockCompanyAnalyzer struct {
-	AnalyzeFunc  func(ctx context.Context, prompt string) (string, error)
+	AnalyzeFunc  func(ctx context.Context, prompt string) (*logodetection.CompanyAnalysis, error)
 	AnalyzeCalls int
 }
 
-func (m *mockCompanyAnalyzer) Analyze(ctx context.Context, prompt string) (string, error) {
+func (m *mockCompanyAnalyzer) Analyze(ctx context.Context, prompt string) (*logodetection.CompanyAnalysis, error) {
 	m.AnalyzeCalls++
 	if m.AnalyzeFunc != nil {
 		return m.AnalyzeFunc(ctx, prompt)
 	}
-	return "", errors.New("AnalyzeFunc is not implemented")
+	return nil, errors.New("AnalyzeFunc is not implemented")
 }
 
 func TestLogoDetectionUsecase_DetectLogos(t *testing.T) {
@@ -124,20 +124,32 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name            string
-		companyName     string
-		mockFunc        func(ctx context.Context, prompt string) (string, error)
-		expectedSummary string
-		expectedErr     string
-		expectedIs      error
+		name             string
+		companyName      string
+		mockFunc         func(ctx context.Context, prompt string) (*logodetection.CompanyAnalysis, error)
+		expectedAnalysis *logodetection.CompanyAnalysis
+		expectedErr      string
+		expectedIs       error
 	}{
 		{
 			name:        "success: analysis generated",
 			companyName: "任天堂",
-			mockFunc: func(ctx context.Context, prompt string) (string, error) {
-				return "任天堂の強みは...", nil
+			mockFunc: func(ctx context.Context, prompt string) (*logodetection.CompanyAnalysis, error) {
+				ticker := "7974"
+				return &logodetection.CompanyAnalysis{
+					CompanyName: "任天堂株式会社",
+					Ticker:      &ticker,
+					Summary:     "任天堂の強みは...",
+				}, nil
 			},
-			expectedSummary: "任天堂の強みは...",
+			expectedAnalysis: func() *logodetection.CompanyAnalysis {
+				ticker := "7974"
+				return &logodetection.CompanyAnalysis{
+					CompanyName: "任天堂株式会社",
+					Ticker:      &ticker,
+					Summary:     "任天堂の強みは...",
+				}
+			}(),
 		},
 		{
 			name:        "error: empty company name",
@@ -157,8 +169,8 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 		{
 			name:        "error: api returns error",
 			companyName: "任天堂",
-			mockFunc: func(ctx context.Context, prompt string) (string, error) {
-				return "", ErrAPI
+			mockFunc: func(ctx context.Context, prompt string) (*logodetection.CompanyAnalysis, error) {
+				return nil, ErrAPI
 			},
 			expectedErr: ErrAPI.Error(),
 		},
@@ -192,11 +204,8 @@ func TestLogoDetectionUsecase_AnalyzeCompany(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if result.CompanyName != tc.companyName {
-				t.Errorf("company name mismatch: got %q, want %q", result.CompanyName, tc.companyName)
-			}
-			if result.Summary != tc.expectedSummary {
-				t.Errorf("summary mismatch: got %q, want %q", result.Summary, tc.expectedSummary)
+			if !reflect.DeepEqual(result, tc.expectedAnalysis) {
+				t.Errorf("analysis mismatch: got %#v, want %#v", result, tc.expectedAnalysis)
 			}
 		})
 	}

@@ -982,11 +982,17 @@ components:
       type: object
       required:
         - company_name
+        - ticker
         - summary
       properties:
         company_name:
           type: string
-          description: 分析対象の企業名
+          description: 分析対象となる企業の正式名称
+        ticker:
+          type: string
+          nullable: true
+          pattern: "^[A-Z0-9._-]{1,20}$"
+          description: ティッカーシンボル。不明または非上場の場合はnull
         summary:
           type: string
           description: AI生成の企業分析サマリー
