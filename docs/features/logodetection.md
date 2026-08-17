@@ -75,7 +75,7 @@ sequenceDiagram
     Usecase->>Usecase: バリデーション（空チェック、長さ、文字パターン）
     Usecase->>Usecase: プロンプト組み立て<br/>fmt.Sprintf(AnalysisPromptTemplate, companyName)
     Usecase->>Gemini: Analyze(ctx, prompt)
-    Gemini->>API: GenerateContent<br/>(gemini-2.5-flash, prompt)
+    Gemini->>API: GenerateContent<br/>(gemini-3.5-flash-lite, prompt)
     API-->>Gemini: GenerateContentResponse
     Gemini-->>Usecase: summary string
     Usecase-->>Handler: *CompanyAnalysis
@@ -320,7 +320,7 @@ graph TB
 #### アダプター層 - Gemini（[gemini/client.go](../../internal/feature/logodetection/gemini/client.go)）
 - **GeminiAnalyzer**: `CompanyAnalyzer`インターフェースを実装
 - Google GenAIクライアント（`google.golang.org/genai`）を使用
-- デフォルトモデル: `gemini-2.5-flash`
+- デフォルトモデル: `gemini-3.5-flash-lite`
 - JSONレスポンススキーマで正式企業名・ティッカー・Markdownサマリーを構造化して取得
 - ティッカーを大文字へ正規化し、対応形式を検証
 - Vertex AI経由の利用をサポート（環境変数で設定）

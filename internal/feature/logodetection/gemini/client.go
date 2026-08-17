@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultModel はGemini APIのデフォルトモデルです。
-	DefaultModel = "gemini-2.5-flash"
+	DefaultModel = "gemini-3.5-flash-lite"
 )
 
 var tickerPattern = regexp.MustCompile(`^[A-Z0-9._-]{1,20}$`)
