@@ -127,11 +127,14 @@ type CompanyAnalysisRequest struct {
 
 // CompanyAnalysisResponse defines model for CompanyAnalysisResponse.
 type CompanyAnalysisResponse struct {
-	// CompanyName 分析対象の企業名
+	// CompanyName 分析対象となる企業の正式名称
 	CompanyName string `json:"company_name"`
 
 	// Summary AI生成の企業分析サマリー
 	Summary string `json:"summary"`
+
+	// Ticker ティッカーシンボル。不明または非上場の場合はnull
+	Ticker *string `json:"ticker"`
 }
 
 // DetectedLogoResponse defines model for DetectedLogoResponse.

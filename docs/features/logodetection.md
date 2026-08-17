@@ -210,7 +210,8 @@ Content-Type: application/json
 - **200 OK** - 成功
   ```json
   {
-    "company_name": "任天堂",
+    "company_name": "任天堂株式会社",
+    "ticker": "7974",
     "summary": "# 任天堂 (7974)\n\n## 基本情報\n..."
   }
   ```
@@ -307,7 +308,7 @@ graph TB
 
 #### ドメイン層
 - **DetectedLogo**（[logo.go](../../internal/feature/logodetection/logo.go)）: `Name`（検出された企業名）、`Confidence`（信頼度スコア 0.0〜1.0）
-- **CompanyAnalysis**（[analysis.go](../../internal/feature/logodetection/analysis.go)）: `CompanyName`（分析対象の企業名）、`Summary`（AI生成の分析サマリー）
+- **CompanyAnalysis**（[analysis.go](../../internal/feature/logodetection/analysis.go)）: `CompanyName`（正式企業名）、`Ticker`（ティッカー。不明・非上場の場合はnil）、`Summary`（AI生成の分析サマリー）
 
 #### アダプター層 - Vision（[vision/client.go](../../internal/feature/logodetection/vision/client.go)）
 - **VisionLogoDetector**: `LogoDetector`インターフェースを実装
@@ -320,6 +321,8 @@ graph TB
 - **GeminiAnalyzer**: `CompanyAnalyzer`インターフェースを実装
 - Google GenAIクライアント（`google.golang.org/genai`）を使用
 - デフォルトモデル: `gemini-2.5-flash`
+- JSONレスポンススキーマで正式企業名・ティッカー・Markdownサマリーを構造化して取得
+- ティッカーを大文字へ正規化し、対応形式を検証
 - Vertex AI経由の利用をサポート（環境変数で設定）
 - コンパイル時インターフェース検証: `var _ logodetection.CompanyAnalyzer = (*GeminiAnalyzer)(nil)`
 
