@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genai"
+
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/logodetection"
 )
 
 // newTestGeminiAnalyzer は httptest サーバーに向いた GeminiAnalyzer を生成するヘルパーです。
@@ -33,60 +36,63 @@ func newTestGeminiAnalyzer(t *testing.T, handler http.HandlerFunc) *GeminiAnalyz
 	return &GeminiAnalyzer{client: client, model: DefaultModel}
 }
 
-// TestGeminiAnalyzer_Analyze は Analyze の正常系・異常系を検証します。
-//
-// resp == nil を扱うガード節は genai SDK 経由では到達不能（sendRequest がエラー時は必ず
-// err を返すため、resp が nil かつ err が nil のケースは発生しない）ためテスト対象外です。
-// また ADC（Application Default Credentials）を利用する NewGeminiAnalyzer は
-// 実クレデンシャルなしに検証できないため、意図的にテスト対象外としています。
 func TestGeminiAnalyzer_Analyze(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name        string
-		handler     http.HandlerFunc
-		wantText    string
+		status      int
+		response    string
+		want        *logodetection.CompanyAnalysis
 		wantErr     bool
 		wantErrText string
 	}{
 		{
-			name: "success: single candidate text",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				assert.Contains(t, r.URL.Path, "generateContent")
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"分析結果"}]}}]}`))
-			},
-			wantText: "分析結果",
+			name:     "success: structured analysis with normalized ticker",
+			status:   http.StatusOK,
+			response: `{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"company_name\":\" Alphabet Inc. \",\"ticker\":\" googl \",\"summary\":\" 分析結果 \"}"}]}}]}`,
+			want: func() *logodetection.CompanyAnalysis {
+				ticker := "GOOGL"
+				return &logodetection.CompanyAnalysis{CompanyName: "Alphabet Inc.", Ticker: &ticker, Summary: "分析結果"}
+			}(),
 		},
 		{
-			name: "success: multiple text parts are concatenated",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				assert.Contains(t, r.URL.Path, "generateContent")
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"分析"},{"text":"結果"}]}}]}`))
-			},
-			wantText: "分析結果",
+			name:     "success: nullable ticker",
+			status:   http.StatusOK,
+			response: `{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"company_name\":\"非上場企業\",\"ticker\":null,\"summary\":\"分析結果\"}"}]}}]}`,
+			want:     &logodetection.CompanyAnalysis{CompanyName: "非上場企業", Summary: "分析結果"},
 		},
 		{
-			name: "error: server returns 500",
-			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(`{"error":{"code":500,"message":"internal error","status":"INTERNAL"}}`))
-			},
+			name:        "error: invalid JSON",
+			status:      http.StatusOK,
+			response:    `{"candidates":[{"content":{"role":"model","parts":[{"text":"not-json"}]}}]}`,
+			wantErr:     true,
+			wantErrText: "invalid JSON",
+		},
+		{
+			name:        "error: invalid ticker",
+			status:      http.StatusOK,
+			response:    `{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"company_name\":\"Alphabet Inc.\",\"ticker\":\"NASDAQ:GOOGL\",\"summary\":\"分析結果\"}"}]}}]}`,
+			wantErr:     true,
+			wantErrText: "invalid ticker",
+		},
+		{
+			name:        "error: server returns 500",
+			status:      http.StatusInternalServerError,
+			response:    `{"error":{"code":500,"message":"internal error","status":"INTERNAL"}}`,
 			wantErr:     true,
 			wantErrText: "gemini API request failed",
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				assertStructuredRequest(t, r)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.response))
+			}
 
-			g := newTestGeminiAnalyzer(t, tt.handler)
+			g := newTestGeminiAnalyzer(t, handler)
 
 			got, err := g.Analyze(context.Background(), "テストプロンプト")
 
@@ -96,7 +102,29 @@ func TestGeminiAnalyzer_Analyze(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantText, got)
+			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func assertStructuredRequest(t *testing.T, r *http.Request) {
+	t.Helper()
+	assert.Contains(t, r.URL.Path, "generateContent")
+
+	var body struct {
+		GenerationConfig struct {
+			ResponseMIMEType string `json:"responseMimeType"`
+			ResponseSchema   struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Nullable *bool `json:"nullable"`
+				} `json:"properties"`
+			} `json:"responseSchema"`
+		} `json:"generationConfig"`
+	}
+	require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+	assert.Equal(t, "application/json", body.GenerationConfig.ResponseMIMEType)
+	assert.ElementsMatch(t, []string{"company_name", "ticker", "summary"}, body.GenerationConfig.ResponseSchema.Required)
+	require.NotNil(t, body.GenerationConfig.ResponseSchema.Properties["ticker"].Nullable)
+	assert.True(t, *body.GenerationConfig.ResponseSchema.Properties["ticker"].Nullable)
 }

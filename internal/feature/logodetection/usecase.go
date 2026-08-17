@@ -37,8 +37,8 @@ type LogoDetector interface {
 // CompanyAnalyzer は企業分析を生成するリポジトリインターフェースです。
 // Goの慣例に従い、インターフェースは利用者（usecase）側で定義します。
 type CompanyAnalyzer interface {
-	// Analyze はプロンプトから分析サマリーを生成します。
-	Analyze(ctx context.Context, prompt string) (string, error)
+	// Analyze はプロンプトから構造化された企業分析を生成します。
+	Analyze(ctx context.Context, prompt string) (*CompanyAnalysis, error)
 }
 
 // usecase はロゴ検出・企業分析のビジネスロジックを提供します。
@@ -75,12 +75,9 @@ func (u *usecase) AnalyzeCompany(ctx context.Context, companyName string) (*Comp
 		return nil, ErrInvalidCompanyName
 	}
 	prompt := fmt.Sprintf(AnalysisPromptTemplate, companyName)
-	summary, err := u.companyAnalyzer.Analyze(ctx, prompt)
+	analysis, err := u.companyAnalyzer.Analyze(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("company analyzer failed for %q: %w", companyName, err)
 	}
-	return &CompanyAnalysis{
-		CompanyName: companyName,
-		Summary:     summary,
-	}, nil
+	return analysis, nil
 }
