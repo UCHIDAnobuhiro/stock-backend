@@ -362,7 +362,7 @@ HOST_GOOGLE_ADC_PATH=$HOME/.config/gcloud/application_default_credentials.json
 ```env
 GOOGLE_GENAI_USE_VERTEXAI=true
 GOOGLE_CLOUD_PROJECT=<GCPプロジェクトID>
-GOOGLE_CLOUD_LOCATION=asia-northeast1
+GOOGLE_CLOUD_LOCATION=global
 ```
 
 ### APIサーバーの起動
