@@ -65,6 +65,22 @@ func TestLogoDetectionUsecase_DetectLogos(t *testing.T) {
 			expectedLogos: expectedLogos,
 		},
 		{
+			name:      "success: duplicate logos keep highest confidence",
+			imageData: []byte("fake-image-data"),
+			mockFunc: func(ctx context.Context, imageData []byte) ([]logodetection.DetectedLogo, error) {
+				return []logodetection.DetectedLogo{
+					{Name: "Apple", Confidence: 0.72},
+					{Name: "Google", Confidence: 0.87},
+					{Name: "Apple", Confidence: 0.95},
+					{Name: "Google", Confidence: 0.80},
+				}, nil
+			},
+			expectedLogos: []logodetection.DetectedLogo{
+				{Name: "Apple", Confidence: 0.95},
+				{Name: "Google", Confidence: 0.87},
+			},
+		},
+		{
 			name:       "error: empty image data",
 			imageData:  []byte{},
 			expectedIs: logodetection.ErrEmptyImage,

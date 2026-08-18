@@ -60,7 +60,32 @@ func (u *usecase) DetectLogos(ctx context.Context, imageData []byte) ([]Detected
 	if len(imageData) > MaxImageSize {
 		return nil, ErrImageTooLarge
 	}
-	return u.logoDetector.DetectLogos(ctx, imageData)
+	logos, err := u.logoDetector.DetectLogos(ctx, imageData)
+	if err != nil {
+		return nil, err
+	}
+	return deduplicateLogos(logos), nil
+}
+
+// deduplicateLogos は同名のロゴを1件にまとめ、最も高い信頼度を採用します。
+// 返却順は各ロゴ名が最初に現れた順を維持します。
+func deduplicateLogos(logos []DetectedLogo) []DetectedLogo {
+	unique := make([]DetectedLogo, 0, len(logos))
+	indexes := make(map[string]int, len(logos))
+
+	for _, logo := range logos {
+		index, exists := indexes[logo.Name]
+		if !exists {
+			indexes[logo.Name] = len(unique)
+			unique = append(unique, logo)
+			continue
+		}
+		if logo.Confidence > unique[index].Confidence {
+			unique[index] = logo
+		}
+	}
+
+	return unique
 }
 
 // AnalyzeCompany は企業名から分析サマリーを生成します。
