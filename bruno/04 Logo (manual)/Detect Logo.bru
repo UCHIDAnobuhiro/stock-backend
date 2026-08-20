@@ -1,0 +1,18 @@
+meta {
+  name: Detect Logo
+  type: http
+  seq: 1
+  tags: [
+    manual
+  ]
+}
+
+post {
+  url: {{baseUrl}}/v1/logo/detect
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  image:
+}

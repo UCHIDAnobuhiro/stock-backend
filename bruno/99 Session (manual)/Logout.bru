@@ -1,0 +1,14 @@
+meta {
+  name: Logout
+  type: http
+  seq: 1
+  tags: [
+    manual
+  ]
+}
+
+delete {
+  url: {{baseUrl}}/v1/logout
+  body: none
+  auth: inherit
+}

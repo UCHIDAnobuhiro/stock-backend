@@ -1,0 +1,31 @@
+auth {
+  mode: none
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:8080
+  email: bruno@example.com
+  password: bruno-password-123
+  symbolCode: NVDA
+  quoteCodes: AAPL,MSFT
+  interval: 1day
+  outputSize: 200
+  bars: 30
+  companyName: Apple Inc.
+  oauthProvider: google
+  oauthCode: replace-me
+  oauthState: replace-me
+}
+
+script:pre-request {
+  const unsafeMethods = ["POST", "PUT", "PATCH", "DELETE"];
+
+  if (unsafeMethods.includes(req.getMethod())) {
+    const cookieJar = bru.cookies.jar();
+    const csrfCookie = await cookieJar.getCookie(req.getUrl(), "csrf_token");
+
+    if (csrfCookie && csrfCookie.value) {
+      req.setHeader("X-CSRF-Token", csrfCookie.value);
+    }
+  }
+}

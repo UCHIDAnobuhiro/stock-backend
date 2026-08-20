@@ -1,0 +1,15 @@
+meta {
+  name: Remove Symbol
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/v1/watchlist/:code
+  body: none
+  auth: inherit
+}
+
+params:path {
+  code: {{symbolCode}}
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Add Symbol
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/watchlist
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "symbol_code": "{{symbolCode}}"
+  }
+}

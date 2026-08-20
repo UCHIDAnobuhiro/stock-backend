@@ -265,6 +265,10 @@ go generate ./internal/api/...
 - `/v1/auth/refresh` は `refresh_token` CookieとCSRFトークンを検証し、トークン一式をローテーションします。
 - `/v1/auth/oauth/*` は OAuth 環境変数（`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID` 等）が設定されている場合のみ登録されます。詳細は [auth フィーチャーのドキュメント](docs/features/auth.md) を参照してください。
 
+### Bruno から実行する
+
+ローカル API を手軽に確認できる Bruno コレクションを [`bruno/`](bruno/README.md) に用意しています。Bruno で `bruno/` を Open Collection し、Signup → Login の順に実行すると、Cookie 認証と CSRF ヘッダーが以降のリクエストへ自動で引き継がれます。
+
 ## クラウドアーキテクチャ（Google Cloud）
 
 - **Cloud Run**: Dockerイメージをデプロイ

@@ -1,0 +1,30 @@
+meta {
+  name: OAuth Callback
+  type: http
+  seq: 2
+  tags: [
+    manual
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/auth/oauth/:provider/callback
+  body: none
+  auth: inherit
+}
+
+params:path {
+  provider: {{oauthProvider}}
+}
+
+params:query {
+  code: {{oauthCode}}
+  state: {{oauthState}}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  followRedirects: false
+  maxRedirects: 5
+}
