@@ -80,6 +80,7 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
+          install-mode: goinstall
           args: --timeout=5m
 
   # アーキテクチャ依存ルール検証（go-arch-lint、デフォルト拒否）
