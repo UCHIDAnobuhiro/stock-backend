@@ -1,0 +1,25 @@
+meta {
+  name: Begin OAuth
+  type: http
+  seq: 1
+  tags: [
+    manual
+  ]
+}
+
+get {
+  url: {{baseUrl}}/v1/auth/oauth/:provider
+  body: none
+  auth: inherit
+}
+
+params:path {
+  provider: {{oauthProvider}}
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  followRedirects: false
+  maxRedirects: 5
+}

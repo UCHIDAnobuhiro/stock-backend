@@ -1,0 +1,20 @@
+meta {
+  name: Get Candles
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/candles/:code
+  body: none
+  auth: inherit
+}
+
+params:path {
+  code: {{symbolCode}}
+}
+
+params:query {
+  interval: {{interval}}
+  outputsize: {{outputSize}}
+}

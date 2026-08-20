@@ -1,0 +1,17 @@
+meta {
+  name: Get Quotes
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/quotes
+  body: none
+  auth: inherit
+}
+
+params:query {
+  codes: {{quoteCodes}}
+  interval: {{interval}}
+  bars: {{bars}}
+}

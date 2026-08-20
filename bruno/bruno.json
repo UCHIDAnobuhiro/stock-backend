@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Stock Backend API",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}
