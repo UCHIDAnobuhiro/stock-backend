@@ -2,7 +2,8 @@ package db
 
 import (
 	"bytes"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -200,7 +201,9 @@ func TestPassword_Masking(t *testing.T) {
 			t.Errorf("MarshalJSON = %s, want %q", b, `"***"`)
 		}
 		cfg := Config{User: "u", Password: p, Name: "d"}
-		cb, err := json.Marshal(cfg)
+		// encoding/json/v2 は time.Duration の既定表現を持たないため、
+		// Config 全体のマスク確認では従来のナノ秒表現を明示する。
+		cb, err := json.Marshal(cfg, jsonv1.FormatDurationAsNano(true))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
