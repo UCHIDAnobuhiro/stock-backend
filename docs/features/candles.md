@@ -223,26 +223,40 @@ Cookie: auth_token=eyJhbGc...
 
 **レスポンス**
 
-- **200 OK** - 成功（配列の順序は保証しない）
+- **200 OK** - 銘柄ごとの成功・失敗結果
   ```json
-  [
-    {
-      "code": "AAPL",
-      "time": "2024-01-15",
-      "close": 213.88,
-      "prev_close": 210.02,
-      "change": 3.86,
-      "change_percent": 1.84,
-      "closes": [200.1, 201.5, 213.88]
-    }
-  ]
+  {
+    "quotes": [
+      {
+        "code": "AAPL",
+        "time": "2024-01-15",
+        "close": 213.88,
+        "prev_close": 210.02,
+        "change": 3.86,
+        "change_percent": 1.84,
+        "closes": [200.1, 201.5, 213.88]
+      }
+    ],
+    "failures": [
+      {
+        "code": "GOOGL",
+        "reason": "fetch_failed"
+      },
+      {
+        "code": "7203.T",
+        "reason": "insufficient_data"
+      }
+    ]
+  }
   ```
   注: `change = close - prev_close`、`change_percent = change / prev_close * 100`（`prev_close`が0の場合は`0`）。丸めは行わない。
-  ローソク足が2本未満の銘柄（前日比を計算できない）はエラーにせず結果から除外する。
+  成功した銘柄は`quotes`、取得エラーの銘柄は`fetch_failed`、ローソク足が2本未満の銘柄は
+  `insufficient_data`として`failures`に格納する。通常の銘柄単位エラーでは他銘柄の取得を継続し、
+  各配列は入力順を維持する。内部エラーの詳細はレスポンスに公開しない。
 
 - **400 Bad Request** - `codes`未指定/空/51件以上/パターン不一致、未対応の`interval`、`bars`が整数以外/範囲外
 - **401 Unauthorized** - 認証トークンが未指定または無効
-- **500 Internal Server Error** - 1銘柄でも`Repository.Find`がエラーを返した場合（部分成功にはしない）
+- **500 Internal Server Error** - リクエストキャンセル等によりバッチ処理全体を継続できない場合
 
 ## 依存関係図
 

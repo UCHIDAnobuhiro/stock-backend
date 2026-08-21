@@ -415,13 +415,11 @@ paths:
             maximum: 500
       responses:
         "200":
-          description: 銘柄ごとの最新終値・前日比一覧（ローソク足2本未満の銘柄は除外。順序は保証しない）
+          description: 銘柄ごとの最新終値・前日比と、取得できなかった銘柄の一覧
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/QuoteResponse"
+                $ref: "#/components/schemas/QuoteBatchResponse"
         "400":
           description: バリデーションエラー（codes未指定/空/51件以上/パターン不一致、未対応のinterval、barsに整数以外/範囲外等）
           content:
@@ -891,6 +889,39 @@ components:
           type: integer
           format: int64
           description: 出来高
+
+    QuoteBatchResponse:
+      type: object
+      required:
+        - quotes
+        - failures
+      properties:
+        quotes:
+          type: array
+          description: 取得に成功した銘柄の株価サマリー（入力順）
+          items:
+            $ref: "#/components/schemas/QuoteResponse"
+        failures:
+          type: array
+          description: 取得できなかった銘柄と理由（入力順）
+          items:
+            $ref: "#/components/schemas/QuoteFailureResponse"
+
+    QuoteFailureResponse:
+      type: object
+      required:
+        - code
+        - reason
+      properties:
+        code:
+          type: string
+          description: "取得できなかった銘柄コード（例: AAPL, 7203.T）"
+        reason:
+          type: string
+          description: "取得失敗理由。fetch_failedはデータ取得エラー、insufficient_dataは前日比計算に必要なローソク足が2本未満"
+          enum:
+            - fetch_failed
+            - insufficient_data
 
     QuoteResponse:
       type: object

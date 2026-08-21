@@ -20,14 +20,14 @@ import (
 // mockUsecase はusecaseインターフェースのモック実装です。
 type mockUsecase struct {
 	GetCandlesFunc func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error)
-	GetQuotesFunc  func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error)
+	GetQuotesFunc  func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error)
 }
 
 func (m *mockUsecase) GetCandles(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
 	return m.GetCandlesFunc(ctx, symbol, interval, outputsize)
 }
 
-func (m *mockUsecase) GetQuotes(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
+func (m *mockUsecase) GetQuotes(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
 	return m.GetQuotesFunc(ctx, codes, interval, bars)
 }
 
@@ -202,60 +202,106 @@ func TestCandlesHandler_GetQuotesHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		url            string
-		mockGetQuotes  func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error)
+		mockGetQuotes  func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error)
 		expectedStatus int
 		expectedBody   string // JSON文字列として比較
 	}{
 		{
 			name: "success: all parameters specified with closes",
 			url:  "/quotes?codes=AAPL,GOOGL&interval=1day&bars=2",
-			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
 				assert.Equal(t, []string{"AAPL", "GOOGL"}, codes)
 				assert.Equal(t, "1day", interval)
 				assert.Equal(t, 2, bars)
-				return []candles.Quote{
-					{Code: "AAPL", Time: testTime, Close: 105, PrevClose: 100, Change: 5, ChangePercent: 5, Closes: []float64{100, 105}},
-					{Code: "GOOGL", Time: testTime, Close: 210, PrevClose: 200, Change: 10, ChangePercent: 5, Closes: []float64{200, 210}},
+				return candles.QuoteBatchResult{
+					Quotes: []candles.Quote{
+						{Code: "AAPL", Time: testTime, Close: 105, PrevClose: 100, Change: 5, ChangePercent: 5, Closes: []float64{100, 105}},
+						{Code: "GOOGL", Time: testTime, Close: 210, PrevClose: 200, Change: 10, ChangePercent: 5, Closes: []float64{200, 210}},
+					},
+					Failures: []candles.QuoteFailure{},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody: `[
-				{"code":"AAPL","time":"2023-01-01","close":105,"prev_close":100,"change":5,"change_percent":5,"closes":[100,105]},
-				{"code":"GOOGL","time":"2023-01-01","close":210,"prev_close":200,"change":10,"change_percent":5,"closes":[200,210]}
-			]`,
+			expectedBody: `{
+				"quotes":[
+					{"code":"AAPL","time":"2023-01-01","close":105,"prev_close":100,"change":5,"change_percent":5,"closes":[100,105]},
+					{"code":"GOOGL","time":"2023-01-01","close":210,"prev_close":200,"change":10,"change_percent":5,"closes":[200,210]}
+				],
+				"failures":[]
+			}`,
 		},
 		{
 			name: "success: default parameter values (bars=0 omits closes)",
 			url:  "/quotes?codes=AAPL",
-			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
 				assert.Equal(t, []string{"AAPL"}, codes)
 				assert.Equal(t, "1day", interval) // デフォルト値
 				assert.Equal(t, 0, bars)          // デフォルト値
-				return []candles.Quote{
-					{Code: "AAPL", Time: testTime, Close: 105, PrevClose: 100, Change: 5, ChangePercent: 5},
+				return candles.QuoteBatchResult{
+					Quotes: []candles.Quote{
+						{Code: "AAPL", Time: testTime, Close: 105, PrevClose: 100, Change: 5, ChangePercent: 5},
+					},
+					Failures: []candles.QuoteFailure{},
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[{"code":"AAPL","time":"2023-01-01","close":105,"prev_close":100,"change":5,"change_percent":5}]`,
+			expectedBody:   `{"quotes":[{"code":"AAPL","time":"2023-01-01","close":105,"prev_close":100,"change":5,"change_percent":5}],"failures":[]}`,
 		},
 		{
-			name: "success: empty result returns empty array",
+			name: "success: empty result returns empty arrays",
 			url:  "/quotes?codes=AAPL",
-			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
-				return []candles.Quote{}, nil
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
+				return candles.QuoteBatchResult{Quotes: []candles.Quote{}, Failures: []candles.QuoteFailure{}}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			expectedBody:   `{"quotes":[],"failures":[]}`,
 		},
 		{
 			name: "success: duplicate codes are deduplicated before calling usecase",
 			url:  "/quotes?codes=AAPL,GOOGL,AAPL",
-			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
 				assert.Equal(t, []string{"AAPL", "GOOGL"}, codes)
-				return []candles.Quote{}, nil
+				return candles.QuoteBatchResult{Quotes: []candles.Quote{}, Failures: []candles.QuoteFailure{}}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			expectedBody:   `{"quotes":[],"failures":[]}`,
+		},
+		{
+			name: "partial success: successes and failures are returned together",
+			url:  "/quotes?codes=AAPL,BAD,ONE",
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
+				return candles.QuoteBatchResult{
+					Quotes: []candles.Quote{
+						{Code: "AAPL", Time: testTime, Close: 105, PrevClose: 100, Change: 5, ChangePercent: 5},
+					},
+					Failures: []candles.QuoteFailure{
+						{Code: "BAD", Reason: candles.QuoteFailureFetchFailed, Cause: errors.New("database host is secret")},
+						{Code: "ONE", Reason: candles.QuoteFailureInsufficientData},
+					},
+				}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody: `{
+				"quotes":[{"code":"AAPL","time":"2023-01-01","close":105,"prev_close":100,"change":5,"change_percent":5}],
+				"failures":[
+					{"code":"BAD","reason":"fetch_failed"},
+					{"code":"ONE","reason":"insufficient_data"}
+				]
+			}`,
+		},
+		{
+			name: "success: all symbol failures still return an itemized response",
+			url:  "/quotes?codes=BAD",
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
+				return candles.QuoteBatchResult{
+					Quotes: []candles.Quote{},
+					Failures: []candles.QuoteFailure{
+						{Code: "BAD", Reason: candles.QuoteFailureFetchFailed, Cause: errors.New("database error")},
+					},
+				}, nil
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   `{"quotes":[],"failures":[{"code":"BAD","reason":"fetch_failed"}]}`,
 		},
 		{
 			name:           "error: codes not specified returns 400",
@@ -316,8 +362,8 @@ func TestCandlesHandler_GetQuotesHandler(t *testing.T) {
 		{
 			name: "error: usecase returns error",
 			url:  "/quotes?codes=AAPL",
-			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error) {
-				return nil, errors.New("database error")
+			mockGetQuotes: func(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error) {
+				return candles.QuoteBatchResult{}, errors.New("request canceled")
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   `{"error":"internal server error"}`,
