@@ -29,6 +29,8 @@ func newValidatedRouter(t *testing.T) http.Handler {
 		r.Use(validator)
 		r.Post("/signup", ok)
 		r.Post("/login", ok)
+		r.Get("/auth/oauth/{provider}", ok)
+		r.Get("/auth/oauth/{provider}/callback", ok)
 		r.Post("/logo/analyze", ok)
 		r.Post("/logo/detect", ok)
 		r.Post("/watchlist", ok)
@@ -62,6 +64,13 @@ func TestMiddleware_RequestValidation(t *testing.T) {
 		{"login: 正常", http.MethodPost, "/v1/login", `{"email":"test@example.com","password":"x"}`, http.StatusOK},
 		{"login: password 欠落", http.MethodPost, "/v1/login", `{"email":"test@example.com"}`, http.StatusBadRequest},
 		{"login: password 空文字", http.MethodPost, "/v1/login", `{"email":"test@example.com","password":""}`, http.StatusBadRequest},
+
+		// --- OAuth ---
+		{"oauth begin: 正常", http.MethodGet, "/v1/auth/oauth/google", "", http.StatusOK},
+		{"oauth begin: provider が許可値外", http.MethodGet, "/v1/auth/oauth/twitter", "", http.StatusBadRequest},
+		{"oauth callback: 正常", http.MethodGet, "/v1/auth/oauth/github/callback?code=code&state=state", "", http.StatusOK},
+		{"oauth callback: code 欠落", http.MethodGet, "/v1/auth/oauth/github/callback?state=state", "", http.StatusBadRequest},
+		{"oauth callback: state 欠落", http.MethodGet, "/v1/auth/oauth/github/callback?code=code", "", http.StatusBadRequest},
 
 		// --- logo/analyze ---
 		{"analyze: 正常", http.MethodPost, "/v1/logo/analyze", `{"company_name":"任天堂"}`, http.StatusOK},

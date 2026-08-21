@@ -148,7 +148,7 @@ type CandlesResponse struct {
 
 // CompanyAnalysisRequest defines model for CompanyAnalysisRequest.
 type CompanyAnalysisRequest struct {
-	// CompanyName 分析対象の企業名
+	// CompanyName 分析対象の企業名（100文字以下。英数字・日本語・スペース・中黒・ハイフン・ピリオド・アンパサンド・カンマ・アポストロフィのみ）
 	CompanyName string `json:"company_name"`
 }
 
@@ -190,7 +190,7 @@ type LoginRequest struct {
 	// Email メールアドレス
 	Email string `json:"email"`
 
-	// Password パスワード
+	// Password パスワード（UTF-8で1024バイト以下）
 	Password string `json:"password"`
 }
 
@@ -255,7 +255,7 @@ type SignupRequest struct {
 	// Email メールアドレス
 	Email string `json:"email"`
 
-	// Password パスワード（12文字以上）
+	// Password パスワード（12文字以上、UTF-8で1024バイト以下）
 	Password string `json:"password"`
 }
 

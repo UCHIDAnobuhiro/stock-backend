@@ -43,7 +43,7 @@ sequenceDiagram
     end
 
     Handler->>Usecase: Signup(email, password)
-    Usecase->>Usecase: Validate password (min 12 chars)
+    Usecase->>Usecase: Validate password (12文字以上・UTF-8で1024バイト以下)
     Usecase->>Usecase: Apply pepper (HMAC-SHA256) and hash with bcrypt
     Usecase->>Repository: Create(user)
     Repository->>DB: INSERT user
@@ -180,13 +180,19 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client
+    participant Validator as OpenAPI Validator
     participant RateLimit as IP Rate Limiter
     participant Handler as OAuthHandler
     participant Usecase as OAuthUsecase
     participant StateStore as OAuthStateStore<br/>(Redis)
     participant Provider as OAuthProvider<br/>(Google/GitHub)
 
-    Client->>RateLimit: GET /v1/auth/oauth/{provider}
+    Client->>Validator: GET /v1/auth/oauth/{provider}
+    Validator->>Validator: provider を検証 (google / github)
+    alt provider が許可値外
+        Validator-->>Client: 400 Bad Request<br/>{error: "invalid request"}
+    end
+    Validator->>RateLimit: Request forwarded
     RateLimit->>RateLimit: Check IP rate limit (20 req/min)
     alt Rate limit exceeded / unavailable
         RateLimit-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=rate_limited|service_unavailable
@@ -194,9 +200,9 @@ sequenceDiagram
     RateLimit->>Handler: Request forwarded
     Handler->>Usecase: BeginAuth(provider)
 
-    alt Unknown Provider
+    alt 指定プロバイダーが環境変数で未設定
         Usecase-->>Handler: ErrUnknownProvider
-        Handler-->>Client: 400 Bad Request
+        Handler-->>Client: 400 Bad Request<br/>{error: "unsupported provider"}
     end
 
     Usecase->>Usecase: Generate state (32B random)
@@ -205,7 +211,7 @@ sequenceDiagram
     Usecase->>Provider: AuthorizationURL(state, codeChallenge)
     Provider-->>Usecase: Authorization URL
     Usecase-->>Handler: Authorization URL, state
-    Handler->>Handler: SetCookie oauth_state (HttpOnly, SameSite=Lax, Max-Age=600)
+    Handler->>Handler: SetCookie oauth_state<br/>(HttpOnly, SameSite=Lax, Max-Age=600,<br/>SecureはCOOKIE_SECUREに従う)
     Handler-->>Client: 302 Redirect → Provider認可画面
 ```
 
@@ -213,7 +219,9 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    participant Client
     participant Provider as OAuthProvider<br/>(Google/GitHub)
+    participant Validator as OpenAPI Validator
     participant RateLimit as IP Rate Limiter
     participant Handler as OAuthHandler
     participant Usecase as OAuthUsecase
@@ -224,18 +232,17 @@ sequenceDiagram
     participant Hooks as UserCreatedHook(s)
     participant JWT as JWTGenerator
 
-    Provider->>RateLimit: GET /v1/auth/oauth/{provider}/callback?code=...&state=...
+    Client->>Validator: GET /v1/auth/oauth/{provider}/callback?code=...&state=...
+    Validator->>Validator: provider / code / state を検証
+    alt provider が許可値外、または code/state クエリ欠落
+        Validator-->>Client: 400 Bad Request<br/>{error: "invalid request"}
+    end
+    Validator->>RateLimit: Request forwarded
     RateLimit->>RateLimit: Check IP rate limit (20 req/min)
     alt Rate limit exceeded / unavailable
         RateLimit-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=rate_limited|service_unavailable
     end
     RateLimit->>Handler: Request forwarded
-    Handler->>Handler: Validate code/state present
-
-    alt code/state クエリ欠落
-        Handler-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=oauth_failed
-    end
-
     alt oauth_state Cookie 欠落 / クエリ state と不一致 (ログイン CSRF 対策)
         Handler->>Handler: ClearCookie oauth_state
         Handler-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=oauth_failed
@@ -303,7 +310,7 @@ sequenceDiagram
 
 **バリデーションルール**
 - `email`: 必須、有効なメールアドレス形式
-- `password`: 必須、最低12文字
+- `password`: 必須、12文字以上・UTF-8で1024バイト以下（上限超過は汎用の登録失敗として409を返す）
 
 **レスポンス**
 
@@ -321,7 +328,7 @@ sequenceDiagram
   }
   ```
 
-- **409 Conflict** - ユーザー作成失敗（メールアドレスが既に使用されている等）
+- **409 Conflict** - ユーザー作成失敗（メールアドレスが既に使用されている、パスワードがUTF-8で1024バイトを超える等）
   ```json
   {
     "error": "signup failed"
@@ -357,7 +364,7 @@ sequenceDiagram
 
 **バリデーションルール**
 - `email`: 必須、有効なメールアドレス形式
-- `password`: 必須
+- `password`: 必須、UTF-8で1024バイト以下（上限超過は認証失敗として401を返す）
 
 **レスポンス**
 
@@ -473,12 +480,13 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
   - レートリミット拒否時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト
     - `code=rate_limited`: IPレートリミット超過（`Retry-After`ヘッダーに再試行までの秒数を付与）
     - `code=service_unavailable`: レートリミット基盤障害
-- **400 Bad Request** - 未対応のプロバイダー
+- **400 Bad Request** - `provider` が許可値外、または指定プロバイダーが未設定
   ```json
-  { "error": "unsupported provider" }
+  { "error": "invalid request" }
   ```
-- **429 Too Many Requests** - レートリミット超過（IPベース: 20回/分）
-- **503 Service Unavailable** - レートリミット基盤（Redis）が利用不可
+  `google` / `github` の許可値だが対応する環境変数が未設定の場合は、`{"error":"unsupported provider"}` を返します。
+
+レートリミット超過・Redis障害はいずれも、JSONの429/503ではなく上記の302リダイレクトで返します。
 
 ### GET /v1/auth/oauth/{provider}/callback
 
@@ -492,12 +500,12 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 - `state`: CSRF 保護用 state トークン（必須）
 
 **Cookie**
-- `oauth_state`: 認可開始時に発行した state を保持する短命 Cookie（必須）。クエリの `state` と一致しない場合はエラーリダイレクト。ログイン CSRF / セッションフィクセーション対策。
+- `oauth_state`: 認可開始時に発行した state を保持する短命host-only Cookie（必須）。`HttpOnly; SameSite=Lax; Max-Age=600` を持ち、`Secure` 属性は `COOKIE_SECURE` に従います。クエリの `state` と一致しない場合はエラーリダイレクト。ログイン CSRF / セッションフィクセーション対策。
 
 **レスポンス**
 
-コールバックはブラウザのトップレベル遷移で開かれるため、JSON エラー応答は行わず、
-成功時・エラー時ともに `302 Found` によるリダイレクトで返します。
+OpenAPI バリデーション通過後の処理はブラウザのトップレベル遷移を前提とし、
+成功時・ハンドラー到達後のエラー時ともに `302 Found` によるリダイレクトで返します。
 
 - **302 Found**
   - 成功時: `OAUTH_FRONTEND_REDIRECT_URL` へリダイレクト
@@ -505,11 +513,17 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
     - `Set-Cookie: refresh_token=<token>; HttpOnly; SameSite=Lax; Max-Age=2592000`（`COOKIE_DOMAIN` 設定時は `Domain` 付き）
     - `Set-Cookie: csrf_token=<token>; SameSite=Lax; Max-Age=2592000`（`COOKIE_DOMAIN` 設定時は `Domain` 付き）
     - `Set-Cookie: oauth_state=; Max-Age=0`（使い捨て: 照合後に削除。常にhost-only）
-  - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（Cookieはセットしない）
+  - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（認証Cookieはセットしない。state照合後は `oauth_state` の削除Cookieを返す）
     - `code=account_conflict`: 同メールアドレスの既存アカウントが存在（乗っ取り防止のため自動リンクは行わない）
-    - `code=oauth_failed`: 上記以外のすべてのエラー（code/state 欠落、`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、未対応のプロバイダー、内部エラー等）
+    - `code=oauth_failed`: 上記以外のハンドラー到達後のエラー（`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、設定されていないプロバイダー、内部エラー等）
     - `code=rate_limited`: IPレートリミット超過（`Retry-After`ヘッダーに再試行までの秒数を付与）
     - `code=service_unavailable`: レートリミット基盤（Redis）障害により判定不能（fail-closed、issue #266）
+
+- **400 Bad Request** - `provider` が `google` / `github` 以外、または必須の `code` / `state` が欠落
+  ```json
+  { "error": "invalid request" }
+  ```
+  OpenAPI バリデーションがハンドラー到達前に返すため、エラーリダイレクトや `oauth_state` Cookie の削除は行いません。
 
 ## レートリミット
 
@@ -699,7 +713,7 @@ graph TB
    - JWTトークンはHS256アルゴリズムで署名（`transport/jwt` で実装）
    - 署名には環境変数 `JWT_SECRET` を使用
    - ハンドラーレベルで汎用エラーメッセージを返却し、列挙攻撃を防止
-   - OAuth state のブラウザ側バインディング: `BeginAuth` でhost-onlyの `oauth_state` Cookie（HttpOnly / SameSite=Lax / Secure）を発行し、コールバック時にクエリの `state` と定数時間比較で照合（ログイン CSRF / セッションフィクセーション対策）
+   - OAuth state のブラウザ側バインディング: `BeginAuth` でhost-onlyの `oauth_state` Cookie（HttpOnly / SameSite=Lax、Secureは`COOKIE_SECURE`に従う）を発行し、コールバック時にクエリの `state` と定数時間比較で照合（ログイン CSRF / セッションフィクセーション対策）
 
 ## ディレクトリ構成
 
