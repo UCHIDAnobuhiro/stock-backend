@@ -2,7 +2,7 @@ package candles
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -51,10 +51,9 @@ func aggregate(
 	}
 
 	// APIは最新順で返すため時刻昇順にソート（Open=初日, Close=末日 を正しく取るため）
-	sorted := make([]Candle, len(daily))
-	copy(sorted, daily)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Time.Before(sorted[j].Time)
+	sorted := slices.Clone(daily)
+	slices.SortFunc(sorted, func(a, b Candle) int {
+		return a.Time.Compare(b.Time)
 	})
 
 	type bucket struct {

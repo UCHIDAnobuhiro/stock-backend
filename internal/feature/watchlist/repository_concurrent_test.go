@@ -52,13 +52,11 @@ func TestWatchlistRepository_UpdateSortKeys_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			perm := sortPermutations[idx%len(sortPermutations)]
-			errs[idx] = repo.UpdateSortKeys(ctx, ids.u1, entriesFromPerm(ids.u1, perm))
-		}(i)
+	for i := range goroutines {
+		wg.Go(func() {
+			perm := sortPermutations[i%len(sortPermutations)]
+			errs[i] = repo.UpdateSortKeys(ctx, ids.u1, entriesFromPerm(ids.u1, perm))
+		})
 	}
 	wg.Wait()
 
@@ -135,21 +133,17 @@ func TestWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
 	}
 
 	// ReorderSymbolsを繰り返し呼ぶgoroutine。
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < reorderIterations; i++ {
+	wg.Go(func() {
+		for i := range reorderIterations {
 			perm := sortPermutations[i%len(sortPermutations)]
 			recordErr(uc.ReorderSymbols(ctx, ids.u1, perm))
 		}
-	}()
+	})
 
 	// MSFTを1回だけ削除するgoroutine。
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		recordErr(uc.RemoveSymbol(ctx, ids.u1, "MSFT"))
-	}()
+	})
 
 	wg.Wait()
 

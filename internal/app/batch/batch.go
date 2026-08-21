@@ -2,7 +2,8 @@ package batch
 
 import (
 	"log/slog"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
@@ -40,10 +41,5 @@ func Run(cfg *config.Config, args []string) int {
 // supportedJobs は対応している job_id を辞書順で連結した文字列を返す（エラーメッセージ用）。
 // map のイテレーション順は非決定的なので、ソートして出力を安定させる。
 func supportedJobs() string {
-	keys := make([]string, 0, len(jobs))
-	for k := range jobs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, ", ")
+	return strings.Join(slices.Sorted(maps.Keys(jobs)), ", ")
 }

@@ -43,10 +43,8 @@ func TestLimiter_Allow_Concurrent(t *testing.T) {
 		badRetryAfters  []time.Duration
 	)
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			result := limiter.Allow(context.Background(), key, limit, window, FailClosed)
 			if result.ServiceUnavailable {
 				svcUnavailable.Add(1)
@@ -62,7 +60,7 @@ func TestLimiter_Allow_Concurrent(t *testing.T) {
 				badRetryAfters = append(badRetryAfters, result.RetryAfter)
 				badRetryAfterMu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

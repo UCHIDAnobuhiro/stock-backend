@@ -95,10 +95,7 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.
 	_, _ = rand.Read(randBuf[:])
 	member := fmt.Sprintf("%d:%x", nowNano, randBuf[:])
 
-	ttlSeconds := int(window.Seconds())
-	if ttlSeconds < 1 {
-		ttlSeconds = 1
-	}
+	ttlSeconds := max(int(window.Seconds()), 1)
 
 	res, err := rateLimitScript.Run(ctx, l.rdb, []string{key},
 		fmt.Sprintf("%d", windowStart),

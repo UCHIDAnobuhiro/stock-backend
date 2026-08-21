@@ -118,11 +118,9 @@ func TestRefreshSessionRepository_ConcurrentRotate(t *testing.T) {
 	errs := make([]error, len(next))
 	var wg sync.WaitGroup
 	for i := range next {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			errs[index] = repo.Rotate(context.Background(), current.TokenHash, now, fixedRefreshSessionFactory(next[index]))
-		}(i)
+		wg.Go(func() {
+			errs[i] = repo.Rotate(context.Background(), current.TokenHash, now, fixedRefreshSessionFactory(next[i]))
+		})
 	}
 	wg.Wait()
 

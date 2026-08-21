@@ -120,13 +120,10 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 // 4xx（429 を除く）は即エラーを返し、ctx キャンセル時はリトライを中断します。
 // 外側のレートリミッタとは独立に動作するため、リトライは外側のレート消費を増やしません。
 func (t *TwelveDataMarket) doRequestWithRetry(ctx context.Context, method, urlStr string) (*http.Response, error) {
-	maxAttempts := t.cfg.MaxRetries + 1
-	if maxAttempts < 1 {
-		maxAttempts = 1
-	}
+	maxAttempts := max(t.cfg.MaxRetries+1, 1)
 
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := range maxAttempts {
 		// ctx が既にキャンセル済みなら即終了
 		if err := ctx.Err(); err != nil {
 			return nil, err

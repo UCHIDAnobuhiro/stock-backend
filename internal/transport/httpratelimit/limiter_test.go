@@ -14,19 +14,19 @@ import (
 // allowed=1, count=現在のカウント を返すように設定します。
 // redismockはCustomMatchの前に引数数をチェックするため、ARGV分のダミー引数（5個）を渡します。
 func setupEvalMock(mock redismock.ClientMock, key string, allowed int64, count int64) {
-	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+	match := mock.CustomMatch(func(expected, actual []any) error {
 		return nil
 	})
 	match.ExpectEvalSha(rateLimitScript.Hash(), []string{key},
 		"_", "_", "_", "_", "_"). // ARGV[1]~[5]のダミー値（CustomMatchにより無視される）
-		SetVal([]interface{}{allowed, count})
+		SetVal([]any{allowed, count})
 }
 
 // setupEvalErrorMock はAllow()のLuaスクリプト実行がエラーを返すように設定します。
 // ARGV分のダミー引数を無視するCustomMatchでラップした上で、testhelper.goのExpectAllowError
 // （外部テストパッケージ向けヘルパー）に処理を委譲し、実装の重複を避けます。
 func setupEvalErrorMock(mock redismock.ClientMock, key string, err error) {
-	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+	match := mock.CustomMatch(func(expected, actual []any) error {
 		return nil
 	})
 	ExpectAllowError(match, key, err)

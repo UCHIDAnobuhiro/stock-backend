@@ -206,7 +206,7 @@ func TestCandleRepository_Find(t *testing.T) {
 		{
 			name: "success: respect outputsize limit", symbol: "AAPL", interval: "1day", outputsize: 2,
 			setupFunc: func(t *testing.T, db *sql.DB) {
-				for i := 0; i < 5; i++ {
+				for i := range 5 {
 					seedCandle(t, db, "AAPL", "1day", baseTime.AddDate(0, 0, i))
 				}
 			},

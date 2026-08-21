@@ -29,7 +29,7 @@ var companyAnalysisSchema = &genai.Schema{
 		},
 		"ticker": {
 			Type:        genai.TypeString,
-			Nullable:    genai.Ptr(true),
+			Nullable:    new(true),
 			Pattern:     `^[A-Za-z0-9._-]{1,20}$`,
 			Description: "主要な上場銘柄のティッカーシンボル。不明または非上場の場合はnull",
 		},

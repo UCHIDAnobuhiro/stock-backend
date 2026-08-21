@@ -18,7 +18,7 @@ func ExpectAllow(mock redismock.ClientMock, key string, allowed bool, count int6
 		allowedInt = 1
 	}
 	mock.ExpectEvalSha(scriptHash(), []string{key}, "_", "_", "_", "_", "_").
-		SetVal([]interface{}{allowedInt, count})
+		SetVal([]any{allowedInt, count})
 }
 
 // ExpectAllowError は redismock に対して Allow() 呼び出し時の Lua スクリプト実行がエラーになる

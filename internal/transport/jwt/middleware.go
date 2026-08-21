@@ -23,8 +23,8 @@ func ExtractToken(r *http.Request) (tokenStr, authSource string) {
 	}
 	// 2. Authorization: Bearer ヘッダーにフォールバック（APIクライアント・curl等）
 	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer "), AuthSourceBearer
+	if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
+		return after, AuthSourceBearer
 	}
 	return "", ""
 }
@@ -89,7 +89,7 @@ func AuthRequired(secret string, blacklist *Blacklist) func(http.Handler) http.H
 
 // parseToken はJWT署名を検証し、HMACアルゴリズムで署名されたトークンのみを受理します。
 func parseToken(secret, tokenStr string) (*gojwt.Token, error) {
-	return gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
+	return gojwt.Parse(tokenStr, func(t *gojwt.Token) (any, error) {
 		if _, ok := t.Method.(*gojwt.SigningMethodHMAC); !ok {
 			return nil, gojwt.ErrSignatureInvalid
 		}
