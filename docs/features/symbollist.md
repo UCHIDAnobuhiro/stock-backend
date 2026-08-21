@@ -152,8 +152,7 @@ graph TB
 
 #### Domain層 ([symbol.go](../../internal/feature/symbollist/symbol.go))
 - **Symbolエンティティ**: 株式銘柄のドメインモデル。以下のフィールドを持つ:
-  - `ID`: 主キー
-  - `Code`: 一意の銘柄コード（例: "AAPL", "7203.T"）
+  - `Code`: 主キーとなる銘柄コード（例: "AAPL", "7203.T"）
   - `Name`: 企業名
   - `Market`: 市場識別子（例: "NASDAQ", "TSE"）
   - `Timezone`: 取引所の IANA タイムゾーン（例: "America/New_York", "Asia/Tokyo"）

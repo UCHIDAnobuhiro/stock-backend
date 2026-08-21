@@ -43,7 +43,7 @@ type RefreshSession struct {
 }
 
 // JWTGenerator はJWTトークン生成のインターフェースを定義します。
-// Goの慣例に従い、インターフェースはプロバイダー（platform/jwt）ではなくコンシューマー（usecase）が定義します。
+// Goの慣例に従い、インターフェースはプロバイダー（transport/jwt）ではなくコンシューマー（usecase）が定義します。
 type JWTGenerator interface {
 	// GenerateToken は指定されたユーザーの署名済みJWTトークンを生成します。
 	GenerateToken(userID int64, email string) (string, error)

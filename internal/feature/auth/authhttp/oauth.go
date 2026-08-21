@@ -68,7 +68,8 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// state をブラウザ側にも紐付ける（HttpOnly / SameSite=Lax / Secure の短命 Cookie）。
+	// state をブラウザ側にも紐付ける（HttpOnly / SameSite=Lax の短命 Cookie）。
+	// Secure 属性は SessionCookieConfig.Secure の設定に従う。
 	// コールバック時にクエリの state とこの Cookie 値の一致を必須とすることで、
 	// 攻撃者が取得した code+state を被害者に踏ませるログイン CSRF を防ぐ。
 	setAuthCookie(w, oauthStateCookie, state, oauthStateCookieMaxAge, h.cookies.hostOnly(), true)
@@ -79,7 +80,8 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 // Callback はOAuth2コールバックを処理します。
 // stateの検証・コード交換・ユーザー作成を行い、JWTとCSRFトークンをCookieにセットして
 // フロントエンドURLへリダイレクトします。
-// エラー時はフロントエンドのログイン画面へ error コード付きでリダイレクトします。
+// ハンドラー到達後のエラーはフロントエンドのログイン画面へ error コード付きでリダイレクトします。
+// OpenAPI バリデーションで拒否されたリクエストは、このハンドラーへ到達せず 400 になります。
 func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	code := r.URL.Query().Get("code")
