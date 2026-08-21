@@ -24,7 +24,7 @@ var symbolCodePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,20}$`)
 // Goの慣例に従い、インターフェースは利用者（handler）側で定義します。
 type Usecase interface {
 	GetCandles(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error)
-	GetQuotes(ctx context.Context, codes []string, interval string, bars int) ([]candles.Quote, error)
+	GetQuotes(ctx context.Context, codes []string, interval string, bars int) (candles.QuoteBatchResult, error)
 }
 
 // Handler はローソク足データのHTTPリクエストを処理します。
@@ -146,15 +146,13 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.uc.GetQuotes(r.Context(), codes, interval, bars)
 	if err != nil {
-		// 1銘柄でもリポジトリ層がエラーを返した場合、部分成功にはせず全体を500にする。
 		slog.Error("failed to get quotes", "error", err, "codes", codes)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}
 
-	// データをフォーマット
-	out := make([]api.QuoteResponse, 0, len(result))
-	for _, q := range result {
+	quotes := make([]api.QuoteResponse, 0, len(result.Quotes))
+	for _, q := range result.Quotes {
 		item := api.QuoteResponse{
 			Code:          q.Code,
 			Time:          q.Time.UTC().Format("2006-01-02"),
@@ -168,10 +166,37 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 			closes := q.Closes
 			item.Closes = &closes
 		}
-		out = append(out, item)
+		quotes = append(quotes, item)
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, out)
+	failures := make([]api.QuoteFailureResponse, 0, len(result.Failures))
+	for _, failure := range result.Failures {
+		if failure.Cause != nil {
+			slog.Error(
+				"failed to get quote",
+				"error", failure.Cause,
+				"code", failure.Code,
+				"interval", interval,
+			)
+		}
+		failures = append(failures, api.QuoteFailureResponse{
+			Code:   failure.Code,
+			Reason: api.QuoteFailureResponseReason(failure.Reason),
+		})
+	}
+	if len(failures) > 0 {
+		slog.Warn(
+			"some quotes were unavailable",
+			"requested", len(codes),
+			"succeeded", len(quotes),
+			"failed", len(failures),
+		)
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, api.QuoteBatchResponse{
+		Quotes:   quotes,
+		Failures: failures,
+	})
 }
 
 // dedupCodes は入力順序を保ったまま重複コードを除去します。

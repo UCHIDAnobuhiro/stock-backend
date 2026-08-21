@@ -19,6 +19,17 @@ const (
 	quoteConcurrency = 8
 )
 
+// QuoteFailureReason は銘柄ごとの株価サマリー取得失敗理由を表します。
+type QuoteFailureReason string
+
+const (
+	// QuoteFailureFetchFailed はリポジトリからローソク足を取得できなかったことを表します。
+	QuoteFailureFetchFailed QuoteFailureReason = "fetch_failed"
+
+	// QuoteFailureInsufficientData は前日比の計算に必要なローソク足が2本未満であることを表します。
+	QuoteFailureInsufficientData QuoteFailureReason = "insufficient_data"
+)
+
 // Quote は銘柄ごとの最新終値・前日比・スパークライン用終値配列を表します。
 type Quote struct {
 	Code          string    // 銘柄コード（例: "AAPL", "7203.T"）
@@ -30,21 +41,41 @@ type Quote struct {
 	Closes        []float64 // スパークライン用終値（古い→新しい順）。bars=0の場合はnil
 }
 
+// QuoteFailure は銘柄ごとの株価サマリー取得失敗を表します。
+// Cause はログ記録用の内部エラーであり、HTTPレスポンスには公開しません。
+type QuoteFailure struct {
+	Code   string
+	Reason QuoteFailureReason
+	Cause  error
+}
+
+// QuoteBatchResult は複数銘柄の株価サマリー取得結果を表します。
+// 重複除去後の各入力銘柄は Quotes または Failures のどちらか一方に含まれます。
+type QuoteBatchResult struct {
+	Quotes   []Quote
+	Failures []QuoteFailure
+}
+
+type quoteAttempt struct {
+	quote   *Quote
+	failure *QuoteFailure
+}
+
 // GetQuotes は指定された複数銘柄について、最新終値・前日比・スパークライン用の
 // 終値配列を取得します。銘柄ごとに既存の Repository.Find（candles.CachingRepository
 // 経由でワイヤリング済み）を呼び出すため、新しいSQL/sqlcクエリは追加しません。
 //
-// 1銘柄でも Repository.Find がエラーを返した場合は全体をエラーとして返します
-// （部分成功にはしません）。ローソク足が2本未満の銘柄（前日比を計算できない）は
-// 結果から除外します（エラーにはしません）。返却順序は保証しません。
-func (cu *usecase) GetQuotes(ctx context.Context, codes []string, interval string, bars int) ([]Quote, error) {
+// Repository.Find のエラーとローソク足が2本未満の銘柄は Failures に格納し、
+// 他銘柄の取得は継続します。リクエストコンテキストが中断された場合だけ全体エラーを返します。
+// Quotes と Failures はそれぞれ入力順を維持します。
+func (cu *usecase) GetQuotes(ctx context.Context, codes []string, interval string, bars int) (QuoteBatchResult, error) {
 	// 前日比の計算には最低2本のローソク足が必要なため、bars（スパークライン用件数）
 	// が2未満でも常に2本以上を取得する。
 	outputsize := max(bars, 2)
 
-	// 銘柄ごとの結果を index 固定で書き込み、返却順序を安定させる
-	// （順序保証は不要だが、goroutine 間の書き込み競合を避けるため）。
-	results := make([]*Quote, len(codes))
+	// 銘柄ごとの結果を index 固定で書き込み、入力順を維持しつつ
+	// goroutine 間の書き込み競合を避ける。
+	attempts := make([]quoteAttempt, len(codes))
 
 	// DB/Redis への同時アクセス数を抑えるため、並行数を quoteConcurrency に制限する。
 	g, gctx := errgroup.WithContext(ctx)
@@ -54,26 +85,49 @@ func (cu *usecase) GetQuotes(ctx context.Context, codes []string, interval strin
 		g.Go(func() error {
 			cs, err := cu.candle.Find(gctx, code, interval, outputsize)
 			if err != nil {
-				return err
+				if gctx.Err() != nil {
+					return gctx.Err()
+				}
+				attempts[i].failure = &QuoteFailure{
+					Code:   code,
+					Reason: QuoteFailureFetchFailed,
+					Cause:  err,
+				}
+				return nil
 			}
-			results[i] = buildQuote(code, cs, bars)
+
+			quote := buildQuote(code, cs, bars)
+			if quote == nil {
+				attempts[i].failure = &QuoteFailure{
+					Code:   code,
+					Reason: QuoteFailureInsufficientData,
+				}
+				return nil
+			}
+
+			attempts[i].quote = quote
 			return nil
 		})
 	}
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return QuoteBatchResult{}, err
 	}
 
-	// 2本未満で buildQuote が nil を返した銘柄を除外する。
-	quotes := make([]Quote, 0, len(results))
-	for _, q := range results {
-		if q != nil {
-			quotes = append(quotes, *q)
+	result := QuoteBatchResult{
+		Quotes:   make([]Quote, 0, len(attempts)),
+		Failures: make([]QuoteFailure, 0, len(attempts)),
+	}
+	for _, attempt := range attempts {
+		if attempt.quote != nil {
+			result.Quotes = append(result.Quotes, *attempt.quote)
+		}
+		if attempt.failure != nil {
+			result.Failures = append(result.Failures, *attempt.failure)
 		}
 	}
 
-	return quotes, nil
+	return result, nil
 }
 
 // buildQuote は Repository.Find が返したローソク足（時刻降順、cs[0]が最新）から

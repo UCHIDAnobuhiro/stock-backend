@@ -56,8 +56,8 @@ type stubCandlesUsecase struct{}
 func (stubCandlesUsecase) GetCandles(_ context.Context, _, _ string, _ int) ([]candles.Candle, error) {
 	return nil, nil
 }
-func (stubCandlesUsecase) GetQuotes(_ context.Context, _ []string, _ string, _ int) ([]candles.Quote, error) {
-	return nil, nil
+func (stubCandlesUsecase) GetQuotes(_ context.Context, _ []string, _ string, _ int) (candles.QuoteBatchResult, error) {
+	return candles.QuoteBatchResult{}, nil
 }
 
 type stubSymbolUsecase struct{}

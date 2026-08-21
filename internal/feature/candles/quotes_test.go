@@ -58,12 +58,15 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(got) != 2 {
-			t.Fatalf("expected 2 quotes, got %d", len(got))
+		if len(got.Quotes) != 2 {
+			t.Fatalf("expected 2 quotes, got %d", len(got.Quotes))
+		}
+		if len(got.Failures) != 0 {
+			t.Fatalf("expected no failures, got %+v", got.Failures)
 		}
 
-		byResultCode := make(map[string]candles.Quote, len(got))
-		for _, q := range got {
+		byResultCode := make(map[string]candles.Quote, len(got.Quotes))
+		for _, q := range got.Quotes {
 			byResultCode[q.Code] = q
 		}
 
@@ -71,7 +74,7 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		aaplWantChangePercent := aaplChange / 100.0 * 100
 		aapl, ok := byResultCode["AAPL"]
 		if !ok {
-			t.Fatalf("AAPL not found in result: %+v", got)
+			t.Fatalf("AAPL not found in result: %+v", got.Quotes)
 		}
 		if aapl.Close != 105 || aapl.PrevClose != 100 || aapl.Change != aaplChange || aapl.ChangePercent != aaplWantChangePercent {
 			t.Errorf("unexpected AAPL quote: %+v", aapl)
@@ -87,14 +90,14 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		googlWantChangePercent := googlChange / 200.0 * 100
 		googl, ok := byResultCode["GOOGL"]
 		if !ok {
-			t.Fatalf("GOOGL not found in result: %+v", got)
+			t.Fatalf("GOOGL not found in result: %+v", got.Quotes)
 		}
 		if googl.Close != 210 || googl.PrevClose != 200 || googl.Change != googlChange || googl.ChangePercent != googlWantChangePercent {
 			t.Errorf("unexpected GOOGL quote: %+v", googl)
 		}
 	})
 
-	t.Run("2本未満のローソク足しかない銘柄は結果から除外される", func(t *testing.T) {
+	t.Run("2本未満のローソク足しかない銘柄は失敗として回収される", func(t *testing.T) {
 		repo := &quoteMockRepository{
 			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
 				if symbol == "ONE" {
@@ -109,8 +112,15 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(got) != 1 || got[0].Code != "AAPL" {
-			t.Errorf("expected only AAPL to be included, got %+v", got)
+		if len(got.Quotes) != 1 || got.Quotes[0].Code != "AAPL" {
+			t.Errorf("expected only AAPL quote, got %+v", got.Quotes)
+		}
+		if len(got.Failures) != 1 {
+			t.Fatalf("expected one failure, got %+v", got.Failures)
+		}
+		failure := got.Failures[0]
+		if failure.Code != "ONE" || failure.Reason != candles.QuoteFailureInsufficientData || failure.Cause != nil {
+			t.Errorf("unexpected failure: %+v", failure)
 		}
 	})
 
@@ -131,13 +141,13 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(got) != 1 {
-			t.Fatalf("expected 1 quote, got %d", len(got))
+		if len(got.Quotes) != 1 {
+			t.Fatalf("expected 1 quote, got %d", len(got.Quotes))
 		}
 
 		want := []float64{30, 40, 50} // 古い→新しい順、直近3本
-		if !reflect.DeepEqual(got[0].Closes, want) {
-			t.Errorf("unexpected closes: got %v, want %v", got[0].Closes, want)
+		if !reflect.DeepEqual(got.Quotes[0].Closes, want) {
+			t.Errorf("unexpected closes: got %v, want %v", got.Quotes[0].Closes, want)
 		}
 	})
 
@@ -153,8 +163,8 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got[0].Closes != nil {
-			t.Errorf("expected nil closes, got %v", got[0].Closes)
+		if got.Quotes[0].Closes != nil {
+			t.Errorf("expected nil closes, got %v", got.Quotes[0].Closes)
 		}
 	})
 
@@ -170,15 +180,15 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got[0].ChangePercent != 0 {
-			t.Errorf("expected change_percent 0 when prev_close is 0, got %v", got[0].ChangePercent)
+		if got.Quotes[0].ChangePercent != 0 {
+			t.Errorf("expected change_percent 0 when prev_close is 0, got %v", got.Quotes[0].ChangePercent)
 		}
-		if got[0].Change != 10 {
-			t.Errorf("expected change 10, got %v", got[0].Change)
+		if got.Quotes[0].Change != 10 {
+			t.Errorf("expected change 10, got %v", got.Quotes[0].Change)
 		}
 	})
 
-	t.Run("error: リポジトリが1銘柄でもエラーを返した場合は全体がエラーになる", func(t *testing.T) {
+	t.Run("partial success: リポジトリエラーを銘柄ごとの失敗として回収して他銘柄を返す", func(t *testing.T) {
 		errDB := errors.New("database error")
 		repo := &quoteMockRepository{
 			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
@@ -191,15 +201,50 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		uc := candles.NewUsecase(repo)
 
 		got, err := uc.GetQuotes(ctx, []string{"AAPL", "BAD", "GOOGL"}, "1day", 0)
-		if !errors.Is(err, errDB) {
-			t.Fatalf("expected error %v, got %v", errDB, err)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != nil {
-			t.Errorf("expected nil result on error, got %v", got)
+		if len(got.Quotes) != 2 || got.Quotes[0].Code != "AAPL" || got.Quotes[1].Code != "GOOGL" {
+			t.Errorf("unexpected quotes: %+v", got.Quotes)
+		}
+		if len(got.Failures) != 1 {
+			t.Fatalf("expected one failure, got %+v", got.Failures)
+		}
+		failure := got.Failures[0]
+		if failure.Code != "BAD" || failure.Reason != candles.QuoteFailureFetchFailed || !errors.Is(failure.Cause, errDB) {
+			t.Errorf("unexpected failure: %+v", failure)
 		}
 	})
 
-	t.Run("success: 複数銘柄すべてが返る（順序は保証しない）", func(t *testing.T) {
+	t.Run("partial success: 全銘柄の取得に失敗しても銘柄ごとの結果を返す", func(t *testing.T) {
+		errDB := errors.New("database error")
+		codes := []string{"BAD1", "BAD2"}
+		repo := &quoteMockRepository{
+			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+				return nil, errDB
+			},
+		}
+		uc := candles.NewUsecase(repo)
+
+		got, err := uc.GetQuotes(ctx, codes, "1day", 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got.Quotes) != 0 {
+			t.Errorf("expected no quotes, got %+v", got.Quotes)
+		}
+		if len(got.Failures) != len(codes) {
+			t.Fatalf("expected %d failures, got %+v", len(codes), got.Failures)
+		}
+		for i, code := range codes {
+			failure := got.Failures[i]
+			if failure.Code != code || failure.Reason != candles.QuoteFailureFetchFailed || !errors.Is(failure.Cause, errDB) {
+				t.Errorf("failure[%d]=%+v", i, failure)
+			}
+		}
+	})
+
+	t.Run("success: 複数銘柄すべてが入力順で返る", func(t *testing.T) {
 		codes := []string{"A", "B", "C", "D"}
 		repo := &quoteMockRepository{
 			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
@@ -212,18 +257,36 @@ func TestCandlesUsecase_GetQuotes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(got) != len(codes) {
-			t.Fatalf("expected %d quotes, got %d", len(codes), len(got))
+		if len(got.Quotes) != len(codes) {
+			t.Fatalf("expected %d quotes, got %d", len(codes), len(got.Quotes))
 		}
-
-		seen := make(map[string]bool, len(codes))
-		for _, q := range got {
-			seen[q.Code] = true
+		if len(got.Failures) != 0 {
+			t.Fatalf("expected no failures, got %+v", got.Failures)
 		}
-		for _, c := range codes {
-			if !seen[c] {
-				t.Errorf("expected code %s in result, got %+v", c, got)
+		for i, code := range codes {
+			if got.Quotes[i].Code != code {
+				t.Errorf("quote[%d].Code=%s, want %s", i, got.Quotes[i].Code, code)
 			}
+		}
+	})
+
+	t.Run("error: リクエストコンテキストの中断は全体エラーになる", func(t *testing.T) {
+		requestCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		repo := &quoteMockRepository{
+			FindFunc: func(ctx context.Context, symbol, interval string, outputsize int) ([]candles.Candle, error) {
+				return nil, ctx.Err()
+			},
+		}
+		uc := candles.NewUsecase(repo)
+
+		got, err := uc.GetQuotes(requestCtx, []string{"AAPL", "GOOGL"}, "1day", 0)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+		if len(got.Quotes) != 0 || len(got.Failures) != 0 {
+			t.Errorf("expected empty result on request cancellation, got %+v", got)
 		}
 	})
 }

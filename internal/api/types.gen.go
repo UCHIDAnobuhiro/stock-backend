@@ -14,6 +14,24 @@ const (
 	RefreshCookieScopes refreshCookieContextKey = "refreshCookie.Scopes"
 )
 
+// Defines values for QuoteFailureResponseReason.
+const (
+	FetchFailed      QuoteFailureResponseReason = "fetch_failed"
+	InsufficientData QuoteFailureResponseReason = "insufficient_data"
+)
+
+// Valid indicates whether the value is a known member of the QuoteFailureResponseReason enum.
+func (e QuoteFailureResponseReason) Valid() bool {
+	switch e {
+	case FetchFailed:
+		return true
+	case InsufficientData:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BeginOAuthParamsProvider.
 const (
 	BeginOAuthParamsProviderGithub BeginOAuthParamsProvider = "github"
@@ -180,6 +198,27 @@ type LoginRequest struct {
 type MessageResponse struct {
 	Message string `json:"message"`
 }
+
+// QuoteBatchResponse defines model for QuoteBatchResponse.
+type QuoteBatchResponse struct {
+	// Failures 取得できなかった銘柄と理由（入力順）
+	Failures []QuoteFailureResponse `json:"failures"`
+
+	// Quotes 取得に成功した銘柄の株価サマリー（入力順）
+	Quotes []QuoteResponse `json:"quotes"`
+}
+
+// QuoteFailureResponse defines model for QuoteFailureResponse.
+type QuoteFailureResponse struct {
+	// Code 取得できなかった銘柄コード（例: AAPL, 7203.T）
+	Code string `json:"code"`
+
+	// Reason 取得失敗理由。fetch_failedはデータ取得エラー、insufficient_dataは前日比計算に必要なローソク足が2本未満
+	Reason QuoteFailureResponseReason `json:"reason"`
+}
+
+// QuoteFailureResponseReason 取得失敗理由。fetch_failedはデータ取得エラー、insufficient_dataは前日比計算に必要なローソク足が2本未満
+type QuoteFailureResponseReason string
 
 // QuoteResponse defines model for QuoteResponse.
 type QuoteResponse struct {
