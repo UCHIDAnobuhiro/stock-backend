@@ -2,7 +2,8 @@ package logging
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"log/slog"
 	"strings"
 	"testing"
@@ -129,7 +130,7 @@ func TestNewHandler_Text(t *testing.T) {
 	logger.Info("hello")
 
 	out := buf.String()
-	if json.Valid(bytes.TrimSpace(buf.Bytes())) {
+	if jsontext.Value(bytes.TrimSpace(buf.Bytes())).IsValid() {
 		t.Errorf("expected non-JSON text output, got: %s", out)
 	}
 	// Text 形式はリマップせず既定キー（level / msg）のまま。

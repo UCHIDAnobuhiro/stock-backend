@@ -2,7 +2,7 @@ package twelvedata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,7 +33,7 @@ func (t *TwelveDataMarket) GetLogoURL(ctx context.Context, symbol string) (strin
 	}()
 
 	var body logoResponse
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+	if err := json.UnmarshalRead(res.Body, &body); err != nil {
 		return "", err
 	}
 	if body.Status == "error" {
