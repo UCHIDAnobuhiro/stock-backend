@@ -2,7 +2,7 @@ package gemini
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -122,7 +122,7 @@ func assertStructuredRequest(t *testing.T, r *http.Request) {
 			} `json:"responseSchema"`
 		} `json:"generationConfig"`
 	}
-	require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalRead(r.Body, &body))
 	assert.Equal(t, "application/json", body.GenerationConfig.ResponseMIMEType)
 	assert.ElementsMatch(t, []string{"company_name", "ticker", "summary"}, body.GenerationConfig.ResponseSchema.Required)
 	require.NotNil(t, body.GenerationConfig.ResponseSchema.Properties["ticker"].Nullable)

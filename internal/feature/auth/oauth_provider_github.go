@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -131,7 +131,7 @@ func (p *GitHubProvider) fetchUserID(ctx context.Context, token string) (string,
 	var u struct {
 		ID int64 `json:"id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &u); err != nil {
 		return "", fmt.Errorf("github: failed to parse user: %w", err)
 	}
 	if u.ID == 0 {

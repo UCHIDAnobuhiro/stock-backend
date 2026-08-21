@@ -2,7 +2,7 @@ package twelvedata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -58,7 +58,7 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 
 	// JSONレスポンスをDTOにデコード
 	var body TimeSeriesResponse
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+	if err := json.UnmarshalRead(res.Body, &body); err != nil {
 		return nil, err
 	}
 	if body.Status == "error" {

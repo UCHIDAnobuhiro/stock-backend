@@ -4,7 +4,8 @@ package httpx
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 )
@@ -22,7 +23,15 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	if v == nil {
 		return
 	}
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.MarshalWrite(
+		w,
+		v,
+		jsontext.EscapeForHTML(true),
+		jsontext.EscapeForJS(true),
+	); err == nil {
+		// encoding/json.Encoder.Encode が付与していた末尾改行を維持する。
+		_, _ = w.Write([]byte{'\n'})
+	}
 }
 
 // DecodeJSON はリクエストボディを JSON として dst にデコードします。
@@ -31,7 +40,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // ハンドラ到達前に実施するため、ここでは型へのデコードのみを行います。
 // JSON 構文エラー等のデコード失敗時はエラーを返します。
 func DecodeJSON(r *http.Request, dst any) error {
-	return json.NewDecoder(r.Body).Decode(dst)
+	return json.UnmarshalRead(r.Body, dst)
 }
 
 // WithClientIP は解決済みのクライアント IP を context に格納します。
