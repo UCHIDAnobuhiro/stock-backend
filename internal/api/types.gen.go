@@ -119,6 +119,15 @@ type CandleResponse struct {
 	Volume int64 `json:"volume"`
 }
 
+// CandlesResponse defines model for CandlesResponse.
+type CandlesResponse struct {
+	// Candles ローソク足データ一覧（新しい順）
+	Candles []CandleResponse `json:"candles"`
+
+	// Ticker ティッカーシンボル（例: AAPL, 7203.T）
+	Ticker string `json:"ticker"`
+}
+
 // CompanyAnalysisRequest defines model for CompanyAnalysisRequest.
 type CompanyAnalysisRequest struct {
 	// CompanyName 分析対象の企業名

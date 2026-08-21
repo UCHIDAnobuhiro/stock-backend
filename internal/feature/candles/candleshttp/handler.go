@@ -94,7 +94,10 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, api.CandlesResponse{
+		Ticker:  code,
+		Candles: out,
+	})
 }
 
 // GetQuotesHandler は複数銘柄コードを受け取り、銘柄ごとの最新終値・前日比・

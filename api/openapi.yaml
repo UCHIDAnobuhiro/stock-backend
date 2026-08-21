@@ -356,13 +356,11 @@ paths:
             maximum: 5000
       responses:
         "200":
-          description: ローソク足データ一覧
+          description: 銘柄コードとローソク足データ一覧
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CandleResponse"
+                $ref: "#/components/schemas/CandlesResponse"
         "400":
           description: バリデーションエラー（outputsizeに整数以外、outputsize範囲外、未対応のinterval等）
           content:
@@ -843,6 +841,21 @@ components:
           type: string
           minLength: 1
           description: パスワード
+
+    CandlesResponse:
+      type: object
+      required:
+        - ticker
+        - candles
+      properties:
+        ticker:
+          type: string
+          description: "ティッカーシンボル（例: AAPL, 7203.T）"
+        candles:
+          type: array
+          description: ローソク足データ一覧（新しい順）
+          items:
+            $ref: "#/components/schemas/CandleResponse"
 
     CandleResponse:
       type: object
