@@ -55,7 +55,7 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 				}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[{"time":"2023-01-01","open":100,"high":110,"low":90,"close":105,"volume":1000}]`,
+			expectedBody:   `{"ticker":"7203.T","candles":[{"time":"2023-01-01","open":100,"high":110,"low":90,"close":105,"volume":1000}]}`,
 		},
 		{
 			name: "success: default parameter values",
@@ -67,7 +67,7 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 				return []candles.Candle{}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			expectedBody:   `{"ticker":"7203.T","candles":[]}`,
 		},
 		{
 			name: "error: usecase returns error",
@@ -151,7 +151,7 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 				return []candles.Candle{}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			expectedBody:   `{"ticker":"7203.T","candles":[]}`,
 		},
 		{
 			name: "success: outputsize upper boundary (5000)",
@@ -161,7 +161,7 @@ func TestCandlesHandler_GetCandlesHandler(t *testing.T) {
 				return []candles.Candle{}, nil
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `[]`,
+			expectedBody:   `{"ticker":"7203.T","candles":[]}`,
 		},
 	}
 

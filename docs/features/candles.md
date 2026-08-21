@@ -57,7 +57,7 @@ sequenceDiagram
 
     Usecase-->>Handler: []Candle
     Handler->>Handler: Convert to DTOs
-    Handler-->>Client: 200 OK<br/>[{time, open, high, low, close, volume}, ...]
+    Handler-->>Client: 200 OK<br/>{ticker, candles: [{time, open, high, low, close, volume}, ...]}
 ```
 
 ### バッチ取り込みフロー
@@ -163,24 +163,27 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 - **200 OK** - 成功
   ```json
-  [
-    {
-      "time": "2024-01-15",
-      "open": 2500.0,
-      "high": 2550.0,
-      "low": 2480.0,
-      "close": 2530.0,
-      "volume": 1500000
-    },
-    {
-      "time": "2024-01-14",
-      "open": 2480.0,
-      "high": 2510.0,
-      "low": 2470.0,
-      "close": 2500.0,
-      "volume": 1200000
-    }
-  ]
+  {
+    "ticker": "7203.T",
+    "candles": [
+      {
+        "time": "2024-01-15",
+        "open": 2500.0,
+        "high": 2550.0,
+        "low": 2480.0,
+        "close": 2530.0,
+        "volume": 1500000
+      },
+      {
+        "time": "2024-01-14",
+        "open": 2480.0,
+        "high": 2510.0,
+        "low": 2470.0,
+        "close": 2500.0,
+        "volume": 1200000
+      }
+    ]
+  }
   ```
   注: 結果は時間の降順（新しい順）でソートされます。
 
@@ -319,7 +322,7 @@ graph TB
 
 #### トランスポート層（[candleshttp/handler.go](../../internal/feature/candles/candleshttp/handler.go)）
 - **Handler**: HTTPリクエストを処理し、Usecaseを呼び出す
-- **API型**（`internal/api/types.gen.go`）: OpenAPI仕様から自動生成された `api.CandleResponse` を使用
+- **API型**（`internal/api/types.gen.go`）: OpenAPI仕様から自動生成された `api.CandlesResponse` と `api.CandleResponse` を使用
 
 #### ユースケース層
 - **Usecase**（[usecase.go](../../internal/feature/candles/usecase.go)）: ローソク足データ取得
