@@ -351,7 +351,7 @@ func TestNewRouter_LogoRateLimit(t *testing.T) {
 	tokenUser1 := tokenForUser(t, 1)
 
 	t.Run("success: 10回までは429にならない", func(t *testing.T) {
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			code := postLogoDetect(t, tokenUser1)
 			assert.NotEqual(t, http.StatusTooManyRequests, code, "リクエスト%d回目で429になってはいけない", i+1)
 		}
@@ -400,7 +400,7 @@ func TestNewRouter_OAuthRateLimitRedirectsToLogin(t *testing.T) {
 				return rec
 			}
 
-			for i := 0; i < 20; i++ {
+			for i := range 20 {
 				rec := requestOAuth(t)
 				assert.NotContains(t, rec.Header().Get("Location"), "error=rate_limited", "リクエスト%d回目で拒否されてはいけない", i+1)
 			}
@@ -454,7 +454,7 @@ func TestNewRouter_TrustedProxyHops(t *testing.T) {
 		t.Parallel()
 		r := newTestRouter(t, nil, 0)
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			code := postSignup(t, r, "203.0.113.1")
 			assert.NotEqual(t, http.StatusTooManyRequests, code)
 		}
@@ -467,7 +467,7 @@ func TestNewRouter_TrustedProxyHops(t *testing.T) {
 		t.Parallel()
 		r := newTestRouter(t, nil, 1)
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			code := postSignup(t, r, "203.0.113.1")
 			assert.NotEqual(t, http.StatusTooManyRequests, code)
 		}

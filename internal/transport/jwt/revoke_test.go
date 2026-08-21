@@ -24,7 +24,7 @@ func TestRevokeRequestToken_ValidToken(t *testing.T) {
 
 	// ttl はリクエスト処理にかかる時間の分だけ厳密な一致が期待できないため、
 	// キーが一致していることのみを CustomMatch で検証する。
-	match := mock.CustomMatch(func(_, actual []interface{}) error {
+	match := mock.CustomMatch(func(_, actual []any) error {
 		if len(actual) < 2 {
 			t.Fatalf("unexpected SET args: %+v", actual)
 		}

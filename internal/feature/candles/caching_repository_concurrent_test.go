@@ -117,11 +117,9 @@ func TestCachingRepository_ConcurrentFindAndUpsert(t *testing.T) {
 	}
 
 	// Find側: 同一symbol/interval/outputsizeで並行に読み取る
-	for i := 0; i < findGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < findIterations; j++ {
+	for range findGoroutines {
+		wg.Go(func() {
+			for range findIterations {
 				candles, err := repo.Find(ctx, symbol, interval, candleCount)
 				if err != nil {
 					recordErr(fmt.Errorf("Find: %w", err))
@@ -140,21 +138,19 @@ func TestCachingRepository_ConcurrentFindAndUpsert(t *testing.T) {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	// Upsert側: バージョンを更新しながら並行に書き込む
-	for i := 0; i < upsertGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < upsertIterations; j++ {
+	for range upsertGoroutines {
+		wg.Go(func() {
+			for range upsertIterations {
 				inner.setVersion(symbol, interval, candleCount, nextVersion())
 				if err := repo.UpsertBatch(ctx, inner.snapshot()); err != nil {
 					recordErr(fmt.Errorf("UpsertBatch: %w", err))
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

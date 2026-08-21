@@ -274,7 +274,7 @@ func TestAuthHandler_Login_RateLimited(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	// Luaスクリプトモック: allowed=0（レートリミット超過）を返す
-	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+	match := mock.CustomMatch(func(expected, actual []any) error {
 		return nil
 	})
 	key := "rl:login:email:test@example.com"
@@ -316,7 +316,7 @@ func TestAuthHandler_Login_RateLimiterUnavailable(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	// Luaスクリプトモック: Redis障害（EvalShaエラー）を再現する
-	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+	match := mock.CustomMatch(func(expected, actual []any) error {
 		return nil
 	})
 	key := "rl:login:email:test@example.com"
@@ -359,7 +359,7 @@ func newAllowingLimiter(t *testing.T, email string) *httpratelimit.Limiter {
 	rdb, mock := redismock.NewClientMock()
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	match := mock.CustomMatch(func(expected, actual []interface{}) error {
+	match := mock.CustomMatch(func(expected, actual []any) error {
 		return nil
 	})
 	key := fmt.Sprintf("rl:login:email:%s", auth.NormalizeEmail(email))
@@ -551,7 +551,7 @@ func TestAuthHandler_Logout_RevokesToken(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	// ttlは処理にかかる時間だけ厳密一致しないため、失効登録キーの形式のみ検証する。
-	match := mock.CustomMatch(func(_, actual []interface{}) error {
+	match := mock.CustomMatch(func(_, actual []any) error {
 		if len(actual) < 2 {
 			t.Fatalf("unexpected SET args: %+v", actual)
 		}
@@ -713,7 +713,7 @@ func TestAuthHandler_Logout_RefreshRevocationFailure(t *testing.T) {
 
 			rdb, mock := redismock.NewClientMock()
 			t.Cleanup(func() { _ = rdb.Close() })
-			match := mock.CustomMatch(func(_, actual []interface{}) error {
+			match := mock.CustomMatch(func(_, actual []any) error {
 				if len(actual) < 2 {
 					return fmt.Errorf("unexpected SET args: %+v", actual)
 				}

@@ -70,7 +70,7 @@ func TestGenerator_GenerateToken(t *testing.T) {
 			}
 
 			// Verify the token can be parsed
-			token, err := gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
+			token, err := gojwt.Parse(tokenStr, func(t *gojwt.Token) (any, error) {
 				return []byte("test-secret"), nil
 			})
 			if err != nil {
@@ -112,7 +112,7 @@ func TestGenerator_GenerateToken_SigningMethod(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	token, err := gojwt.Parse(tokenStr, func(tok *gojwt.Token) (interface{}, error) {
+	token, err := gojwt.Parse(tokenStr, func(tok *gojwt.Token) (any, error) {
 		// Verify signing method is HMAC
 		if _, ok := tok.Method.(*gojwt.SigningMethodHMAC); !ok {
 			t.Errorf("unexpected signing method: %v", tok.Header["alg"])
@@ -142,7 +142,7 @@ func TestGenerator_GenerateToken_Expiration(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	token, _ := gojwt.Parse(tokenStr, func(t *gojwt.Token) (interface{}, error) {
+	token, _ := gojwt.Parse(tokenStr, func(t *gojwt.Token) (any, error) {
 		return []byte("test-secret"), nil
 	})
 

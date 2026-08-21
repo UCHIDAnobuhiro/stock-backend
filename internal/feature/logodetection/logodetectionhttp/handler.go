@@ -43,8 +43,7 @@ func (h *Handler) DetectLogos(w http.ResponseWriter, r *http.Request) {
 
 	// ParseMultipartForm の引数はメモリ上限。
 	if err := r.ParseMultipartForm(maxImageSize); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			slog.Warn("画像ファイルサイズ超過", "max", maxImageSize, "remote_addr", httpx.ClientIP(r))
 			httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, api.ErrorResponse{Error: "image size exceeds the limit (10MB)"})
 			return

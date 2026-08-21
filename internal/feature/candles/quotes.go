@@ -105,7 +105,7 @@ func buildQuote(code string, cs []Candle, bars int) *Quote {
 		// cs は新しい→古い順なので、直近 n 本を古い→新しい順に反転して詰める。
 		n := min(bars, len(cs))
 		closes := make([]float64, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			closes[n-1-i] = cs[i].Close
 		}
 		q.Closes = closes

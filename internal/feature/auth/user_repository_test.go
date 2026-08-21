@@ -41,9 +41,6 @@ func seedUser(t *testing.T, db *sql.DB, email, password string) *User {
 	return user
 }
 
-// ptrStr は文字列のポインタを返すヘルパーです。
-func ptrStr(s string) *string { return &s }
-
 func TestNewUserRepository(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewUserRepository(db)
@@ -66,7 +63,7 @@ func TestUserRepository_Create(t *testing.T) {
 			name: "success: user creation",
 			user: &User{
 				Email:        "test@example.com",
-				PasswordHash: ptrStr("hashed_password"),
+				PasswordHash: new("hashed_password"),
 			},
 			wantErr: false,
 			validateFunc: func(t *testing.T, user *User) {
@@ -79,7 +76,7 @@ func TestUserRepository_Create(t *testing.T) {
 			name: "failure: duplicate email returns ErrEmailAlreadyExists",
 			user: &User{
 				Email:        "duplicate@example.com",
-				PasswordHash: ptrStr("password2"),
+				PasswordHash: new("password2"),
 			},
 			wantErr:     true,
 			expectedErr: ErrEmailAlreadyExists,
@@ -169,7 +166,7 @@ func TestUserRepository_FindByEmail(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, "user2@example.com", found.Email)
-				assert.Equal(t, ptrStr("pass2"), found.PasswordHash)
+				assert.Equal(t, new("pass2"), found.PasswordHash)
 			},
 		},
 	}
@@ -249,7 +246,7 @@ func TestUserRepository_FindByID(t *testing.T) {
 				assert.NotNil(t, found, "user is nil")
 				assert.Equal(t, expected.ID, found.ID)
 				assert.Equal(t, "user2@example.com", found.Email)
-				assert.Equal(t, ptrStr("pass2"), found.PasswordHash)
+				assert.Equal(t, new("pass2"), found.PasswordHash)
 			},
 		},
 	}
@@ -291,7 +288,7 @@ func TestUserRepository_Timestamps(t *testing.T) {
 
 	user := &User{
 		Email:        "timestamp@example.com",
-		PasswordHash: ptrStr("password"),
+		PasswordHash: new("password"),
 	}
 	err := repo.Create(context.Background(), user)
 	require.NoError(t, err)

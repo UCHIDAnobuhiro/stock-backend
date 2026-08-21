@@ -156,8 +156,7 @@ func toNullString(s *string) sql.NullString {
 
 // mapEmailUniqueErr は PostgreSQL のユニーク制約違反を ErrEmailAlreadyExists にマッピングします。
 func mapEmailUniqueErr(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == pgErrUniqueViolation {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgErrUniqueViolation {
 		return ErrEmailAlreadyExists
 	}
 	return err

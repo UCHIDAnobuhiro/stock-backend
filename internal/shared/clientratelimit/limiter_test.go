@@ -12,7 +12,7 @@ func TestRateLimiter_WaitIfNeeded(t *testing.T) {
 	t.Run("limit 未到達の場合は待機しない", func(t *testing.T) {
 		rl := NewRateLimiter(3, 100*time.Millisecond)
 		start := time.Now()
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			if err := rl.WaitIfNeeded(context.Background()); err != nil {
 				t.Fatalf("unexpected error on call %d: %v", i, err)
 			}
@@ -28,7 +28,7 @@ func TestRateLimiter_WaitIfNeeded(t *testing.T) {
 		ctx := context.Background()
 
 		// 2回までは即時リターン
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			if err := rl.WaitIfNeeded(ctx); err != nil {
 				t.Fatalf("unexpected error on call %d: %v", i, err)
 			}

@@ -54,7 +54,7 @@ func resolveClientIP(r *http.Request, trustedHops int) (ip string, ok bool) {
 
 	var entries []string
 	for _, line := range xff {
-		for _, part := range strings.Split(line, ",") {
+		for part := range strings.SplitSeq(line, ",") {
 			if trimmed := strings.TrimSpace(part); trimmed != "" {
 				entries = append(entries, trimmed)
 			}
