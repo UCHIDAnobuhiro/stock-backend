@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -167,4 +168,57 @@ func TestWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
 		assert.Falsef(t, dup, "sort_key %d が重複している", us.SortKey)
 		seenSortKeys[us.SortKey] = struct{}{}
 	}
+}
+
+func TestWatchlistRepository_AddWithNextSortKey_Concurrent(t *testing.T) {
+	t.Parallel()
+	db, ids := setupTestDB(t)
+	repo := NewRepository(db)
+	ctx := t.Context()
+	symbols := []string{"AAPL", "GOOGL", "MSFT"}
+
+	blocker, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = blocker.ExecContext(ctx, "LOCK TABLE watchlists IN SHARE MODE")
+	require.NoError(t, err)
+
+	start := make(chan struct{})
+	errs := make([]error, len(symbols))
+	var wg sync.WaitGroup
+	for i, code := range symbols {
+		wg.Go(func() {
+			<-start
+			errs[i] = repo.AddWithNextSortKey(ctx, ids.u1, code)
+		})
+	}
+	t.Cleanup(wg.Wait)
+	t.Cleanup(func() { _ = blocker.Rollback() })
+	close(start)
+
+	require.Eventually(t, func() bool {
+		var waiting int
+		queryErr := db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM pg_stat_activity
+			WHERE datname = current_database()
+			  AND pid <> pg_backend_pid()
+			  AND wait_event_type = 'Lock'`).Scan(&waiting)
+		return queryErr == nil && waiting == len(symbols)
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, blocker.Rollback())
+	wg.Wait()
+	for i, addErr := range errs {
+		assert.NoErrorf(t, addErr, "AddWithNextSortKey failed for %s", symbols[i])
+	}
+
+	list, err := repo.ListByUser(ctx, ids.u1)
+	require.NoError(t, err)
+	require.Len(t, list, len(symbols))
+	gotSymbols := make([]string, len(list))
+	for i, entry := range list {
+		gotSymbols[i] = entry.SymbolCode
+		assert.Equal(t, i, entry.SortKey)
+	}
+	assert.ElementsMatch(t, symbols, gotSymbols)
 }
