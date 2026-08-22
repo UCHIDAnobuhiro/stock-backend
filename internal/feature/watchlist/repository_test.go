@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -260,4 +261,25 @@ func TestWatchlistRepository_ListByUser_Isolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, u2List, 1)
 	assert.Equal(t, "GOOGL", u2List[0].SymbolCode)
+}
+
+func TestWatchlistRepository_Add_DuplicateSortKey(t *testing.T) {
+	t.Parallel()
+	db, ids := setupTestDB(t)
+	repo := NewRepository(db)
+	ctx := t.Context()
+
+	require.NoError(t, repo.Add(ctx, UserSymbol{
+		UserID: ids.u1, SymbolCode: "AAPL", SortKey: 0,
+	}))
+	err := repo.Add(ctx, UserSymbol{
+		UserID: ids.u1, SymbolCode: "GOOGL", SortKey: 0,
+	})
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrAlreadyInWatchlist)
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, pgUniqueViolation, pgErr.Code)
+	assert.Equal(t, "idx_watchlist_user_sort_key", pgErr.ConstraintName)
 }

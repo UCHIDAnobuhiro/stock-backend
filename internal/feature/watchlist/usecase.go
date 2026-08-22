@@ -14,7 +14,7 @@ type Repository interface {
 	// 重複エントリは ErrAlreadyInWatchlist、銘柄コードの FK 違反は ErrSymbolNotFound を返します。
 	Add(ctx context.Context, entry UserSymbol) error
 	// AddWithNextSortKey はsort_keyをトランザクション内でMAX+1採番して銘柄を追加します。
-	// MaxSortKey取得とInsertをアトミックに実行するため、並行追加時の重複順位を防ぎます。
+	// 対象ユーザーをロックしてからMaxSortKey取得とInsertを実行し、並行追加時の重複順位を防ぎます。
 	AddWithNextSortKey(ctx context.Context, userID int64, symbolCode string) error
 	// Remove はウォッチリストから銘柄を削除します。
 	// 対象がウォッチリストに存在しない場合は ErrNotInWatchlist を返します。

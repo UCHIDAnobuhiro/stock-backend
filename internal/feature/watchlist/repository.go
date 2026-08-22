@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	pgUniqueViolation     = "23505"
-	pgForeignKeyViolation = "23503"
+	pgUniqueViolation                   = "23505"
+	pgForeignKeyViolation               = "23503"
+	watchlistUserSymbolUniqueConstraint = "idx_watchlist_user_symbol"
 )
 
 // repository は Repository の sqlc ベース実装です。
@@ -143,8 +144,7 @@ func (r *repository) UpdateSortKeys(ctx context.Context, userID int64, entries [
 }
 
 // AddWithNextSortKey は sort_key をトランザクション内で MAX+1 採番して銘柄を追加します。
-// MAX(sort_key) 取得と INSERT を同一トランザクションで実行し、(user_id, sort_key) ユニーク制約で
-// 並行追加の二重登録を最終的にブロックします。
+// 対象ユーザー行をロックして同一ユーザーの並行追加を直列化し、sort_key の競合を防ぎます。
 func (r *repository) AddWithNextSortKey(ctx context.Context, userID int64, symbolCode string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -157,6 +157,10 @@ func (r *repository) AddWithNextSortKey(ctx context.Context, userID int64, symbo
 		}
 	}()
 	qtx := r.q.WithTx(tx)
+
+	if _, err := qtx.LockWatchlistUser(ctx, userID); err != nil {
+		return err
+	}
 
 	maxKey, err := qtx.MaxWatchlistSortKey(ctx, userID)
 	if err != nil {
@@ -184,7 +188,9 @@ func mapWatchlistPGErr(err error) error {
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		switch pgErr.Code {
 		case pgUniqueViolation:
-			return ErrAlreadyInWatchlist
+			if pgErr.ConstraintName == watchlistUserSymbolUniqueConstraint {
+				return ErrAlreadyInWatchlist
+			}
 		case pgForeignKeyViolation:
 			return ErrSymbolNotFound
 		}

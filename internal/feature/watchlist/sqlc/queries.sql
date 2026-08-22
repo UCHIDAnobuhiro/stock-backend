@@ -12,6 +12,12 @@ VALUES ($1, $2, $3);
 DELETE FROM watchlists
 WHERE user_id = $1 AND symbol_code = $2;
 
+-- name: LockWatchlistUser :one
+SELECT id
+FROM users
+WHERE id = $1
+FOR UPDATE;
+
 -- name: MaxWatchlistSortKey :one
 SELECT COALESCE(MAX(sort_key), -1)::bigint AS max_key
 FROM watchlists

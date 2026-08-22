@@ -111,6 +111,19 @@ func (q *Queries) LockWatchlistByUser(ctx context.Context, userID int64) ([]int6
 	return items, nil
 }
 
+const lockWatchlistUser = `-- name: LockWatchlistUser :one
+SELECT id
+FROM users
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockWatchlistUser(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lockWatchlistUser, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
 const maxWatchlistSortKey = `-- name: MaxWatchlistSortKey :one
 SELECT COALESCE(MAX(sort_key), -1)::bigint AS max_key
 FROM watchlists
