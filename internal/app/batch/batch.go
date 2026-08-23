@@ -67,21 +67,21 @@ func run(
 		return 2
 	}
 
-	sqlDB, err := openSQL(cfg.DB)
+	lockDB, err := openSQL(cfg.DB)
 	if err != nil {
-		slog.Error("DB open failed", "job_id", jobID, "error", err)
+		slog.Error("DB open failed", "job_id", jobID, "purpose", "batch_lock", "error", err)
 		return 1
 	}
 	defer func() {
-		if err := sqlDB.Close(); err != nil {
-			slog.Warn("failed to close sqlDB", "job_id", jobID, "error", err)
+		if err := lockDB.Close(); err != nil {
+			slog.Warn("failed to close sqlDB", "job_id", jobID, "purpose", "batch_lock", "error", err)
 		}
 	}()
 
 	lockCtx, cancel := context.WithTimeout(context.Background(), batchLockOperationTimeout)
 	acquired, unlock, err := lockJob(
 		lockCtx,
-		sqlDB,
+		lockDB,
 		batchLockNamespace,
 		selectedJob.lockKey,
 	)
@@ -105,6 +105,18 @@ func run(
 
 	slog.Info("batch lock acquired", "event", "batch_lock_acquired", "job_id", jobID)
 	defer releaseJobLock(jobID, unlock)
+
+	sqlDB, err := openSQL(cfg.DB)
+	if err != nil {
+		slog.Error("DB open failed", "job_id", jobID, "purpose", "job", "error", err)
+		return 1
+	}
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			slog.Warn("failed to close sqlDB", "job_id", jobID, "purpose", "job", "error", err)
+		}
+	}()
+
 	return selectedJob.run(cfg, sqlDB)
 }
 

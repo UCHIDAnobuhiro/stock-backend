@@ -161,6 +161,7 @@ func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			openCalls := 0
 			jobCalls := 0
 			availableJobs := map[string]job{
 				tt.jobID: {
@@ -176,7 +177,10 @@ func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
 				&config.Config{},
 				[]string{tt.jobID},
 				availableJobs,
-				func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+				func(infradb.Config) (*sql.DB, error) {
+					openCalls++
+					return newTestSQLDB(t), nil
+				},
 				func(_ context.Context, _ *sql.DB, namespace, key int32) (bool, func(context.Context) error, error) {
 					assert.Equal(t, batchLockNamespace, namespace)
 					assert.Equal(t, tt.wantLockKey, key)
@@ -185,6 +189,7 @@ func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
 			)
 
 			assert.Equal(t, 0, got)
+			assert.Equal(t, 1, openCalls)
 			assert.Equal(t, 0, jobCalls)
 		})
 	}
@@ -193,13 +198,17 @@ func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
 func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	t.Parallel()
 
+	openCalls := 0
 	jobCalls := 0
 	unlockCalls := 0
+	var lockDB *sql.DB
+	var jobDB *sql.DB
 	availableJobs := map[string]job{
 		"candles": {
 			lockKey: 2,
-			run: func(*config.Config, *sql.DB) int {
+			run: func(_ *config.Config, db *sql.DB) int {
 				jobCalls++
+				jobDB = db
 				return 1
 			},
 		},
@@ -209,8 +218,12 @@ func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 		&config.Config{},
 		[]string{"candles"},
 		availableJobs,
-		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
-		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+		func(infradb.Config) (*sql.DB, error) {
+			openCalls++
+			return newTestSQLDB(t), nil
+		},
+		func(_ context.Context, db *sql.DB, _, _ int32) (bool, func(context.Context) error, error) {
+			lockDB = db
 			return true, func(context.Context) error {
 				unlockCalls++
 				return nil
@@ -219,8 +232,10 @@ func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	)
 
 	assert.Equal(t, 1, got)
+	assert.Equal(t, 2, openCalls)
 	assert.Equal(t, 1, jobCalls)
 	assert.Equal(t, 1, unlockCalls)
+	assert.NotSame(t, lockDB, jobDB)
 }
 
 func TestRun_LockErrorFailsWithoutRunningJob(t *testing.T) {
