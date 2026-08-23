@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/v1/quotes
+  url: {{baseUrl}}/v1/quotes?codes={{quoteCodes}}&interval={{interval}}&bars={{bars}}
   body: none
   auth: inherit
 }
