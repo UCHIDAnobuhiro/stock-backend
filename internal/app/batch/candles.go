@@ -2,6 +2,7 @@ package batch
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
@@ -11,23 +12,12 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/di"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/symbollist"
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/db"
 	infraredis "github.com/UCHIDAnobuhiro/stock-backend/internal/infra/redis"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/shared/clientratelimit"
 )
 
 // runCandleIngest は TwelveData から株価データを取り込み、終了コード（0 or 1）を返す。
-func runCandleIngest(cfg *config.Config) int {
-	sqlDB, err := db.OpenSQL(cfg.DB)
-	if err != nil {
-		slog.Error("DB open failed", "error", err)
-		return 1
-	}
-	defer func() {
-		if err := sqlDB.Close(); err != nil {
-			slog.Warn("failed to close sqlDB", "error", err)
-		}
-	}()
+func runCandleIngest(cfg *config.Config, sqlDB *sql.DB) int {
 	marketRepo := di.NewMarket(cfg.TwelveData)
 	candleRepo := candles.NewRepository(sqlDB)
 	symbolRepo := symbollist.NewRepository(sqlDB)
