@@ -55,7 +55,7 @@ func run(
 	availableJobs map[string]job,
 	openSQL sqlOpener,
 	lockJob jobLocker,
-) int {
+) (exitCode int) {
 	if len(args) < 1 {
 		slog.Error("job_id is required", "usage", "batch <"+supportedJobs(availableJobs)+">")
 		return 2
@@ -104,7 +104,11 @@ func run(
 	}
 
 	slog.Info("batch lock acquired", "event", "batch_lock_acquired", "job_id", jobID)
-	defer releaseJobLock(jobID, unlock)
+	defer func() {
+		if err := releaseJobLock(jobID, unlock); err != nil && exitCode == 0 {
+			exitCode = 1
+		}
+	}()
 
 	sqlDB, err := openSQL(cfg.DB)
 	if err != nil {
@@ -139,7 +143,7 @@ func tryJobLock(
 	return true, lock.Unlock, nil
 }
 
-func releaseJobLock(jobID string, unlock func(context.Context) error) {
+func releaseJobLock(jobID string, unlock func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), batchLockOperationTimeout)
 	defer cancel()
 	if err := unlock(ctx); err != nil {
@@ -148,7 +152,8 @@ func releaseJobLock(jobID string, unlock func(context.Context) error) {
 			"job_id", jobID,
 			"error", err,
 		)
-		return
+		return err
 	}
 	slog.Info("batch lock released", "event", "batch_lock_released", "job_id", jobID)
+	return nil
 }

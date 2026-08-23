@@ -238,6 +238,39 @@ func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	assert.NotSame(t, lockDB, jobDB)
 }
 
+func TestRun_UnlockErrorFailsAfterSuccessfulJob(t *testing.T) {
+	t.Parallel()
+
+	jobCalls := 0
+	unlockCalls := 0
+	availableJobs := map[string]job{
+		"candles": {
+			lockKey: 2,
+			run: func(*config.Config, *sql.DB) int {
+				jobCalls++
+				return 0
+			},
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"candles"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+			return true, func(context.Context) error {
+				unlockCalls++
+				return errors.New("unlock failed")
+			}, nil
+		},
+	)
+
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 1, jobCalls)
+	assert.Equal(t, 1, unlockCalls)
+}
+
 func TestRun_LockErrorFailsWithoutRunningJob(t *testing.T) {
 	t.Parallel()
 
