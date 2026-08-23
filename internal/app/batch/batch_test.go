@@ -1,7 +1,16 @@
 package batch
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"log/slog"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles"
@@ -130,4 +139,230 @@ func TestRun_ReturnsOneWhenDBConfigInvalid(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		jobID       string
+		wantLockKey int32
+	}{
+		{name: "success: scheduler retry skips auth session cleanup", jobID: "auth-session-cleanup", wantLockKey: 1},
+		{name: "success: manual overlap skips auth session cleanup", jobID: "auth-session-cleanup", wantLockKey: 1},
+		{name: "success: scheduler retry skips candles", jobID: "candles", wantLockKey: 2},
+		{name: "success: manual overlap skips candles", jobID: "candles", wantLockKey: 2},
+		{name: "success: scheduler retry skips logo", jobID: "logo", wantLockKey: 3},
+		{name: "success: manual overlap skips logo", jobID: "logo", wantLockKey: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			openCalls := 0
+			jobCalls := 0
+			availableJobs := map[string]job{
+				tt.jobID: {
+					lockKey: tt.wantLockKey,
+					run: func(*config.Config, *sql.DB) int {
+						jobCalls++
+						return 0
+					},
+				},
+			}
+
+			got := run(
+				&config.Config{},
+				[]string{tt.jobID},
+				availableJobs,
+				func(infradb.Config) (*sql.DB, error) {
+					openCalls++
+					return newTestSQLDB(t), nil
+				},
+				func(_ context.Context, _ *sql.DB, namespace, key int32) (bool, func(context.Context) error, error) {
+					assert.Equal(t, batchLockNamespace, namespace)
+					assert.Equal(t, tt.wantLockKey, key)
+					return false, nil, nil
+				},
+			)
+
+			assert.Equal(t, 0, got)
+			assert.Equal(t, 1, openCalls)
+			assert.Equal(t, 0, jobCalls)
+		})
+	}
+}
+
+func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
+	t.Parallel()
+
+	openCalls := 0
+	jobCalls := 0
+	unlockCalls := 0
+	var lockDB *sql.DB
+	var jobDB *sql.DB
+	availableJobs := map[string]job{
+		"candles": {
+			lockKey: 2,
+			run: func(_ *config.Config, db *sql.DB) int {
+				jobCalls++
+				jobDB = db
+				return 1
+			},
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"candles"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) {
+			openCalls++
+			return newTestSQLDB(t), nil
+		},
+		func(_ context.Context, db *sql.DB, _, _ int32) (bool, func(context.Context) error, error) {
+			lockDB = db
+			return true, func(context.Context) error {
+				unlockCalls++
+				return nil
+			}, nil
+		},
+	)
+
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 2, openCalls)
+	assert.Equal(t, 1, jobCalls)
+	assert.Equal(t, 1, unlockCalls)
+	assert.NotSame(t, lockDB, jobDB)
+}
+
+func TestRun_UnlockErrorFailsAfterSuccessfulJob(t *testing.T) {
+	t.Parallel()
+
+	jobCalls := 0
+	unlockCalls := 0
+	availableJobs := map[string]job{
+		"candles": {
+			lockKey: 2,
+			run: func(*config.Config, *sql.DB) int {
+				jobCalls++
+				return 0
+			},
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"candles"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+			return true, func(context.Context) error {
+				unlockCalls++
+				return errors.New("unlock failed")
+			}, nil
+		},
+	)
+
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 1, jobCalls)
+	assert.Equal(t, 1, unlockCalls)
+}
+
+func TestRun_LockErrorFailsWithoutRunningJob(t *testing.T) {
+	t.Parallel()
+
+	jobCalls := 0
+	availableJobs := map[string]job{
+		"logo": {
+			lockKey: 3,
+			run: func(*config.Config, *sql.DB) int {
+				jobCalls++
+				return 0
+			},
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"logo"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+			return false, nil, errors.New("lock unavailable")
+		},
+	)
+
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 0, jobCalls)
+}
+
+func TestRun_DuplicateDecisionIsLogged(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	availableJobs := map[string]job{
+		"auth-session-cleanup": {
+			lockKey: 1,
+			run:     func(*config.Config, *sql.DB) int { return 0 },
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"auth-session-cleanup"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+			return false, nil, nil
+		},
+	)
+
+	require.Equal(t, 0, got)
+	logOutput := output.String()
+	assert.True(t, strings.Contains(logOutput, "event=batch_skipped"), logOutput)
+	assert.True(t, strings.Contains(logOutput, "job_id=auth-session-cleanup"), logOutput)
+	assert.True(t, strings.Contains(logOutput, "reason=already_running"), logOutput)
+}
+
+func TestRun_LockErrorIsLogged(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	availableJobs := map[string]job{
+		"logo": {
+			lockKey: 3,
+			run:     func(*config.Config, *sql.DB) int { return 0 },
+		},
+	}
+
+	got := run(
+		&config.Config{},
+		[]string{"logo"},
+		availableJobs,
+		func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+		func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+			return false, nil, errors.New("lock query failed")
+		},
+	)
+
+	require.Equal(t, 1, got)
+	logOutput := output.String()
+	assert.True(t, strings.Contains(logOutput, "event=batch_lock_failed"), logOutput)
+	assert.True(t, strings.Contains(logOutput, "job_id=logo"), logOutput)
+	assert.True(t, strings.Contains(logOutput, `error="lock query failed"`), logOutput)
+}
+
+func newTestSQLDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	db, err := sql.Open("pgx", "postgres://test:test@localhost:1/test?sslmode=disable")
+	require.NoError(t, err)
+	return db
 }

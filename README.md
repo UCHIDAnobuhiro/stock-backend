@@ -295,6 +295,11 @@ go generate ./internal/api/...
 - batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す。
   push起動時は常にイメージ更新のみを行い、バッチの実行は行わない
 
+各batchプロセスは処理開始前にPostgreSQLのセッションレベルadvisory lockを`job_id`単位で取得する。
+Schedulerの再試行や手動実行が重なった場合、同じ`job_id`の後続Executionは処理本体を実行せず、
+`event=batch_skipped`、`reason=already_running`をログへ記録して終了コード0で安全に終了する。
+異なる`job_id`は並行実行でき、先行Executionの終了後は同じ`job_id`を再実行できる。
+
 新規環境では、TerraformでCloud Runを作成する前にAPI・batch・migrateの各ワークフローを
 `publish_only=true` で手動実行（`workflow_dispatch`）し、初回作成に使うイメージをArtifact Registryへpushします。
 通常運用ではmainへのマージにより自動実行され、`publish_only=false` 相当で動作します。

@@ -2,28 +2,18 @@ package batch
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/di"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/symbollist"
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/db"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/shared/clientratelimit"
 )
 
 // runLogoIngest は TwelveData からロゴURLを取り込み、終了コード（0 or 1）を返す。
-func runLogoIngest(cfg *config.Config) int {
-	sqlDB, err := db.OpenSQL(cfg.DB)
-	if err != nil {
-		slog.Error("DB open failed", "error", err)
-		return 1
-	}
-	defer func() {
-		if err := sqlDB.Close(); err != nil {
-			slog.Warn("failed to close sqlDB", "error", err)
-		}
-	}()
+func runLogoIngest(cfg *config.Config, sqlDB *sql.DB) int {
 	logoProvider := di.NewMarket(cfg.TwelveData)
 	symbolRepo := symbollist.NewRepository(sqlDB)
 	rateLimiter := clientratelimit.NewRateLimiter(rateLimitPerMinute, time.Minute)

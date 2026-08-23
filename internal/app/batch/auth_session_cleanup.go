@@ -2,29 +2,18 @@ package batch
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/db"
 )
 
 const authSessionCleanupTimeout = 5 * time.Minute
 
 // runAuthSessionCleanup は期限切れのリフレッシュセッションを削除します。
-func runAuthSessionCleanup(cfg *config.Config) int {
-	sqlDB, err := db.OpenSQL(cfg.DB)
-	if err != nil {
-		slog.Error("DB open failed", "error", err)
-		return 1
-	}
-	defer func() {
-		if err := sqlDB.Close(); err != nil {
-			slog.Warn("failed to close sqlDB", "error", err)
-		}
-	}()
-
+func runAuthSessionCleanup(_ *config.Config, sqlDB *sql.DB) int {
 	ctx, cancel := context.WithTimeout(context.Background(), authSessionCleanupTimeout)
 	defer cancel()
 	repo := auth.NewRefreshSessionRepository(sqlDB)
