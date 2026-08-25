@@ -491,8 +491,8 @@ func TestNewConfig(t *testing.T) {
 	if cfg.BaseURL != "https://example.com" {
 		t.Errorf("expected BaseURL 'https://example.com', got %q", cfg.BaseURL)
 	}
-	if cfg.Timeout != 10*time.Second {
-		t.Errorf("expected timeout 10s, got %v", cfg.Timeout)
+	if cfg.Timeout != 30*time.Second {
+		t.Errorf("expected timeout 30s, got %v", cfg.Timeout)
 	}
 	if cfg.MaxRetries != 3 {
 		t.Errorf("expected MaxRetries 3, got %d", cfg.MaxRetries)

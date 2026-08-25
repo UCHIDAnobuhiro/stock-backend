@@ -25,7 +25,7 @@ func NewConfig(apiKey, baseURL string) Config {
 	return Config{
 		TwelveDataAPIKey: apiKey,
 		BaseURL:          baseURL,
-		Timeout:          10 * time.Second,
+		Timeout:          30 * time.Second,
 		MaxRetries:       3,
 		RetryBaseBackoff: 500 * time.Millisecond,
 		RetryMaxBackoff:  30 * time.Second,
