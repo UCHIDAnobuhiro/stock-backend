@@ -1,6 +1,7 @@
 package candles
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/v2"
 	"fmt"
@@ -10,6 +11,30 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+const (
+	// latestCacheSize は銘柄・インターバルごとにRedisへ保存する最新足の件数です。
+	// チャートの初回表示件数に合わせ、最大取得件数（MaxOutputSize）とは分離して管理します。
+	latestCacheSize = 200
+
+	// latestCacheVersion は最新足キャッシュのJSON形式バージョンです。
+	// 旧形式のJSON配列と区別し、旧revisionが200件を全件キャッシュと誤認することを防ぎます。
+	latestCacheVersion = 2
+)
+
+// latestCacheEntry は最新足キャッシュの保存形式です。
+// 旧形式はCandleのJSON配列であり、新revisionは移行期間中も読み取り互換性を維持します。
+type latestCacheEntry struct {
+	Version int      `json:"version"`
+	Candles []Candle `json:"candles"`
+}
+
+func newLatestCacheEntry(candles []Candle) latestCacheEntry {
+	if candles == nil {
+		candles = []Candle{}
+	}
+	return latestCacheEntry{Version: latestCacheVersion, Candles: candles}
+}
 
 // readWriteRepository はCachingRepositoryが内部で必要とする読み書きインターフェースです。
 type readWriteRepository interface {
@@ -85,8 +110,10 @@ func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) e
 	return nil
 }
 
-// Find はローソク足データを取得します。まずキャッシュを確認し、なければデータベースにフォールバックします。
-// キャッシュには全データ（最大MaxOutputSize件）を保存し、outputsize件にスライスして返します。
+// Find はローソク足データを取得します。outputsizeがlatestCacheSize以下ならキャッシュを確認し、
+// なければデータベースからlatestCacheSize件を取得して保存します。
+// latestCacheSizeを超える要求は、件数の少ないキャッシュから不完全な結果を返さないよう
+// キャッシュをバイパスしてデータベースから直接取得します。
 func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
 	// outputsize は本来 handler で 1〜MaxOutputSize の範囲に検証済みだが、
 	// cache-hit 経路と dbRepository.Find の挙動を一致させるため、
@@ -95,8 +122,9 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 		return nil, fmt.Errorf("find candles: %w", ErrInvalidOutputSize)
 	}
 
-	// Redisが未設定の場合はキャッシュをバイパス
-	if c.rdb == nil {
+	// Redisが未設定、または最新キャッシュの件数を超える要求の場合はキャッシュをバイパスする。
+	// APIが既存の1〜MaxOutputSize件の要求を引き続き受け付けられるよう、最大取得件数は変更しない。
+	if c.rdb == nil || outputsize > latestCacheSize {
 		return c.inner.Find(ctx, symbol, interval, outputsize)
 	}
 
@@ -104,16 +132,15 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 
 	// 1) キャッシュを確認
 	if b, err := c.rdb.Get(ctx, key).Bytes(); err == nil && len(b) > 0 {
-		var all []Candle
-		if err := json.Unmarshal(b, &all); err == nil {
+		if all, ok := decodeCachedCandles(b); ok {
 			return sliceCandles(all, outputsize), nil
 		}
 		// 破損したキャッシュエントリを削除
 		_ = c.rdb.Del(ctx, key).Err()
 	}
 
-	// 2) データベースにフォールバック（全データ取得してキャッシュに保存）
-	all, err := c.inner.Find(ctx, symbol, interval, MaxOutputSize)
+	// 2) データベースにフォールバック（latestCacheSize件を取得してキャッシュに保存）
+	all, err := c.inner.Find(ctx, symbol, interval, latestCacheSize)
 	if err != nil {
 		return nil, err
 	}
@@ -122,11 +149,37 @@ func (c *CachingRepository) Find(ctx context.Context, symbol, interval string, o
 	// SetNX（SET key value EX <ttl> NX）を使い、キーが存在しない場合のみ書き込む。
 	// ingestのDELの直後に他インスタンスが新データで既にキャッシュを再構築している
 	// ケースで、本経路が読んだ（DEL前の）古いDBデータで上書きしてしまうのを防ぐ。
-	if b, err := json.Marshal(all); err == nil {
+	entry := newLatestCacheEntry(all)
+	if b, err := json.Marshal(entry); err == nil {
 		_ = c.rdb.SetNX(ctx, key, b, c.ttl).Err()
 	}
 
 	return sliceCandles(all, outputsize), nil
+}
+
+// decodeCachedCandles は現行のバージョン付きオブジェクトと、移行前のJSON配列を読み取ります。
+// 現行形式をオブジェクトにすることで、旧revisionはUnmarshalエラーとしてキャッシュを削除し、
+// 最大MaxOutputSize件をDBから再取得できるため、ローリング更新とロールバック時も件数を誤りません。
+func decodeCachedCandles(b []byte) ([]Candle, bool) {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return nil, false
+	}
+
+	if b[0] == '[' {
+		var legacy []Candle
+		if err := json.Unmarshal(b, &legacy); err != nil {
+			return nil, false
+		}
+		return legacy, true
+	}
+
+	var entry latestCacheEntry
+	if err := json.Unmarshal(b, &entry); err != nil ||
+		entry.Version != latestCacheVersion || entry.Candles == nil {
+		return nil, false
+	}
+	return entry.Candles, true
 }
 
 // sliceCandles は全ローソク足データから先頭 outputsize 件を返します。

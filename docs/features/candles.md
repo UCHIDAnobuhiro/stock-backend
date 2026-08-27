@@ -32,22 +32,24 @@ sequenceDiagram
     Handler->>Usecase: GetCandles(symbol, interval, outputsize)
     Usecase->>Cache: Find(symbol, interval, outputsize)
 
-    alt Redis Available
+    alt outputsize <= 200 and Redis Available
         Cache->>Redis: GET candles:AAPL:1day
         alt Cache HIT
             Redis-->>Cache: JSON data
-            Cache->>Cache: Unmarshal JSON
+            Cache->>Cache: Unmarshal v2 object or legacy array
+            Cache->>Cache: Slice to outputsize
             Cache-->>Usecase: []Candle
         else Cache MISS
             Redis-->>Cache: nil
-            Cache->>Repository: Find(symbol, interval, outputsize)
+            Cache->>Repository: Find(symbol, interval, 200)
             Repository->>DB: SELECT * FROM candles WHERE symbol_code=? AND interval=? ORDER BY time DESC LIMIT ?
             DB-->>Repository: Rows
             Repository-->>Cache: []Candle
             Cache->>Redis: SET NX candles:AAPL:1day (TTL)
+            Cache->>Cache: Slice to outputsize
             Cache-->>Usecase: []Candle
         end
-    else Redis Unavailable
+    else outputsize > 200 or Redis Unavailable
         Cache->>Repository: Find(symbol, interval, outputsize)
         Repository->>DB: SELECT ...
         DB-->>Repository: Rows
@@ -207,6 +209,8 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 銘柄ごとに `GET /v1/candles/{code}` を呼ぶN+1を回避するためのバッチAPIです）。JWT認証が必要です。
 新しいSQL/sqlcクエリは追加せず、既存の `Repository.Find`（`CachingRepository` 経由でワイヤリング
 済み）を銘柄ごとに並行呼び出しして実現しています（並行数は `quoteConcurrency`（8）で上限管理）。
+`Repository.Find` へ渡す件数は `max(bars, 2)` です。200件以下は最新足キャッシュを共有し、
+201〜500件はキャッシュをバイパスしてPostgreSQLから要求件数を直接取得します。
 
 **クエリパラメータ**
 | パラメータ | デフォルト | 説明 |
@@ -375,7 +379,9 @@ graph TB
 - **CachingRepository**（[caching_repository.go](../../internal/feature/candles/caching_repository.go)）: Redisキャッシュデコレータ
   - Repositoryをラップするデコレータパターンを実装
   - `Repository`（読み取り）と`WriteRepository`（書き込み）の両インターフェースを実装
-  - キャッシュキー形式: `candles:{symbol}:{interval}`（全データを保存し、取得時に outputsize 件にスライス）
+  - キャッシュキー形式: `candles:{symbol}:{interval}`（最新200件をバージョン付きJSON objectで保存し、取得時に outputsize 件へスライス）
+  - 移行前のJSON配列も読み取り可能。現行objectは旧revisionの配列decoderが拒否するため、ローリング更新・ロールバック時も200件を全件キャッシュと誤認しない
+  - 201件以上の要求はキャッシュをバイパスしてPostgreSQLから直接取得
   - UpsertBatch時の自動キャッシュ無効化
   - Redis利用不可時のグレースフルデグレード
 - **TwelveDataMarket**（[twelvedata/repository.go](../../internal/feature/candles/twelvedata/repository.go)）: TwelveData APIクライアント
@@ -555,7 +561,8 @@ go test ./internal/feature/candles/... -v -race -cover
 
 | 設定 | 値 | 説明 |
 |------|-----|------|
-| キー形式 | `candles:{symbol}:{interval}` | symbol+interval単位でキャッシュ（全データ最大5000件を保存） |
+| キー形式 | `candles:{symbol}:{interval}` | symbol+interval単位で最新200件をキャッシュ |
+| 値形式 | `{"version":2,"candles":[...]}` | 旧JSON配列は読み取り互換。現行objectを旧revisionがキャッシュミス扱いできる形式 |
 | TTL | 24時間（既定値） | `CANDLES_CACHE_TTL`（`time.ParseDuration`形式）で変更可能。DEL失敗時や競合による汚染時に古いキャッシュが残り続けないためのセーフティネット |
 | デフォルトTTL | 5分 | コンストラクタにttl=0を渡した場合のフォールバック |
 | 名前空間 | `candles` | 分離のためのキープレフィックス |
@@ -563,9 +570,10 @@ go test ./internal/feature/candles/... -v -race -cover
 ### キャッシュ動作
 
 1. **読み取りパス（Find）**
-   - Redisのキャッシュデータを確認
-   - ヒット時: デシリアライズしたデータを返却
-   - ミス時: PostgreSQLにクエリし、`SET NX`（キーが存在しない場合のみ書き込み、TTLは`CANDLES_CACHE_TTL`、既定値24h）でキャッシュしてから返却
+   - `outputsize` が200件以下の場合のみRedisのキャッシュデータを確認
+   - ヒット時: 最新200件以内のキャッシュをデシリアライズし、要求件数へスライスして返却
+   - ミス時: PostgreSQLから最新200件を取得し、`SET NX`（キーが存在しない場合のみ書き込み、TTLは`CANDLES_CACHE_TTL`、既定値24h）でキャッシュしてから要求件数を返却
+   - `outputsize` が201〜5000件の場合: Redisをバイパスし、PostgreSQLから要求件数を直接取得
    - Redisエラー時: キャッシュをバイパスし、PostgreSQLに直接クエリ
 
 2. **書き込みパス（UpsertBatch）**
