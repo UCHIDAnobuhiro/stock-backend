@@ -7,8 +7,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redismock/v9"
+	"github.com/redis/go-redis/v9"
 )
+
+const testLatestCacheKey = "candles:AAPL:1day"
+
+func mustMarshalJSON(t *testing.T, value any) []byte {
+	t.Helper()
+
+	b, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("failed to marshal test value: %v", err)
+	}
+	return b
+}
+
+func latestCacheJSON(t *testing.T, candles []Candle) []byte {
+	t.Helper()
+	return mustMarshalJSON(t, newLatestCacheEntry(candles))
+}
 
 // mockReadWriteRepository はテスト用の readWriteRepository（読み書き）モック実装です。
 type mockReadWriteRepository struct {
@@ -118,10 +137,10 @@ func TestCachingCandleRepository_Find_CacheHit(t *testing.T) {
 	cachedCandles := []Candle{
 		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
 	}
-	cachedJSON, _ := json.Marshal(cachedCandles)
+	cachedJSON := latestCacheJSON(t, cachedCandles)
 
-	// キャッシュキーは outputsize を含まない
-	mock.ExpectGet("candles:AAPL:1day").SetVal(string(cachedJSON))
+	// 最新足キャッシュのキーは outputsize を含まない
+	mock.ExpectGet(testLatestCacheKey).SetVal(string(cachedJSON))
 
 	innerCalled := false
 	inner := &mockReadWriteRepository{
@@ -132,7 +151,7 @@ func TestCachingCandleRepository_Find_CacheHit(t *testing.T) {
 	}
 
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
-	candles, err := repo.Find(context.Background(), "AAPL", "1day", 100)
+	candles, err := repo.Find(context.Background(), "AAPL", "1day", latestCacheSize)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,6 +160,44 @@ func TestCachingCandleRepository_Find_CacheHit(t *testing.T) {
 	}
 	if len(candles) != 1 {
 		t.Errorf("expected 1 candle, got %d", len(candles))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestCachingCandleRepository_Find_LegacyCacheHit は移行前のJSON配列キャッシュも読み取れることを検証します。
+func TestCachingCandleRepository_Find_LegacyCacheHit(t *testing.T) {
+	t.Parallel()
+
+	rdb, mock := redismock.NewClientMock()
+	defer func() { _ = rdb.Close() }()
+
+	cachedCandles := []Candle{
+		{SymbolCode: "AAPL", Interval: "1day", Open: 100.0},
+		{SymbolCode: "AAPL", Interval: "1day", Open: 101.0},
+		{SymbolCode: "AAPL", Interval: "1day", Open: 102.0},
+	}
+	mock.ExpectGet(testLatestCacheKey).SetVal(string(mustMarshalJSON(t, cachedCandles)))
+
+	innerCalled := false
+	inner := &mockReadWriteRepository{
+		findFn: func(context.Context, string, string, int) ([]Candle, error) {
+			innerCalled = true
+			return nil, nil
+		},
+	}
+
+	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+	got, err := repo.Find(context.Background(), "AAPL", "1day", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if innerCalled {
+		t.Error("inner repository should not be called on legacy cache hit")
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 candles, got %d", len(got))
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
@@ -162,9 +219,9 @@ func TestCachingCandleRepository_Find_CacheHit_Slices(t *testing.T) {
 		{SymbolCode: "AAPL", Interval: "1day", Open: 103.0},
 		{SymbolCode: "AAPL", Interval: "1day", Open: 104.0},
 	}
-	cachedJSON, _ := json.Marshal(cachedCandles)
+	cachedJSON := latestCacheJSON(t, cachedCandles)
 
-	mock.ExpectGet("candles:AAPL:1day").SetVal(string(cachedJSON))
+	mock.ExpectGet(testLatestCacheKey).SetVal(string(cachedJSON))
 
 	inner := &mockReadWriteRepository{}
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
@@ -201,17 +258,9 @@ func TestCachingCandleRepository_Find_InvalidOutputSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rdb, mock := redismock.NewClientMock()
-			defer func() { _ = rdb.Close() }()
-
-			cachedCandles := []Candle{
-				{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
-			}
-			cachedJSON, _ := json.Marshal(cachedCandles)
-
-			// キャッシュにヒットする状態をセットアップするが、outputsize検証は
-			// キャッシュ参照より前に行われるため Redis へのアクセスは発生しない。
-			mock.ExpectGet("candles:AAPL:1day").SetVal(string(cachedJSON))
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
 
 			innerCalled := false
 			inner := &mockReadWriteRepository{
@@ -233,11 +282,15 @@ func TestCachingCandleRepository_Find_InvalidOutputSize(t *testing.T) {
 			if innerCalled {
 				t.Error("inner repository should not be called for invalid outputsize")
 			}
+			if got := mr.CommandCount(); got != 0 {
+				t.Errorf("Redis should not be called, got %d commands", got)
+			}
 		})
 	}
 }
 
-// TestCachingCandleRepository_Find_CacheMiss はキャッシュミス時にDBから全データを取得し、キャッシュに保存してoutputsize件を返すことを検証します。
+// TestCachingCandleRepository_Find_CacheMiss はキャッシュミス時にDBから最新足キャッシュ上限まで取得し、
+// キャッシュに保存してoutputsize件を返すことを検証します。
 func TestCachingCandleRepository_Find_CacheMiss(t *testing.T) {
 	t.Parallel()
 
@@ -247,18 +300,17 @@ func TestCachingCandleRepository_Find_CacheMiss(t *testing.T) {
 	expectedCandles := []Candle{
 		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
 	}
-	expectedJSON, _ := json.Marshal(expectedCandles)
+	expectedJSON := latestCacheJSON(t, expectedCandles)
 
 	// Cache miss
-	mock.ExpectGet("candles:AAPL:1day").RedisNil()
-	// SetNXでキャッシュに保存（全データで保存）
-	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(true)
+	mock.ExpectGet(testLatestCacheKey).RedisNil()
+	// SetNXで最新足をキャッシュに保存
+	mock.ExpectSetNX(testLatestCacheKey, expectedJSON, 5*time.Minute).SetVal(true)
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
-			// MaxOutputSize(5000) で呼ばれることを検証
-			if outputsize != MaxOutputSize {
-				t.Errorf("expected outputsize %d, got %d", MaxOutputSize, outputsize)
+			if outputsize != latestCacheSize {
+				t.Errorf("expected outputsize %d, got %d", latestCacheSize, outputsize)
 			}
 			return expectedCandles, nil
 		},
@@ -277,6 +329,57 @@ func TestCachingCandleRepository_Find_CacheMiss(t *testing.T) {
 	}
 }
 
+// TestCachingCandleRepository_Find_AboveLatestCacheSizeBypassesCache は最新足キャッシュ上限を
+// 超える要求をRedisへ問い合わせず、要求件数のまま内部リポジトリへ渡すことを検証します。
+func TestCachingCandleRepository_Find_AboveLatestCacheSizeBypassesCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		outputsize int
+	}{
+		{name: "one above cache limit", outputsize: latestCacheSize + 1},
+		{name: "API maximum", outputsize: MaxOutputSize},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
+
+			inner := &mockReadWriteRepository{
+				findFn: func(_ context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
+					if symbol != "AAPL" {
+						t.Errorf("expected symbol AAPL, got %s", symbol)
+					}
+					if interval != "1day" {
+						t.Errorf("expected interval 1day, got %s", interval)
+					}
+					if outputsize != tt.outputsize {
+						t.Errorf("expected outputsize %d, got %d", tt.outputsize, outputsize)
+					}
+					return []Candle{{SymbolCode: symbol, Interval: interval}}, nil
+				},
+			}
+
+			repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+			got, err := repo.Find(context.Background(), "AAPL", "1day", tt.outputsize)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("expected 1 candle, got %d", len(got))
+			}
+			if got := mr.CommandCount(); got != 0 {
+				t.Fatalf("Redis should not be called, got %d commands", got)
+			}
+		})
+	}
+}
+
 // TestCachingCandleRepository_Find_InnerError は内部リポジトリがエラーを返した場合にそのエラーが伝播されることを検証します。
 func TestCachingCandleRepository_Find_InnerError(t *testing.T) {
 	t.Parallel()
@@ -286,7 +389,7 @@ func TestCachingCandleRepository_Find_InnerError(t *testing.T) {
 
 	expectedErr := errors.New("database error")
 
-	mock.ExpectGet("candles:AAPL:1day").RedisNil()
+	mock.ExpectGet(testLatestCacheKey).RedisNil()
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
@@ -315,14 +418,14 @@ func TestCachingCandleRepository_Find_CorruptedCache(t *testing.T) {
 	expectedCandles := []Candle{
 		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
 	}
-	expectedJSON, _ := json.Marshal(expectedCandles)
+	expectedJSON := latestCacheJSON(t, expectedCandles)
 
 	// Return invalid JSON from cache
-	mock.ExpectGet("candles:AAPL:1day").SetVal("invalid json")
+	mock.ExpectGet(testLatestCacheKey).SetVal("invalid json")
 	// Delete corrupted cache
-	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
+	mock.ExpectDel(testLatestCacheKey).SetVal(1)
 	// SetNXで新しいキャッシュを保存
-	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(true)
+	mock.ExpectSetNX(testLatestCacheKey, expectedJSON, 5*time.Minute).SetVal(true)
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
@@ -355,12 +458,12 @@ func TestCachingCandleRepository_Find_CacheMiss_SetNXLosesRace(t *testing.T) {
 	expectedCandles := []Candle{
 		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
 	}
-	expectedJSON, _ := json.Marshal(expectedCandles)
+	expectedJSON := latestCacheJSON(t, expectedCandles)
 
 	// Cache miss
-	mock.ExpectGet("candles:AAPL:1day").RedisNil()
+	mock.ExpectGet(testLatestCacheKey).RedisNil()
 	// SetNXが false を返す（他インスタンスが先に書き込み済み = キーが既に存在）
-	mock.ExpectSetNX("candles:AAPL:1day", expectedJSON, 5*time.Minute).SetVal(false)
+	mock.ExpectSetNX(testLatestCacheKey, expectedJSON, 5*time.Minute).SetVal(false)
 
 	inner := &mockReadWriteRepository{
 		findFn: func(ctx context.Context, symbol, interval string, outputsize int) ([]Candle, error) {
@@ -378,6 +481,70 @@ func TestCachingCandleRepository_Find_CacheMiss_SetNXLosesRace(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+// TestLatestCacheEntry_LegacyDecoderRejectsCurrentFormat は旧revisionが現行の200件キャッシュを
+// JSON配列として誤認せず、キャッシュミスへフォールバックできることを検証します。
+func TestLatestCacheEntry_LegacyDecoderRejectsCurrentFormat(t *testing.T) {
+	t.Parallel()
+
+	b := latestCacheJSON(t, []Candle{{SymbolCode: "AAPL", Interval: "1day"}})
+	var legacy []Candle
+	if err := json.Unmarshal(b, &legacy); err == nil {
+		t.Fatal("legacy array decoder should reject current cache format")
+	}
+}
+
+// TestDecodeCachedCandles_RejectsInvalidEnvelope は未対応・不完全なenvelopeを
+// キャッシュヒットとして扱わないことを検証します。
+func TestDecodeCachedCandles_RejectsInvalidEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{
+			name: "unsupported version",
+			raw: mustMarshalJSON(t, latestCacheEntry{
+				Version: latestCacheVersion + 1,
+				Candles: []Candle{},
+			}),
+		},
+		{
+			name: "missing candles",
+			raw:  mustMarshalJSON(t, map[string]any{"version": latestCacheVersion}),
+		},
+		{
+			name: "null candles",
+			raw:  mustMarshalJSON(t, map[string]any{"version": latestCacheVersion, "candles": nil}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if candles, ok := decodeCachedCandles(tt.raw); ok {
+				t.Fatalf("expected invalid envelope to be rejected, got %v", candles)
+			}
+		})
+	}
+}
+
+// TestDecodeCachedCandles_AcceptsEmptyCurrentCache はデータがない場合の空配列を
+// 有効なキャッシュとして扱い、DBへの反復問い合わせを防げることを検証します。
+func TestDecodeCachedCandles_AcceptsEmptyCurrentCache(t *testing.T) {
+	t.Parallel()
+
+	b := latestCacheJSON(t, nil)
+	candles, ok := decodeCachedCandles(b)
+	if !ok {
+		t.Fatal("expected empty current cache to be accepted")
+	}
+	if candles == nil || len(candles) != 0 {
+		t.Fatalf("expected non-nil empty candles, got %v", candles)
 	}
 }
 
@@ -467,7 +634,7 @@ func TestCachingCandleRepository_UpsertBatch_InvalidatesCache(t *testing.T) {
 	}
 
 	// 既存キャッシュを削除するのみ（SETは発行されない）
-	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
+	mock.ExpectDel(testLatestCacheKey).SetVal(1)
 
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
 	err := repo.UpsertBatch(context.Background(), []Candle{
@@ -499,7 +666,7 @@ func TestCachingCandleRepository_UpsertBatch_CacheInvalidationError(t *testing.T
 		},
 	}
 
-	mock.ExpectDel("candles:AAPL:1day").SetErr(errors.New("redis unavailable"))
+	mock.ExpectDel(testLatestCacheKey).SetErr(errors.New("redis unavailable"))
 
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
 	err := repo.UpsertBatch(context.Background(), []Candle{
@@ -528,7 +695,7 @@ func TestCachingCandleRepository_UpsertBatch_DeduplicatesDel(t *testing.T) {
 	}
 
 	// AAPL:1day が3件あっても DEL は1回のみ
-	mock.ExpectDel("candles:AAPL:1day").SetVal(1)
+	mock.ExpectDel(testLatestCacheKey).SetVal(1)
 
 	repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
 	err := repo.UpsertBatch(context.Background(), []Candle{
