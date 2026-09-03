@@ -6,6 +6,8 @@
 Goの標準ライブラリ net/http（ルーティングに chi）で構築し、フロントエンドと連携します。
 REST APIとして、ユーザー認証・株式データ配信・キャッシュ最適化を提供します。
 
+**公開アプリ:** [https://www.stockviewapp.com](https://www.stockviewapp.com)
+
 ## 主な機能
 
 - **ユーザー認証**
