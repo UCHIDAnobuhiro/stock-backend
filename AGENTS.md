@@ -2,7 +2,15 @@
 
 このファイルは、コーディングエージェント（Claude Code / Codex 等）がこのリポジトリのコードを扱う際のガイダンスを提供します。
 エージェント向けガイダンスは本ファイルに一本化しており、`CLAUDE.md` は本ファイルを読み込むだけの参照ファイルです。
-内容を更新する場合は、常に本ファイルを編集してください。
+共通ガイダンスを更新する場合は本ファイルを、個別の作業手順は対応するスキルを編集してください。
+
+## 作業の進め方
+
+- 最初に `git status --short` と対象差分を確認し、既存の変更・未追跡ファイル・ステージ境界を保持する。
+- 依頼された実装・修正・検証は、仕様が明確なら追加の確認を挟まず進める。未確定の仕様や依頼範囲を超える操作だけ確認する。
+- commit・push・PR作成は、それらを含む依頼の範囲で行う。ドキュメント更新や生成だけの依頼から自動でcommitしない。
+- コマンドと実装の正確な根拠は `go.mod`、`.github/workflows/ci.yaml`、`.go-arch-lint.yml`、対象コードを確認する。文書と実装の不一致は、依頼範囲で修正するか報告する。
+- 変更に関連する検証を実行する。文書だけの変更はリンク・記述・差分の検証を行い、Goの全テストを機械的に実行しない。実行できなかった検証と理由は明記する。
 
 ## 開発コマンド
 
@@ -11,7 +19,7 @@
 # APIサーバー起動（Airによるホットリロード付き）
 docker compose -f docker/docker-compose.yml -p stock up backend
 
-# バッチデータ取り込み実行（外部APIから株価データを取得）
+# バッチデータ取り込み実行（外部APIから株価データを取得。DB・Redis起動済みが前提）
 docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps candles
 
 # ログ確認
@@ -88,7 +96,7 @@ go build ./...
 
 ### 環境セットアップ
 - `docker/example.env` を `docker/.env` にコピーして設定（GCP ADC を使う場合は ADC 関連の変数も設定）：
-  - `TWELVE_DATA_API_KEY`: https://twelvedata.com/ から取得（無料枠: 8リクエスト/分）
+  - `TWELVE_DATA_API_KEY`: https://twelvedata.com/ から取得。契約プランの上限とバッチ側のレート制限設定を確認する
   - `JWT_SECRET`: 本番環境では強力なシークレットを設定
   - DB・Redisの設定はローカル開発用
 
@@ -130,7 +138,7 @@ internal/
 │   ├── httpclient/   # 外部API呼び出し用HTTPクライアント設定（outbound）
 │   ├── logging/      # 構造化ログ用ヘルパー（機密情報マスク等）
 │   └── redis/        # Redisクライアントセットアップ
-└── shared/           # 共有ユーティリティ（ドメイン横断、usecase からも利用可）
+└── shared/           # 共有ユーティリティ（利用可否は .go-arch-lint.yml の依存宣言に従う）
     └── clientratelimit/ # 外部API呼び出し用 in-memory レートリミッター
 ```
 
@@ -144,7 +152,7 @@ internal/
 ```
 feature/<name>/                # package <name>（ドメイン+ユースケース+アダプタ）
 ├── <entity>.go                # ドメインモデル（例: candle.go の Candle 型）
-├── usecase.go                 # HTTP 読み取り系ユースケース（リポジトリインターフェース定義含む）
+├── usecase.go                 # ユースケース（読み書き。利用するインターフェースも定義）
 ├── ingest.go                  # バッチ書き込み系ユースケース（cmd/batch から起動。フィーチャーが持つ場合）
 ├── repository.go              # リポジトリ実装（PostgreSQL 等）
 ├── sqlc/                      # package <name>sqlc: sqlc 生成コード（手動編集禁止）
@@ -153,19 +161,20 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
     └── handler.go
 ```
 
-vertical slice として、各フィーチャーは**HTTP 読み取り**と**バッチ書き込み**の両ユースケースを所有します。
-`<name>http/` が HTTP トリガ（`usecase.go`）、`ingest.go` がバッチトリガ（`cmd/batch` 経由）の入口です。
+各フィーチャーは必要な HTTP・バッチのユースケースを所有します。HTTP にも認証・watchlist 更新などの書き込みがあり、全フィーチャーにバッチが必要なわけではありません。
+`<name>http/` が HTTP の入口で、バッチ処理がある場合は `ingest.go` 等を `cmd/batch` 経由で呼びます。
+`auth` は `credentials.go`・`session.go`・`oauth.go` など、責務に応じた名前でユースケースを分割しています。
 参照例: `candles.Candle` / `candles.NewUsecase` / `candleshttp.NewHandler` /
 バッチは `candles.IngestUsecase`・`symbollist.LogoIngestUsecase`。
-パッケージ名がフィーチャー名で一意になるため、import エイリアスは不要です。
+フィーチャー名の import エイリアスは通常不要です。同名パッケージの衝突回避など、必要な場合は使用できます。
 
 **注意**: リクエスト/レスポンスの型は `internal/api/types.gen.go`（OpenAPI仕様から自動生成）を使用します。各フィーチャーにDTOは配置しません。
 
-**注意**: Goの慣例に従い、**リポジトリインターフェースは利用者側のファイル**（`usecase.go` / `<name>http/handler.go`）で定義します。別途 domain/repository ディレクトリには配置しません。
+**注意**: Goの慣例に従い、**リポジトリインターフェースは利用者側のファイル**（`usecase.go` / `ingest.go` / `credentials.go` / `<name>http/handler.go` 等）で定義します。別途 domain/repository ディレクトリには配置しません。
 
 ### ファイル内の関数の並び順（トップダウン整列）
 
-同一ファイル内の関数は、Go の慣例（新聞記事的なトップダウン）に従い、**呼ぶ側を先に・呼ばれる側を後に**、
+同一ファイル内の関数は、このリポジトリの規約としてトップダウンに整列し、**呼ぶ側を先に・呼ばれる側を後に**、
 **公開（大文字始まり）を先に・非公開ヘルパー（小文字始まり）を後に**並べます。読み手が上から下へ
 読み進めれば理解できる順序にし、非公開ヘルパーを探して上へ戻らせないようにします。
 
@@ -176,12 +185,12 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 - 例: `internal/feature/candles/ingest.go` は
   `NewIngestUsecase` → `IngestAll`（公開エントリ）→ `ingestOne` → `dedupCandles`
 - 例外: 複数の公開関数から共有される小さなキー生成ヘルパー等（`stateKey` / `blacklistKey` 等）は、
-  コンストラクタ直後に置く定石を許容します
+  コンストラクタ直後に置くことを許容します
 
 ### 依存関係ルール（go-arch-lint で強制）
 
 `.go-arch-lint.yml` で**デフォルト拒否**の宣言式に強制します（`go tool go-arch-lint check`）。
-未宣言の内部依存はすべてエラーになります。
+未宣言の内部依存はエラーになります。検査は本番コードの import が対象で、`_test.go` は除外し、呼び出し・DI解析（deepScan）は無効です。
 
 1. **フィーチャー分離**: 各フィーチャーパッケージは他のフィーチャーをインポート不可
 2. **api 型境界**: フィーチャーコアは `internal/api` をインポート不可（`<name>http` 層のみ可）
@@ -189,11 +198,11 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 4. **外部アダプタの向き**: `twelvedata` / `gemini` / `vision` は自身のフィーチャーコアにのみ依存
 
 サードパーティ/標準ライブラリは `allow.depOnAnyVendor: true` で一律許可し、内部依存のみを管理します。
-これにより、ドメインロジックがインフラストラクチャの詳細から独立した状態を保ちます。
+コアは同一パッケージにリポジトリ実装を含み、自身の sqlc や外部ライブラリに依存します。依存検査が保証するのは宣言された内部パッケージ境界であり、ドメインの技術的な完全分離ではありません。
 
 ### 主要なアーキテクチャパターン
 
-1. **リポジトリパターン**: すべてのデータアクセスは `usecase.go` で定義されたリポジトリインターフェースを経由します（Goの「インターフェースは利用者が定義する」慣例に従う）
+1. **リポジトリパターン**: ユースケースのデータアクセスは、利用者側のファイルに定義したリポジトリインターフェースを経由します（Goの「インターフェースは利用者が定義する」慣例に従う）
 2. **sqlc によるクエリ実装**: 各 feature の `sqlc/queries.sql` を `go tool sqlc generate` で生成し、`repository.go` が `*sql.DB`（pgx stdlib driver）から呼び出します。GORM は採用していません（ADR-0006 参照）。
 3. **キャッシュ用デコレータパターン**: `feature/candles` の `CachingRepository` がベースリポジトリをラップ
    - `Repository`（読み取り）と `WriteRepository`（書き込み）の両インターフェースを実装
@@ -209,7 +218,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
    - `cmd/migrate/main.go`: goose 埋め込みマイグレーションを適用する専用バイナリ（Cloud Run Job 等で起動）
 
 ### 外部依存
-- TwelveData API（株価データ、8リクエスト/分制限） / PostgreSQL（database/sql + pgx/v5/stdlib） / Redis（キャッシュ）
+- TwelveData API（株価データ、バッチ側でレート制限） / PostgreSQL（database/sql + pgx/v5/stdlib） / Redis（キャッシュ）
 - スキーマは `db/migrations/*.sql`、クエリは各 feature の `sqlc/queries.sql`
 - 詳細なデータフローは各フィーチャーのドキュメント（`docs/features/`）を参照
 
@@ -217,9 +226,10 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 - JWT認証（`transport/jwt/AuthRequired()`）
 - 公開（認証不要）: `/healthz`, `/v1/signup`, `/v1/login`, `/v1/auth/refresh`, `/v1/logout`,
   `/v1/auth/oauth/{provider}`（+ `/callback`。OAuth 用の環境変数が設定されている場合のみ登録）
-- 保護（`AuthRequired` + CSRF）: その他すべて
+- 保護（`AuthRequired` + CSRFミドルウェア）: 上記以外の登録済み `/v1` 業務ルート
 - `/v1/auth/refresh` と `/v1/logout` は、期限切れアクセストークンでも実行できるようJWT認証を要求しません。
-  ただし CSRF（Double Submit Cookie）の検証は行います
+  ただし `auth_token` または `refresh_token` Cookie がある場合は CSRF（Double Submit Cookie）を検証します
+- CSRF は GET/HEAD/OPTIONS を除外します。保護ルートでは認証済み Bearer 利用も除外します。詳細は `internal/transport/csrf/middleware.go` とルーターを参照
 
 ### テストに関する注意事項
 
@@ -227,7 +237,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 
 ## 新機能の追加
 
-新機能を追加する際は、確立されたパターンに従ってください：
+新機能を追加する際は、以下から必要な構成だけを追加してください。既存フィーチャーの拡張なら、不要な新パッケージやDBを作らず既存構成に沿います：
 
 1. **フィーチャーディレクトリを作成**: `internal/feature/<feature-name>/`（`package <feature-name>`）
 2. **ドメインモデルを定義**: `<entity>.go` にドメインモデルを作成（純粋なGo構造体）
@@ -241,8 +251,8 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 5. **HTTP層を追加**:
    - `<name>http/handler.go` - HTTPハンドラー（`package <name>http`。必要に応じてusecaseインターフェースもここで定義可）
    - リクエスト/レスポンス型は `api/openapi.yaml` に定義し、`go generate ./internal/api/...` で生成
-6. **DBスキーマの変更が必要なら**: `go tool goose create <name> sql` で
-   `db/migrations/NNNNN_<name>.sql` を作成し、Up/Down 両方を必ず実装
+6. **DBスキーマの変更が必要なら**: 上記「マイグレーション」の環境変数を指定した `go tool goose create <name> sql` で
+   `db/migrations/` にファイルを作成し、Up/Down 両方を必ず実装。`schema-doc-sync` でスキーマ文書も再生成する
 7. **依存関係をワイヤリング**: `cmd/api/main.go` または `cmd/batch/main.go` にて
 8. **ルートを登録**: `internal/app/router/router.go` にて
 9. **go-arch-lint にコンポーネントを追加**: `.go-arch-lint.yml` に以下を追加：
@@ -280,7 +290,7 @@ vertical slice として、各フィーチャーは**HTTP 読み取り**と**バ
 - Claude Code: `.claude/skills/<name>/SKILL.md`
 - Codex: `.agents/skills/<name>/SKILL.md`
 
-スキルを追加・変更した場合は、**両方のディレクトリに同じ内容を反映**してください。
+リポジトリ固有のスキルを追加・変更した場合は、**両方のディレクトリに同じ内容を反映**し、`diff -ru .agents/skills .claude/skills` で一致を確認してください。個人管理スキルやインストール済みプラグインは、この複製規則の対象外です。
 
 ## Git ブランチ操作のルール
 
