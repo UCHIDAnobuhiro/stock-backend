@@ -78,23 +78,21 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 	// API v1 ルート
 	r.Route("/v1", func(r chi.Router) {
 		// 公開ルート（認証不要）+ レートリミット + OpenAPI バリデーション。
-		// OpenAPI スペックに基づき、パス/クエリ/JSON ボディを契約準拠で検証する。
+		// IPレート制限を本文を読むOpenAPI検証より先に実行し、拒否時の読み込みを防ぐ。
 		r.Group(func(r chi.Router) {
-			r.Use(cfg.OpenAPIValidator)
-
 			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 				Prefix: "rl:signup:ip",
 				Limit:  5,
 				Window: 1 * time.Hour,
 				Policy: httpratelimit.FailClosed,
-			})).Post("/signup", h.Auth.Signup)
+			}), cfg.OpenAPIValidator).Post("/signup", h.Auth.Signup)
 
 			r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 				Prefix: "rl:login:ip",
 				Limit:  10,
 				Window: 1 * time.Minute,
 				Policy: httpratelimit.FailClosed,
-			})).Post("/login", h.Auth.Login)
+			}), cfg.OpenAPIValidator).Post("/login", h.Auth.Login)
 
 			r.With(
 				httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
@@ -104,11 +102,12 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 					Policy: httpratelimit.FailOpen,
 				}),
 				csrfmw.Protect("auth_token", "refresh_token"),
+				cfg.OpenAPIValidator,
 			).Post("/auth/refresh", h.Auth.Refresh)
 
 			// 期限切れアクセストークンでもログアウトできるようJWT認証は要求しない。
 			// Cookieがある場合だけDouble Submit Cookieを検証し、Bearerのみの利用も維持する。
-			r.With(csrfmw.Protect("auth_token", "refresh_token")).Delete("/logout", h.Auth.Logout)
+			r.With(csrfmw.Protect("auth_token", "refresh_token"), cfg.OpenAPIValidator).Delete("/logout", h.Auth.Logout)
 
 			// OAuthルート（環境変数が設定されている場合のみ登録）
 			if h.OAuth != nil {
@@ -119,14 +118,14 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 						Window:     1 * time.Minute,
 						Policy:     httpratelimit.FailClosed,
 						OnRejected: h.OAuth.RedirectRateLimitError,
-					})).Get("/{provider}", h.OAuth.BeginAuth)
+					}), cfg.OpenAPIValidator).Get("/{provider}", h.OAuth.BeginAuth)
 					r.With(httpratelimit.ByIP(cfg.Limiter, httpratelimit.RateLimitConfig{
 						Prefix:     "rl:oauth:callback:ip",
 						Limit:      20,
 						Window:     1 * time.Minute,
 						Policy:     httpratelimit.FailClosed,
 						OnRejected: h.OAuth.RedirectRateLimitError,
-					})).Get("/{provider}/callback", h.OAuth.Callback)
+					}), cfg.OpenAPIValidator).Get("/{provider}/callback", h.OAuth.Callback)
 				})
 			}
 		})

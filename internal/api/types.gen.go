@@ -283,6 +283,9 @@ type WatchlistItem struct {
 	SymbolCode string `json:"symbol_code"`
 }
 
+// RequestBodyTooLarge defines model for RequestBodyTooLarge.
+type RequestBodyTooLarge = ErrorResponse
+
 // UnauthorizedError defines model for UnauthorizedError.
 type UnauthorizedError = ErrorResponse
 

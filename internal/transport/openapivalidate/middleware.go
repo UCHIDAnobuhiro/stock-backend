@@ -5,6 +5,8 @@
 package openapivalidate
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -15,6 +17,11 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/api"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpx"
 )
+
+// maxRequestBodyBytes はJSON等の検証対象本文の上限（1 MiB）。
+// スキーマ検証は本文を全て読むため、フィールドの長さ検証より前に制限する。
+// multipart画像はこの検証をスキップし、画像ハンドラー側の上限を使用する。
+const maxRequestBodyBytes int64 = 1 << 20
 
 // skipPaths は OpenAPI バリデーションを適用しないパスです。
 // /v1/logo/detect は multipart/form-data で、ハンドラ側が独自に 10MB の
@@ -41,9 +48,14 @@ func New() (func(http.Handler) http.Handler, error) {
 		},
 		// バリデーション失敗時は詳細をログに残しつつ、クライアントへは汎用文言を返す
 		// （スキーマ内部情報を外部に漏らさない）。
-		ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
-			slog.Warn("OpenAPI リクエストバリデーション失敗", "message", message, "status", statusCode)
-			httpx.WriteJSON(w, statusCode, api.ErrorResponse{Error: "invalid request"})
+		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
+			var sizeErr *http.MaxBytesError
+			if errors.As(err, &sizeErr) {
+				httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, api.ErrorResponse{Error: "request body too large"})
+				return
+			}
+			slog.Warn("OpenAPI リクエストバリデーション失敗", "message", err.Error(), "status", opts.StatusCode)
+			httpx.WriteJSON(w, opts.StatusCode, api.ErrorResponse{Error: "invalid request"})
 		},
 		// servers の Host 検証を無効化する。実行環境（localhost / Cloud Run のホスト名）で
 		// Host が変わると "no matching operation" の 400 になるため、パスベース検証のみ行う。
@@ -60,6 +72,14 @@ func New() (func(http.Handler) http.Handler, error) {
 			if r.Method == http.MethodOptions || skipPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
+			}
+			if r.ContentLength > maxRequestBodyBytes {
+				httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, api.ErrorResponse{Error: "request body too large"})
+				return
+			}
+			// Content-Lengthなし（chunked等）でも実際の読み込み量を制限する。
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 			}
 			validated.ServeHTTP(w, r)
 		})
