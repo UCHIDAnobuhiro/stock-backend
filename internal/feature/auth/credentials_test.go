@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -363,6 +364,33 @@ func TestAuthUsecase_Login(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// OAuth専用ユーザーはダミー照合が一致してもセッションを発行しない。
+func TestAuthUsecase_Login_RejectsOAuthOnlyUser(t *testing.T) {
+	t.Parallel()
+	for _, pepper := range []string{"", testPepper} {
+		for _, password := range []string{"dummy", "other-password"} {
+			t.Run(fmt.Sprintf("peppered=%t/password=%s", pepper != "", password), func(t *testing.T) {
+				t.Parallel()
+				repo := &mockUserRepository{FindByEmailFunc: func(context.Context, string) (*auth.User, error) {
+					return &auth.User{ID: 42, Email: "oauth@example.com"}, nil
+				}}
+				sessions := &mockJWTGenerator{GenerateTokenFunc: func(int64, string) (string, error) {
+					t.Error("OAuth-only user must not receive a session from password login")
+					return "unexpected-token", nil
+				}}
+				uc := auth.NewUsecase(repo, sessions, pepper)
+				pair, err := uc.Login(context.Background(), "oauth@example.com", password)
+				if !errors.Is(err, auth.ErrInvalidCredentials) {
+					t.Fatalf("expected invalid credentials, got %v", err)
+				}
+				if pair != (auth.TokenPair{}) {
+					t.Errorf("expected no tokens, got a nonempty token pair")
+				}
+			})
+		}
 	}
 }
 

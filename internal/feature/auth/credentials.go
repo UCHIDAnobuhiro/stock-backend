@@ -147,8 +147,9 @@ func (u *usecase) Login(ctx context.Context, email, password string) (TokenPair,
 	pepperedPassword := u.pepperPassword(password)
 	compareErr := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(pepperedPassword))
 
-	// ユーザー未検出またはパスワード不一致の場合、汎用エラーを返す
-	if err != nil || compareErr != nil {
+	// ダミーハッシュとの一致を認証成功にしない。OAuth専用ユーザーも
+	// 比較は実行して時間差を抑えるが、パスワード認証では必ず拒否する。
+	if err != nil || user.PasswordHash == nil || compareErr != nil {
 		return TokenPair{}, ErrInvalidCredentials
 	}
 
