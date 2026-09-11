@@ -1,6 +1,8 @@
 package openapivalidate_test
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -130,4 +132,52 @@ func TestMiddleware_SkipsMultipart(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// 本文長ヘッダーの有無にかかわらず、検証前の読み込みに上限を設ける。
+func TestMiddleware_BodySizeLimit(t *testing.T) {
+	t.Parallel()
+	const limit = 1 << 20
+	payload := `{"email":"test@example.com","password":"password12345"}`
+	for _, path := range []string{"/v1/login", "/v1/signup"} {
+		for _, knownLength := range []bool{true, false} {
+			for _, size := range []int{limit, limit + 1, limit * 2} {
+				t.Run(fmt.Sprintf("%s/known=%t/bytes=%d", path, knownLength, size), func(t *testing.T) {
+					t.Parallel()
+					body := &countingReader{Reader: strings.NewReader(payload + strings.Repeat(" ", size-len(payload)))}
+					req := httptest.NewRequest(http.MethodPost, path, body)
+					req.Header.Set("Content-Type", "application/json")
+					if knownLength {
+						req.ContentLength = int64(size)
+					} else {
+						req.ContentLength = -1
+					}
+					rec := httptest.NewRecorder()
+					newValidatedRouter(t).ServeHTTP(rec, req)
+					if size <= limit {
+						assert.Equal(t, http.StatusOK, rec.Code)
+						assert.Equal(t, size, body.bytesRead)
+					} else {
+						assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+						assert.JSONEq(t, `{"error":"request body too large"}`, rec.Body.String())
+						assert.LessOrEqual(t, body.bytesRead, limit+1)
+						if knownLength {
+							assert.Zero(t, body.bytesRead)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+type countingReader struct {
+	io.Reader
+	bytesRead int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.bytesRead += n
+	return n, err
 }

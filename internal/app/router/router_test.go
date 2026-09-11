@@ -2,8 +2,10 @@ package router_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/watchlist/watchlisthttp"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/openapivalidate"
 )
 
 const testJWTSecret = "test-jwt-secret-for-router-tests"
@@ -107,10 +110,13 @@ func newTestRouter(t *testing.T, oauth *authhttp.OAuthHandler, trustedHops ...in
 	return newTestRouterWithLimiter(t, oauth, limiter, hops)
 }
 
-func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limiter *httpratelimit.Limiter, hops int) http.Handler {
+func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limiter *httpratelimit.Limiter, hops int, validators ...func(http.Handler) http.Handler) http.Handler {
 	t.Helper()
 
-	noopValidator := func(next http.Handler) http.Handler { return next }
+	validator := func(next http.Handler) http.Handler { return next }
+	if len(validators) > 0 {
+		validator = validators[0]
+	}
 
 	h := router.Handlers{
 		Auth:      authhttp.NewHandler(stubAuthUsecase{}, limiter, authhttp.SessionCookieConfig{}, testJWTSecret, nil),
@@ -122,7 +128,7 @@ func newTestRouterWithLimiter(t *testing.T, oauth *authhttp.OAuthHandler, limite
 	}
 	cfg := router.Config{
 		Limiter:          limiter,
-		OpenAPIValidator: noopValidator,
+		OpenAPIValidator: validator,
 		AllowedOrigins:   []string{"http://localhost:3000"},
 		JWTSecret:        testJWTSecret,
 		TrustedProxyHops: hops,
@@ -476,4 +482,49 @@ func TestNewRouter_TrustedProxyHops(t *testing.T) {
 		// 別のクライアントIPは独立したバケットのため429にならない。
 		assert.NotEqual(t, http.StatusTooManyRequests, postSignup(t, r, "203.0.113.2"))
 	})
+}
+
+// 不正なJSONもIP制限にカウントし、制限到達後は本文を読まない。
+func TestNewRouter_RateLimitBeforeBodyValidation(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path  string
+		limit int
+	}{
+		{"/v1/login", 10}, {"/v1/signup", 5},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
+			validator, err := openapivalidate.New()
+			require.NoError(t, err)
+			r := newTestRouterWithLimiter(t, nil, httpratelimit.NewLimiter(rdb), 0, validator)
+			for range tc.limit {
+				req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader("{"))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				r.ServeHTTP(rec, req)
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+			body := &trackedBody{Reader: strings.NewReader("{")}
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+			assert.Zero(t, body.reads, "rate-limited requests must not read the body")
+		})
+	}
+}
+
+type trackedBody struct {
+	io.Reader
+	reads int
+}
+
+func (b *trackedBody) Read(p []byte) (int, error) {
+	b.reads++
+	return b.Reader.Read(p)
 }

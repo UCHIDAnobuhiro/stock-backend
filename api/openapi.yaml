@@ -1,7 +1,11 @@
 openapi: "3.0.4"
 info:
   title: Stock Backend API
-  description: 株価データを提供するREST API
+  description: |
+    株価データを提供するREST API。
+    OpenAPI検証対象のリクエスト本文は1 MiB（1,048,576バイト）までです。
+    超過時は413を返します。画像アップロード（/v1/logo/detect）は専用のサイズ制限に従います。
+    認証・CSRF・IPレート制限の拒否は本文検証より優先します。
   version: "1.0.0"
 servers:
   - url: http://localhost:8080
@@ -35,6 +39,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SignupRequest"
       responses:
+        "413":
+          $ref: "#/components/responses/RequestBodyTooLarge"
         "201":
           description: 登録成功
           content:
@@ -90,6 +96,8 @@ paths:
             schema:
               $ref: "#/components/schemas/LoginRequest"
       responses:
+        "413":
+          $ref: "#/components/responses/RequestBodyTooLarge"
         "200":
           description: 認証成功（auth_token・refresh_token・csrf_token CookieをSet-Cookieで発行）
           content:
@@ -515,6 +523,8 @@ paths:
             schema:
               $ref: "#/components/schemas/AddWatchlistRequest"
       responses:
+        "413":
+          $ref: "#/components/responses/RequestBodyTooLarge"
         "201":
           description: 追加成功
           content:
@@ -620,6 +630,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ReorderWatchlistRequest"
       responses:
+        "413":
+          $ref: "#/components/responses/RequestBodyTooLarge"
         "204":
           description: 並び替え成功
         "400":
@@ -742,6 +754,8 @@ paths:
             schema:
               $ref: "#/components/schemas/CompanyAnalysisRequest"
       responses:
+        "413":
+          $ref: "#/components/responses/RequestBodyTooLarge"
         "200":
           description: 分析成功
           content:
@@ -811,6 +825,12 @@ components:
         ログイン時にSet-Cookieで発行された csrf_token Cookie の値を、変更系リクエストでこのヘッダーに設定します。
 
   responses:
+    RequestBodyTooLarge:
+      description: リクエスト本文が1 MiB（1,048,576バイト）を超過
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     UnauthorizedError:
       description: 認証失敗（auth_token CookieまたはBearerトークンが無い・無効・期限切れ）
       content:
