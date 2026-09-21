@@ -24,7 +24,7 @@ require (
 	google.golang.org/api v0.298.0
 	google.golang.org/genai v1.71.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 )
 
 require (
