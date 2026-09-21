@@ -19,8 +19,16 @@ type mockRepository struct {
 	RemoveFunc             func(ctx context.Context, userID int64, symbolCode string) error
 	UpdateSortKeysFunc     func(ctx context.Context, userID int64, entries []watchlist.UserSymbol) error
 
-	AddedEntries     []watchlist.UserSymbol
-	UpdatedEntries   []watchlist.UserSymbol
+	AddedEntries    []watchlist.UserSymbol
+	UpdatedEntries  []watchlist.UserSymbol
+	AddWithNextArgs []struct {
+		UserID     int64
+		SymbolCode string
+	}
+	RemoveArgs []struct {
+		UserID     int64
+		SymbolCode string
+	}
 	AddWithNextCalls int
 	RemoveCalls      int
 }
@@ -42,6 +50,10 @@ func (m *mockRepository) Add(ctx context.Context, entry watchlist.UserSymbol) er
 
 func (m *mockRepository) AddWithNextSortKey(ctx context.Context, userID int64, symbolCode string) error {
 	m.AddWithNextCalls++
+	m.AddWithNextArgs = append(m.AddWithNextArgs, struct {
+		UserID     int64
+		SymbolCode string
+	}{userID, symbolCode})
 	if m.AddWithNextSortKeyFunc != nil {
 		return m.AddWithNextSortKeyFunc(ctx, userID, symbolCode)
 	}
@@ -50,6 +62,10 @@ func (m *mockRepository) AddWithNextSortKey(ctx context.Context, userID int64, s
 
 func (m *mockRepository) Remove(ctx context.Context, userID int64, symbolCode string) error {
 	m.RemoveCalls++
+	m.RemoveArgs = append(m.RemoveArgs, struct {
+		UserID     int64
+		SymbolCode string
+	}{userID, symbolCode})
 	if m.RemoveFunc != nil {
 		return m.RemoveFunc(ctx, userID, symbolCode)
 	}
@@ -89,6 +105,7 @@ func TestNewWatchlistUsecase(t *testing.T) {
 func TestWatchlistUsecase_ListUserSymbols(t *testing.T) {
 	t.Parallel()
 
+	repoErr := errors.New("database connection failed")
 	tests := []struct {
 		name        string
 		listByUser  func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error)
@@ -121,7 +138,7 @@ func TestWatchlistUsecase_ListUserSymbols(t *testing.T) {
 		{
 			name: "failure: repository returns error",
 			listByUser: func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
-				return nil, errors.New("database connection failed")
+				return nil, repoErr
 			},
 			wantSymbols: nil,
 			wantErr:     true,
@@ -140,6 +157,7 @@ func TestWatchlistUsecase_ListUserSymbols(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
+				assert.ErrorIs(t, err, repoErr)
 				if tt.errMsg != "" {
 					assert.EqualError(t, err, tt.errMsg)
 				}
@@ -155,6 +173,8 @@ func TestWatchlistUsecase_ListUserSymbols(t *testing.T) {
 func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 	t.Parallel()
 
+	checkerErr := errors.New("checker down")
+	addErr := errors.New("insert failed")
 	tests := []struct {
 		name             string
 		exists           func(ctx context.Context, code string) (bool, error)
@@ -184,9 +204,10 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 		{
 			name: "failure: existence check returns wrapped error",
 			exists: func(ctx context.Context, code string) (bool, error) {
-				return false, errors.New("checker down")
+				return false, checkerErr
 			},
 			wantErr:          true,
+			wantErrIs:        checkerErr,
 			wantErrContains:  "checking symbol existence",
 			wantAddWithCalls: 0,
 		},
@@ -196,9 +217,10 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 				return true, nil
 			},
 			addWithNext: func(ctx context.Context, userID int64, symbolCode string) error {
-				return errors.New("insert failed")
+				return addErr
 			},
 			wantErr:          true,
+			wantErrIs:        addErr,
 			wantErrContains:  "insert failed",
 			wantAddWithCalls: 1,
 		},
@@ -226,6 +248,14 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.wantAddWithCalls, repo.AddWithNextCalls)
+			assert.Equal(t, []string{"AAPL"}, checker.CheckedCodes)
+			if tt.wantAddWithCalls == 1 {
+				require.Len(t, repo.AddWithNextArgs, 1)
+				assert.Equal(t, int64(42), repo.AddWithNextArgs[0].UserID)
+				assert.Equal(t, "AAPL", repo.AddWithNextArgs[0].SymbolCode)
+			} else {
+				assert.Empty(t, repo.AddWithNextArgs)
+			}
 		})
 	}
 }
@@ -233,24 +263,23 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 func TestWatchlistUsecase_RemoveSymbol(t *testing.T) {
 	t.Parallel()
 
+	removeErr := errors.New("delete failed")
 	tests := []struct {
 		name    string
 		remove  func(ctx context.Context, userID int64, symbolCode string) error
-		wantErr bool
-		errMsg  string
+		wantErr error
 	}{
 		{
 			name:    "success: symbol is removed",
 			remove:  func(ctx context.Context, userID int64, symbolCode string) error { return nil },
-			wantErr: false,
+			wantErr: nil,
 		},
 		{
 			name: "failure: repository returns error",
 			remove: func(ctx context.Context, userID int64, symbolCode string) error {
-				return errors.New("delete failed")
+				return removeErr
 			},
-			wantErr: true,
-			errMsg:  "delete failed",
+			wantErr: removeErr,
 		},
 	}
 
@@ -263,12 +292,15 @@ func TestWatchlistUsecase_RemoveSymbol(t *testing.T) {
 
 			err := uc.RemoveSymbol(context.Background(), 42, "AAPL")
 
-			if tt.wantErr {
-				assert.EqualError(t, err, tt.errMsg)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, 1, repo.RemoveCalls)
+			require.Len(t, repo.RemoveArgs, 1)
+			assert.Equal(t, int64(42), repo.RemoveArgs[0].UserID)
+			assert.Equal(t, "AAPL", repo.RemoveArgs[0].SymbolCode)
 		})
 	}
 }
@@ -351,12 +383,15 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		assert.Nil(t, repo.UpdatedEntries)
 	})
 
+	listErr := errors.New("list failed")
+	updateErr := errors.New("update failed")
+
 	t.Run("failure: ListByUser returns error", func(t *testing.T) {
 		t.Parallel()
 
 		repo := &mockRepository{
 			ListByUserFunc: func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
-				return nil, errors.New("list failed")
+				return nil, listErr
 			},
 		}
 		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
@@ -364,6 +399,7 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		err := uc.ReorderSymbols(context.Background(), 42, []string{"AAPL"})
 
 		assert.ErrorContains(t, err, "list failed")
+		assert.ErrorIs(t, err, listErr)
 	})
 
 	t.Run("failure: repository returns error", func(t *testing.T) {
@@ -372,7 +408,7 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		repo := &mockRepository{
 			ListByUserFunc: listByUserFunc("AAPL"),
 			UpdateSortKeysFunc: func(ctx context.Context, userID int64, entries []watchlist.UserSymbol) error {
-				return errors.New("update failed")
+				return updateErr
 			},
 		}
 		uc := watchlist.NewUsecase(repo, &mockSymbolExistsChecker{})
@@ -380,11 +416,14 @@ func TestWatchlistUsecase_ReorderSymbols(t *testing.T) {
 		err := uc.ReorderSymbols(context.Background(), 42, []string{"AAPL"})
 
 		assert.EqualError(t, err, "update failed")
+		assert.ErrorIs(t, err, updateErr)
 	})
 }
 
 func TestWatchlistUsecase_InitializeDefaults(t *testing.T) {
 	t.Parallel()
+	checkerErr := errors.New("checker down")
+	addErr := errors.New("insert failed")
 
 	t.Run("success: adds all default symbols when they exist", func(t *testing.T) {
 		t.Parallel()
@@ -430,7 +469,7 @@ func TestWatchlistUsecase_InitializeDefaults(t *testing.T) {
 		repo := &mockRepository{}
 		checker := &mockSymbolExistsChecker{
 			ExistsFunc: func(ctx context.Context, code string) (bool, error) {
-				return false, errors.New("checker down")
+				return false, checkerErr
 			},
 		}
 		uc := watchlist.NewUsecase(repo, checker)
@@ -439,6 +478,7 @@ func TestWatchlistUsecase_InitializeDefaults(t *testing.T) {
 
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "checking symbol AAPL")
+		assert.ErrorIs(t, err, checkerErr)
 		assert.Empty(t, repo.AddedEntries)
 	})
 
@@ -447,7 +487,7 @@ func TestWatchlistUsecase_InitializeDefaults(t *testing.T) {
 
 		repo := &mockRepository{
 			AddFunc: func(ctx context.Context, entry watchlist.UserSymbol) error {
-				return errors.New("insert failed")
+				return addErr
 			},
 		}
 		checker := &mockSymbolExistsChecker{
@@ -459,6 +499,56 @@ func TestWatchlistUsecase_InitializeDefaults(t *testing.T) {
 
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "adding default symbol AAPL")
+		assert.ErrorIs(t, err, addErr)
+	})
+
+	t.Run("failure: second existence check stops before third symbol", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{}
+		checker := &mockSymbolExistsChecker{
+			ExistsFunc: func(ctx context.Context, code string) (bool, error) {
+				if code == "MSFT" {
+					return false, checkerErr
+				}
+				return true, nil
+			},
+		}
+		uc := watchlist.NewUsecase(repo, checker)
+
+		err := uc.InitializeDefaults(context.Background(), 7)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, checkerErr)
+		assert.Equal(t, []string{"AAPL", "MSFT"}, checker.CheckedCodes)
+		assert.Equal(t, []watchlist.UserSymbol{{UserID: 7, SymbolCode: "AAPL", SortKey: 0}}, repo.AddedEntries)
+	})
+
+	t.Run("failure: second add stops before third symbol", func(t *testing.T) {
+		t.Parallel()
+
+		repo := &mockRepository{
+			AddFunc: func(ctx context.Context, entry watchlist.UserSymbol) error {
+				if entry.SymbolCode == "MSFT" {
+					return addErr
+				}
+				return nil
+			},
+		}
+		checker := &mockSymbolExistsChecker{
+			ExistsFunc: func(ctx context.Context, code string) (bool, error) { return true, nil },
+		}
+		uc := watchlist.NewUsecase(repo, checker)
+
+		err := uc.InitializeDefaults(context.Background(), 7)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, addErr)
+		assert.Equal(t, []string{"AAPL", "MSFT"}, checker.CheckedCodes)
+		assert.Equal(t, []watchlist.UserSymbol{
+			{UserID: 7, SymbolCode: "AAPL", SortKey: 0},
+			{UserID: 7, SymbolCode: "MSFT", SortKey: 1},
+		}, repo.AddedEntries)
 	})
 }
 

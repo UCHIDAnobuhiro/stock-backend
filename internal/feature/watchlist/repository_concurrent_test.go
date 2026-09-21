@@ -160,14 +160,18 @@ func TestWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
 	// 最終状態: MSFTが存在せず、sort_keyに重複がないこと（連番であることまでは要求しない）。
 	final, err := repo.ListByUser(ctx, ids.u1)
 	require.NoError(t, err)
+	require.Len(t, final, 2)
+	remainingCodes := make([]string, 0, len(final))
 
 	seenSortKeys := map[int]struct{}{}
 	for _, us := range final {
+		remainingCodes = append(remainingCodes, us.SymbolCode)
 		assert.NotEqual(t, "MSFT", us.SymbolCode, "MSFTは削除済みのため残っていないはず")
 		_, dup := seenSortKeys[us.SortKey]
 		assert.Falsef(t, dup, "sort_key %d が重複している", us.SortKey)
 		seenSortKeys[us.SortKey] = struct{}{}
 	}
+	assert.ElementsMatch(t, []string{"AAPL", "GOOGL"}, remainingCodes)
 }
 
 func TestWatchlistRepository_AddWithNextSortKey_Concurrent(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/watchlist"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/watchlist/watchlisthttp"
@@ -25,9 +26,29 @@ type mockUsecase struct {
 	AddSymbolFunc       func(ctx context.Context, userID int64, symbolCode string) error
 	RemoveSymbolFunc    func(ctx context.Context, userID int64, symbolCode string) error
 	ReorderSymbolsFunc  func(ctx context.Context, userID int64, orderedCodes []string) error
+
+	ListCalls    int
+	AddCalls     int
+	RemoveCalls  int
+	ReorderCalls int
+	ListUserIDs  []int64
+	AddArgs      []struct {
+		UserID     int64
+		SymbolCode string
+	}
+	RemoveArgs []struct {
+		UserID     int64
+		SymbolCode string
+	}
+	ReorderArgs []struct {
+		UserID       int64
+		OrderedCodes []string
+	}
 }
 
 func (m *mockUsecase) ListUserSymbols(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
+	m.ListCalls++
+	m.ListUserIDs = append(m.ListUserIDs, userID)
 	if m.ListUserSymbolsFunc != nil {
 		return m.ListUserSymbolsFunc(ctx, userID)
 	}
@@ -35,6 +56,11 @@ func (m *mockUsecase) ListUserSymbols(ctx context.Context, userID int64) ([]watc
 }
 
 func (m *mockUsecase) AddSymbol(ctx context.Context, userID int64, symbolCode string) error {
+	m.AddCalls++
+	m.AddArgs = append(m.AddArgs, struct {
+		UserID     int64
+		SymbolCode string
+	}{userID, symbolCode})
 	if m.AddSymbolFunc != nil {
 		return m.AddSymbolFunc(ctx, userID, symbolCode)
 	}
@@ -42,6 +68,11 @@ func (m *mockUsecase) AddSymbol(ctx context.Context, userID int64, symbolCode st
 }
 
 func (m *mockUsecase) RemoveSymbol(ctx context.Context, userID int64, symbolCode string) error {
+	m.RemoveCalls++
+	m.RemoveArgs = append(m.RemoveArgs, struct {
+		UserID     int64
+		SymbolCode string
+	}{userID, symbolCode})
 	if m.RemoveSymbolFunc != nil {
 		return m.RemoveSymbolFunc(ctx, userID, symbolCode)
 	}
@@ -49,6 +80,11 @@ func (m *mockUsecase) RemoveSymbol(ctx context.Context, userID int64, symbolCode
 }
 
 func (m *mockUsecase) ReorderSymbols(ctx context.Context, userID int64, orderedCodes []string) error {
+	m.ReorderCalls++
+	m.ReorderArgs = append(m.ReorderArgs, struct {
+		UserID       int64
+		OrderedCodes []string
+	}{userID, append([]string(nil), orderedCodes...)})
 	if m.ReorderSymbolsFunc != nil {
 		return m.ReorderSymbolsFunc(ctx, userID, orderedCodes)
 	}
@@ -88,7 +124,6 @@ func TestWatchlistHandler_List(t *testing.T) {
 		{
 			name: "success: returns watchlist items",
 			mockList: func(ctx context.Context, userID int64) ([]watchlist.UserSymbol, error) {
-				assert.Equal(t, testUserID, userID)
 				return []watchlist.UserSymbol{
 					{ID: 1, UserID: testUserID, SymbolCode: "AAPL", SortKey: 0},
 					{ID: 2, UserID: testUserID, SymbolCode: "MSFT", SortKey: 1},
@@ -131,6 +166,8 @@ func TestWatchlistHandler_List(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			assert.JSONEq(t, tt.expectedBody, w.Body.String())
+			assert.Equal(t, 1, mockUC.ListCalls)
+			assert.Equal(t, []int64{testUserID}, mockUC.ListUserIDs)
 		})
 	}
 }
@@ -144,17 +181,19 @@ func TestWatchlistHandler_Add(t *testing.T) {
 		mockAdd        func(ctx context.Context, userID int64, symbolCode string) error
 		expectedStatus int
 		expectedBody   string
+		expectedCalls  int
+		expectedSymbol string
 	}{
 		{
 			name: "success: symbol added",
 			body: `{"symbol_code":"AAPL"}`,
 			mockAdd: func(ctx context.Context, userID int64, symbolCode string) error {
-				assert.Equal(t, testUserID, userID)
-				assert.Equal(t, "AAPL", symbolCode)
 				return nil
 			},
 			expectedStatus: http.StatusCreated,
 			expectedBody:   `{"message":"added to watchlist"}`,
+			expectedCalls:  1,
+			expectedSymbol: "AAPL",
 		},
 		{
 			name: "error: symbol not found",
@@ -164,6 +203,8 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   `{"error":"symbol not found"}`,
+			expectedCalls:  1,
+			expectedSymbol: "XXXX",
 		},
 		{
 			name: "error: already in watchlist",
@@ -173,6 +214,8 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			},
 			expectedStatus: http.StatusConflict,
 			expectedBody:   `{"error":"symbol already in watchlist"}`,
+			expectedCalls:  1,
+			expectedSymbol: "AAPL",
 		},
 		{
 			// 空文字・必須等のスキーマ検証はミドルウェアの責務（middleware_test.go）。
@@ -198,6 +241,8 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   `{"error":"internal server error"}`,
+			expectedCalls:  1,
+			expectedSymbol: "AAPL",
 		},
 	}
 
@@ -220,6 +265,14 @@ func TestWatchlistHandler_Add(t *testing.T) {
 			if tt.expectedBody != "" {
 				assert.JSONEq(t, tt.expectedBody, w.Body.String())
 			}
+			assert.Equal(t, tt.expectedCalls, mockUC.AddCalls)
+			if tt.expectedCalls == 1 {
+				require.Len(t, mockUC.AddArgs, 1)
+				assert.Equal(t, testUserID, mockUC.AddArgs[0].UserID)
+				assert.Equal(t, tt.expectedSymbol, mockUC.AddArgs[0].SymbolCode)
+			} else {
+				assert.Empty(t, mockUC.AddArgs)
+			}
 		})
 	}
 }
@@ -233,17 +286,17 @@ func TestWatchlistHandler_Remove(t *testing.T) {
 		mockRemove     func(ctx context.Context, userID int64, symbolCode string) error
 		expectedStatus int
 		expectedBody   string
+		expectedCalls  int
 	}{
 		{
 			name: "success: symbol removed",
 			code: "AAPL",
 			mockRemove: func(ctx context.Context, userID int64, symbolCode string) error {
-				assert.Equal(t, testUserID, userID)
-				assert.Equal(t, "AAPL", symbolCode)
 				return nil
 			},
 			expectedStatus: http.StatusNoContent,
 			expectedBody:   "",
+			expectedCalls:  1,
 		},
 		{
 			name: "error: not in watchlist",
@@ -253,6 +306,7 @@ func TestWatchlistHandler_Remove(t *testing.T) {
 			},
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   `{"error":"symbol not in watchlist"}`,
+			expectedCalls:  1,
 		},
 		{
 			name: "error: usecase returns internal error",
@@ -262,6 +316,7 @@ func TestWatchlistHandler_Remove(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   `{"error":"internal server error"}`,
+			expectedCalls:  1,
 		},
 		{
 			name:           "error: symbol code with invalid characters returns 400",
@@ -296,6 +351,14 @@ func TestWatchlistHandler_Remove(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.expectedBody != "" {
 				assert.JSONEq(t, tt.expectedBody, w.Body.String())
+			}
+			assert.Equal(t, tt.expectedCalls, mockUC.RemoveCalls)
+			if tt.expectedCalls == 1 {
+				require.Len(t, mockUC.RemoveArgs, 1)
+				assert.Equal(t, testUserID, mockUC.RemoveArgs[0].UserID)
+				assert.Equal(t, "AAPL", mockUC.RemoveArgs[0].SymbolCode)
+			} else {
+				assert.Empty(t, mockUC.RemoveArgs)
 			}
 		})
 	}
@@ -392,17 +455,19 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 		mockReorder    func(ctx context.Context, userID int64, orderedCodes []string) error
 		expectedStatus int
 		expectedBody   string
+		expectedCalls  int
+		expectedCodes  []string
 	}{
 		{
 			name: "success: watchlist reordered",
 			body: `{"codes":["MSFT","AAPL"]}`,
 			mockReorder: func(ctx context.Context, userID int64, orderedCodes []string) error {
-				assert.Equal(t, testUserID, userID)
-				assert.Equal(t, []string{"MSFT", "AAPL"}, orderedCodes)
 				return nil
 			},
 			expectedStatus: http.StatusNoContent,
 			expectedBody:   "",
+			expectedCalls:  1,
+			expectedCodes:  []string{"MSFT", "AAPL"},
 		},
 		{
 			// 空配列・必須等のスキーマ検証はミドルウェアの責務（middleware_test.go）。
@@ -428,6 +493,8 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"reorder codes do not match watchlist"}`,
+			expectedCalls:  1,
+			expectedCodes:  []string{"AAPL"},
 		},
 		{
 			name: "error: usecase returns internal error",
@@ -437,6 +504,8 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   `{"error":"internal server error"}`,
+			expectedCalls:  1,
+			expectedCodes:  []string{"AAPL"},
 		},
 	}
 
@@ -458,6 +527,14 @@ func TestWatchlistHandler_Reorder(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			if tt.expectedBody != "" {
 				assert.JSONEq(t, tt.expectedBody, w.Body.String())
+			}
+			assert.Equal(t, tt.expectedCalls, mockUC.ReorderCalls)
+			if tt.expectedCalls == 1 {
+				require.Len(t, mockUC.ReorderArgs, 1)
+				assert.Equal(t, testUserID, mockUC.ReorderArgs[0].UserID)
+				assert.Equal(t, tt.expectedCodes, mockUC.ReorderArgs[0].OrderedCodes)
+			} else {
+				assert.Empty(t, mockUC.ReorderArgs)
 			}
 		})
 	}
