@@ -193,15 +193,6 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 			wantAddWithCalls: 1,
 		},
 		{
-			name: "failure: symbol does not exist returns ErrSymbolNotFound",
-			exists: func(ctx context.Context, code string) (bool, error) {
-				return false, nil
-			},
-			wantErr:          true,
-			wantErrIs:        watchlist.ErrSymbolNotFound,
-			wantAddWithCalls: 0,
-		},
-		{
 			name: "failure: existence check returns wrapped error",
 			exists: func(ctx context.Context, code string) (bool, error) {
 				return false, checkerErr
@@ -209,6 +200,15 @@ func TestWatchlistUsecase_AddSymbol(t *testing.T) {
 			wantErr:          true,
 			wantErrIs:        checkerErr,
 			wantErrContains:  "checking symbol existence",
+			wantAddWithCalls: 0,
+		},
+		{
+			name: "failure: symbol does not exist returns ErrSymbolNotFound",
+			exists: func(ctx context.Context, code string) (bool, error) {
+				return false, nil
+			},
+			wantErr:          true,
+			wantErrIs:        watchlist.ErrSymbolNotFound,
 			wantAddWithCalls: 0,
 		},
 		{
