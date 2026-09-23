@@ -33,11 +33,27 @@ description: 指定されたファイル・機能または変更差分に対し�
 | 外部HTTPアダプタ | `httptest.Server` 等で応答・失敗・キャンセルを再現し、外部APIへ実リクエストしない |
 | Redis / 共通基盤 | 既存の `redismock`・`miniredis` 等を目的に合わせて選び、再現できない実Redis固有の動作を検証済みと扱わない |
 
-PostgreSQLテストはtestcontainersまたは `TEST_DB_DSN` を使用する。SQLiteではPostgreSQL固有SQL・制約・ロックを検証できないため代替しない。既存の `TestMain` があるパッケージでは、`-run` でunit testだけを選んでもDB起動が必要な場合がある。
+PostgreSQL を使う repository の integration test は、ファイル先頭に `//go:build integration` を付け、テスト関数名を `TestIntegration` で始める。これにより標準の unit test 実行から DB 依存テストと `TestMain` を外し、integration 実行で対象テストだけを選べる。`TestMain` はタグ付き integration テストファイルに置く。SQLiteでは PostgreSQL 固有 SQL・制約・ロックを検証できないため代替しない。
+
+ユニットテストとインテグレーションテストは別々に実行する。integration テストには testcontainers または `TEST_DB_DSN` を使う。integration タグを有効にするとタグ付き `TestMain` も実行されるため、`-run` の指定にかかわらず DB 環境が必要になる点に注意する。
+
+```bash
+# ユニットテスト（PostgreSQL 不要）
+go test ./... -v -race
+
+# インテグレーションテスト（Docker または TEST_DB_DSN が必要）
+go test -tags=integration -run '^TestIntegration' ./... -v -race
+
+# ホスト PostgreSQL を使う場合
+TEST_DB_DSN="postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable" \
+  go test -tags=integration -run '^TestIntegration' ./... -v -race
+```
+
+CI の `scripts/check-integration-test-names.sh` は、integration タグ付きファイルのテスト関数が `TestIntegration` 接頭辞を使うことを検証する。新しい PostgreSQL integration test でもタグと接頭辞の両方を付ける。
 
 ## 実行と完了
 
-1. 対象のテストファイルを `gofmt` し、対象パッケージを `go test ./<対象パッケージ>/... -v -race` で検証する。
+1. 対象のテストファイルを `gofmt` し、ユニットテストは `go test ./<対象パッケージ>/... -v -race`、インテグレーションテストは `go test -tags=integration -run '^TestIntegration' ./<対象パッケージ>/... -v -race` で分けて検証する。
 2. 失敗時はテストの不備、実装の不具合、環境要因を区別する。期待値を誤動作へ合わせない。テスト作成だけの依頼で本体の修正が必要になった場合は根拠を報告し、修正も依頼済みならその範囲で進める。
 3. 既存テストの意味を保ち、必要なヘルパー更新・重複整理を行う。追加位置を末尾だけに固定しない。
 4. 追加した検証内容と結果、未実施の理由を報告する。環境不足を黙ってskipして成功扱いにしない。
