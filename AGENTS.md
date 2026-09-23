@@ -66,19 +66,32 @@ go tool sqlc generate
 同ディレクトリに型安全コード（`package <name>sqlc`）が生成されます。
 
 ### テスト・リント
-リポジトリテストは [testcontainers-go](https://golang.testcontainers.org/) で実 PostgreSQL を
-立ち上げます。Docker daemon が利用できない環境では、ホストの PostgreSQL を `TEST_DB_DSN` で
-指定すると testcontainers をスキップできます（DB ユーザーには `CREATEDB` 権限が必要）。
+テストは CI と同じく Unit / Integration / E2E に分けて実行します。
+PostgreSQL を使うテストは `integration` ビルドタグ、HTTP 経由の E2E は `e2e` タグです。
+Unit と Integration が同居するパッケージの Unit テストファイルには `!integration` を付けます。
+新規テストでも分類を維持してください。
+
+Integration / E2E では `dbtest` がテストごとに独立した PostgreSQL DB を作成します。
+`TEST_DB_DSN` 未設定なら testcontainers-go を使うため Docker daemon が必要です。
+既存の PostgreSQL を使う場合は `TEST_DB_DSN` を指定し、DB ユーザーに `CREATEDB` 権限を与えます。
+E2E は稼働中の Redis を `TEST_REDIS_ADDR` で指定します。
 
 ```bash
-# 全テスト実行（レースコンディション検出・カバレッジ付き、Docker が必要）
+# Unit（外部サービス不要。CI のカバレッジ基準は 63.0%）
 go test ./... -v -race -cover
 
-# ホストの PostgreSQL を使う場合
+# Integration（実 PostgreSQL）
 TEST_DB_DSN="postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable" \
-  go test ./... -race
+  go test -tags=integration -race \
+  ./internal/feature/auth ./internal/feature/candles \
+  ./internal/feature/symbollist ./internal/feature/watchlist ./internal/infra/db
 
-# 特定パッケージのテスト実行
+# E2E（実 PostgreSQL・Redis。登録→ログイン→watchlist操作をHTTPで確認）
+TEST_DB_DSN="postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable" \
+TEST_REDIS_ADDR="localhost:6379" \
+  go test -tags=e2e -run 'E2E$' -race ./cmd/api
+
+# 特定パッケージの Unit テスト実行
 go test ./internal/feature/candles/... -v
 
 # 特定テスト関数の実行

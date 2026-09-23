@@ -121,16 +121,44 @@ jobs:
       - name: Run govulncheck
         run: govulncheck ./...
 
-  # ビルド確認とテスト実行
-  build-test:
-    name: Build & Test
+  # 単体テストはDBなしで実行。DB依存の_test.goは integration タグで除外する。
+  unit-test:
+    name: Unit Tests
+    needs: docs-check
+    if: needs.docs-check.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: Run build
+        run: go build ./...
+
+      - name: Run unit tests
+        run: go test ./... -v -race -coverprofile=coverage.out
+
+      - name: Check coverage threshold
+        env:
+          COVERAGE_THRESHOLD: "63.0"  # Unitのみの実測63.4%を下回らない基準
+        run: |
+          set -euo pipefail
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')"
+          echo "unit coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          awk -v t="${total}" -v th="${COVERAGE_THRESHOLD}" 'BEGIN { exit !(t+0 >= th+0) }' \
+            || { echo "::error::unit coverage ${total}% is below threshold ${COVERAGE_THRESHOLD}%"; exit 1; }
+
+  # 実PostgreSQLを使うリポジトリ・ロック・セッションのテストのみ実行する。
+  integration-test:
+    name: Integration Tests
     needs: docs-check
     if: needs.docs-check.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     services:
-      # dbtest ヘルパーは TEST_DB_DSN 未設定なら testcontainers-go で PostgreSQL を起動するが、
-      # GitHub Actions の Ryuk 周辺挙動が不安定なため、サービスコンテナで直接 PostgreSQL を提供する。
-      # ユーザーは superuser として作成され CREATEDB 権限を持つので dbtest の CREATE DATABASE が通る。
       postgres:
         image: postgres:18
         env:
@@ -153,23 +181,60 @@ jobs:
         with:
           go-version: "1.27.0"
 
-      - name: Run build
-        run: go build ./...
-
-      - name: Run tests
+      - name: Run integration tests
         env:
           TEST_DB_DSN: postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable
-        run: go test ./... -v -race -coverprofile=coverage.out
+        run: >-
+          go test -tags=integration -v -race
+          ./internal/feature/auth
+          ./internal/feature/candles
+          ./internal/feature/symbollist
+          ./internal/feature/watchlist
+          ./internal/infra/db
 
-      - name: Check coverage threshold
+  # 公開HTTP APIから認証・watchlist操作を一連で検証する。
+  e2e-test:
+    name: E2E Tests
+    needs: docs-check
+    if: needs.docs-check.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
         env:
-          COVERAGE_THRESHOLD: "63.0"  # 実測65.1%の約2pt下。カバレッジ向上時に引き上げる
-        run: |
-          set -euo pipefail
-          total="$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')"
-          echo "total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
-          awk -v t="${total}" -v th="${COVERAGE_THRESHOLD}" 'BEGIN { exit !(t+0 >= th+0) }' \
-            || { echo "::error::coverage ${total}% is below threshold ${COVERAGE_THRESHOLD}%"; exit 1; }
+          POSTGRES_DB: postgres
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: apppass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U appuser -d postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+      redis:
+        image: redis:7.4
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: Run E2E tests
+        env:
+          TEST_DB_DSN: postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable
+          TEST_REDIS_ADDR: localhost:6379
+        run: go test -tags=e2e -run 'E2E$' -v -race ./cmd/api
 
   # スキーマドキュメント（docs/schema/）がエンティティ変更と同期しているか検証
   schema-doc-check:
@@ -224,7 +289,7 @@ jobs:
   # GitHub Branch Protectionではこのジョブだけをrequiredに設定する
   ci-gate:
     name: CI Gate
-    needs: [docs-link-check, lint, arch-lint, vuln-scan, build-test, schema-doc-check]
+    needs: [docs-link-check, lint, arch-lint, vuln-scan, unit-test, integration-test, e2e-test, schema-doc-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -234,14 +299,18 @@ jobs:
           DOCS_LINK="${{ needs.docs-link-check.result }}"
           ARCH_LINT="${{ needs.arch-lint.result }}"
           VULN_SCAN="${{ needs.vuln-scan.result }}"
-          BUILD_TEST="${{ needs.build-test.result }}"
+          UNIT_TEST="${{ needs.unit-test.result }}"
+          INTEGRATION_TEST="${{ needs.integration-test.result }}"
+          E2E_TEST="${{ needs.e2e-test.result }}"
           SCHEMA_DOC="${{ needs.schema-doc-check.result }}"
-          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} build-test=${BUILD_TEST} schema-doc=${SCHEMA_DOC}"
+          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} unit=${UNIT_TEST} integration=${INTEGRATION_TEST} e2e=${E2E_TEST} schema-doc=${SCHEMA_DOC}"
           if [[ "${DOCS_LINK}" == "success" ]] && \
              [[ "${LINT}" == "success" || "${LINT}" == "skipped" ]] && \
              [[ "${ARCH_LINT}" == "success" || "${ARCH_LINT}" == "skipped" ]] && \
              [[ "${VULN_SCAN}" == "success" || "${VULN_SCAN}" == "skipped" ]] && \
-             [[ "${BUILD_TEST}" == "success" || "${BUILD_TEST}" == "skipped" ]] && \
+             [[ "${UNIT_TEST}" == "success" || "${UNIT_TEST}" == "skipped" ]] && \
+             [[ "${INTEGRATION_TEST}" == "success" || "${INTEGRATION_TEST}" == "skipped" ]] && \
+             [[ "${E2E_TEST}" == "success" || "${E2E_TEST}" == "skipped" ]] && \
              [[ "${SCHEMA_DOC}" == "success" || "${SCHEMA_DOC}" == "skipped" ]]; then
             echo "CI passed"
           else

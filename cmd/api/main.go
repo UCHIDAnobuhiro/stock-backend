@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -84,22 +86,6 @@ func run() int {
 		}()
 	}
 
-	// 全 feature が sqlc 化済み。
-	userRepo := auth.NewUserRepository(sqlDB)
-	symbolRepo := symbollist.NewRepository(sqlDB)
-	candleRepo := candles.NewRepository(sqlDB)
-	watchlistRepo := watchlist.NewRepository(sqlDB)
-
-	// Redisキャッシュでラップ（ingestのUpsertBatchは対象キーをDELするのみで、再構築は
-	// 次回Findのcache-miss時に行われる。TTLはDEL失敗時や競合による汚染時のセーフティネット）
-	cachedCandleRepo := candles.NewCachingRepository(rdb, cfg.Cache.CandlesTTL, candleRepo, "candles")
-
-	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
-	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, jwt.DefaultTokenTTL)
-	jwtBlacklist := jwt.NewBlacklist(rdb)
-	refreshSessionRepo := auth.NewRefreshSessionRepository(sqlDB)
-	sessionService := auth.NewSessionService(jwtGen, refreshSessionRepo, auth.DefaultRefreshTokenTTL)
-
 	// Google Cloudクライアント初期化
 	visionDetector, err := vision.NewVisionLogoDetector(context.Background())
 	if err != nil {
@@ -118,61 +104,12 @@ func run() int {
 		return 1
 	}
 
-	// レートリミッター
-	rateLimiter := httpratelimit.NewLimiter(rdb)
-
-	// ユースケース
-	authUC := auth.NewUsecase(userRepo, sessionService, cfg.Server.PasswordPepper)
-	symbolUC := symbollist.NewUsecase(symbolRepo)
-	candlesUC := candles.NewUsecase(cachedCandleRepo)
-	logoUC := logodetection.NewUsecase(visionDetector, geminiAnalyzer)
-	watchlistUC := watchlist.NewUsecase(watchlistRepo, symbolRepo)
-	sessionCookies := authhttp.SessionCookieConfig{
-		Secure: cfg.Server.SecureCookie,
-		Domain: cfg.Server.CookieDomain,
-	}
-
-	// OAuth ハンドラー（cfg.OAuth が nil の場合はOAuth機能なしで起動）
-	var oauthH *authhttp.OAuthHandler
-	if cfg.OAuth != nil {
-		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, sessionService, watchlistUC, sessionCookies)
-		if err != nil {
-			slog.Error("failed to set up OAuth", "error", err)
-			return 1
-		}
-	}
-
-	// ハンドラー
-	authH := authhttp.NewHandler(authUC, rateLimiter, sessionCookies, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
-	symbolH := symbollisthttp.NewHandler(symbolUC)
-	candlesH := candleshttp.NewHandler(candlesUC)
-	logoH := logodetectionhttp.NewHandler(logoUC)
-	watchlistH := watchlisthttp.NewHandler(watchlistUC)
-
-	// OpenAPI スペックに基づくリクエストバリデーションミドルウェア
-	openapiValidator, err := openapivalidate.New()
+	logoH := logodetectionhttp.NewHandler(logodetection.NewUsecase(visionDetector, geminiAnalyzer))
+	r, err := buildRouter(cfg, sqlDB, rdb, logoH)
 	if err != nil {
-		slog.Error("failed to set up OpenAPI request validator", "error", err)
+		slog.Error("failed to build router", "error", err)
 		return 1
 	}
-
-	// ルーター作成
-	r := router.NewRouter(
-		router.Handlers{
-			Auth: authH, OAuth: oauthH, Candles: candlesH,
-			Symbol: symbolH, Logo: logoH, Watchlist: watchlistH,
-		},
-		router.Config{
-			Limiter:          rateLimiter,
-			OpenAPIValidator: openapiValidator,
-			AllowedOrigins:   cfg.Server.CORSOrigins,
-			GCPProjectID:     cfg.Server.GCPProjectID,
-			JWTSecret:        cfg.Server.JWTSecret,
-			Blacklist:        jwtBlacklist,
-			SecureCookie:     cfg.Server.SecureCookie,
-			TrustedProxyHops: cfg.Server.TrustedProxyHops,
-		},
-	)
 
 	srv := &http.Server{
 		Addr:              ":8080",
@@ -213,4 +150,79 @@ func run() int {
 		slog.Info("Server stopped gracefully")
 		return 0
 	}
+}
+
+// buildRouter は本番と E2E で同じ依存性注入・HTTP ルートを使用する。
+// 従量課金のロゴ検出クライアントだけは呼び出し側から注入する。
+func buildRouter(cfg *config.Config, sqlDB *sql.DB, rdb *redisv9.Client, logoH *logodetectionhttp.Handler) (http.Handler, error) {
+	// 全 feature が sqlc 化済み。
+	userRepo := auth.NewUserRepository(sqlDB)
+	symbolRepo := symbollist.NewRepository(sqlDB)
+	candleRepo := candles.NewRepository(sqlDB)
+	watchlistRepo := watchlist.NewRepository(sqlDB)
+
+	// Redisキャッシュでラップ（ingestのUpsertBatchは対象キーをDELするのみで、再構築は
+	// 次回Findのcache-miss時に行われる。TTLはDEL失敗時や競合による汚染時のセーフティネット）
+	cachedCandleRepo := candles.NewCachingRepository(rdb, cfg.Cache.CandlesTTL, candleRepo, "candles")
+
+	// JWTジェネレータ・ブラックリスト（ログアウト時の即時失効用）
+	jwtGen := jwt.NewGenerator(cfg.Server.JWTSecret, jwt.DefaultTokenTTL)
+	jwtBlacklist := jwt.NewBlacklist(rdb)
+	refreshSessionRepo := auth.NewRefreshSessionRepository(sqlDB)
+	sessionService := auth.NewSessionService(jwtGen, refreshSessionRepo, auth.DefaultRefreshTokenTTL)
+
+	// レートリミッター
+	rateLimiter := httpratelimit.NewLimiter(rdb)
+
+	// ユースケース
+	authUC := auth.NewUsecase(userRepo, sessionService, cfg.Server.PasswordPepper)
+	symbolUC := symbollist.NewUsecase(symbolRepo)
+	candlesUC := candles.NewUsecase(cachedCandleRepo)
+	watchlistUC := watchlist.NewUsecase(watchlistRepo, symbolRepo)
+	sessionCookies := authhttp.SessionCookieConfig{
+		Secure: cfg.Server.SecureCookie,
+		Domain: cfg.Server.CookieDomain,
+	}
+
+	var err error
+	// OAuth ハンドラー（cfg.OAuth が nil の場合はOAuth機能なしで起動）
+	var oauthH *authhttp.OAuthHandler
+	if cfg.OAuth != nil {
+		oauthH, err = di.NewOAuthHandler(cfg.OAuth, sqlDB, rdb, userRepo, sessionService, watchlistUC, sessionCookies)
+		if err != nil {
+			return nil, fmt.Errorf("set up OAuth: %w", err)
+		}
+	}
+
+	// ハンドラー
+	authH := authhttp.NewHandler(authUC, rateLimiter, sessionCookies, cfg.Server.JWTSecret, jwtBlacklist, watchlistUC)
+	symbolH := symbollisthttp.NewHandler(symbolUC)
+	candlesH := candleshttp.NewHandler(candlesUC)
+	watchlistH := watchlisthttp.NewHandler(watchlistUC)
+
+	// OpenAPI スペックに基づくリクエストバリデーションミドルウェア
+	openapiValidator, err := openapivalidate.New()
+	if err != nil {
+		return nil, fmt.Errorf("set up OpenAPI request validator: %w", err)
+	}
+
+	// ルーター作成
+	r := router.NewRouter(
+		router.Handlers{
+			Auth: authH, OAuth: oauthH, Candles: candlesH,
+			Symbol: symbolH, Logo: logoH, Watchlist: watchlistH,
+		},
+		router.Config{
+			Limiter:          rateLimiter,
+			OpenAPIValidator: openapiValidator,
+			AllowedOrigins:   cfg.Server.CORSOrigins,
+			GCPProjectID:     cfg.Server.GCPProjectID,
+			JWTSecret:        cfg.Server.JWTSecret,
+			Blacklist:        jwtBlacklist,
+			SecureCookie:     cfg.Server.SecureCookie,
+			TrustedProxyHops: cfg.Server.TrustedProxyHops,
+		},
+	)
+
+	return r, nil
 }
