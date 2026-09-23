@@ -66,20 +66,27 @@ go tool sqlc generate
 同ディレクトリに型安全コード（`package <name>sqlc`）が生成されます。
 
 ### テスト・リント
-リポジトリテストは [testcontainers-go](https://golang.testcontainers.org/) で実 PostgreSQL を
-立ち上げます。Docker daemon が利用できない環境では、ホストの PostgreSQL を `TEST_DB_DSN` で
+ユニットテストは PostgreSQL なしで実行できます。PostgreSQL を使うリポジトリテストは
+`integration` ビルドタグを付けてあり、[testcontainers-go](https://golang.testcontainers.org/) で
+実 PostgreSQL を立ち上げます。Docker daemon が利用できない環境では、ホストの PostgreSQL を `TEST_DB_DSN` で
 指定すると testcontainers をスキップできます（DB ユーザーには `CREATEDB` 権限が必要）。
 
 ```bash
-# 全テスト実行（レースコンディション検出・カバレッジ付き、Docker が必要）
+# ユニットテスト（PostgreSQL 不要）
 go test ./... -v -race -cover
+
+# インテグレーションテスト（Docker が必要）
+go test -tags=integration -run '^TestIntegration' ./... -v -race -cover
 
 # ホストの PostgreSQL を使う場合
 TEST_DB_DSN="postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable" \
-  go test ./... -race
+  go test -tags=integration -run '^TestIntegration' ./... -race
 
-# 特定パッケージのテスト実行
+# 特定パッケージのユニットテスト実行
 go test ./internal/feature/candles/... -v
+
+# 特定パッケージのインテグレーションテスト実行
+go test -tags=integration -run '^TestIntegration' ./internal/feature/candles/... -v
 
 # 特定テスト関数の実行
 go test ./internal/feature/auth/... -v -run TestAuthUsecase_Login

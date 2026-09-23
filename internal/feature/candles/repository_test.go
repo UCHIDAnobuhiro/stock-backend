@@ -1,3 +1,5 @@
+//go:build integration
+
 package candles
 
 import (
@@ -56,7 +58,7 @@ func candleCount(t *testing.T, db *sql.DB) int64 {
 	return n
 }
 
-func TestNewCandleRepository(t *testing.T) {
+func TestIntegrationNewCandleRepository(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
@@ -64,7 +66,7 @@ func TestNewCandleRepository(t *testing.T) {
 	assert.NotNil(t, repo.db)
 }
 
-func TestCandleRepository_UpsertBatch(t *testing.T) {
+func TestIntegrationCandleRepository_UpsertBatch(t *testing.T) {
 	t.Parallel()
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -152,7 +154,7 @@ func TestCandleRepository_UpsertBatch(t *testing.T) {
 	}
 }
 
-func TestCandleRepository_Find(t *testing.T) {
+func TestIntegrationCandleRepository_Find(t *testing.T) {
 	t.Parallel()
 	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -268,7 +270,7 @@ func TestCandleRepository_Find(t *testing.T) {
 	}
 }
 
-func TestCandleRepository_Find_EntityMapping(t *testing.T) {
+func TestIntegrationCandleRepository_Find_EntityMapping(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)

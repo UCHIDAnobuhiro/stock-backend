@@ -858,13 +858,21 @@ tests := []struct {
 
 **実行コマンド:**
 ```bash
+# ユニットテスト（PostgreSQL 不要）
 go test ./internal/feature/auth/... -v
+
+# リポジトリのインテグレーションテスト（PostgreSQL が必要）
+go test -tags=integration -run '^TestIntegration' ./internal/feature/auth/... -v
 ```
 
 ### 全テスト実行
 
 ```bash
+# ユニットテスト
 go test ./internal/feature/auth/... -v -race -cover
+
+# インテグレーションテスト
+go test -tags=integration -run '^TestIntegration' ./internal/feature/auth/... -v -race -cover
 ```
 
 ### テスト出力例

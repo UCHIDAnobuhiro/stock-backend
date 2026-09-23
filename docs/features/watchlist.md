@@ -329,6 +329,9 @@ watchlist/                            # package watchlist（コア）
 ### テスト実行コマンド
 
 ```bash
-# watchlist フィーチャー全テスト
+# ユニットテスト（PostgreSQL 不要）
 go test ./internal/feature/watchlist/... -v -race -cover
+
+# リポジトリのインテグレーションテスト（PostgreSQL が必要）
+go test -tags=integration -run '^TestIntegration' ./internal/feature/watchlist/... -v -race -cover
 ```

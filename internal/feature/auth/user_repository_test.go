@@ -1,3 +1,5 @@
+//go:build integration
+
 package auth
 
 import (
@@ -41,14 +43,14 @@ func seedUser(t *testing.T, db *sql.DB, email, password string) *User {
 	return user
 }
 
-func TestNewUserRepository(t *testing.T) {
+func TestIntegrationNewUserRepository(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewUserRepository(db)
 	assert.NotNil(t, repo, "repository is nil")
 	assert.NotNil(t, repo.db, "database connection is nil")
 }
 
-func TestUserRepository_Create(t *testing.T) {
+func TestIntegrationUserRepository_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -115,7 +117,7 @@ func TestUserRepository_Create(t *testing.T) {
 	}
 }
 
-func TestUserRepository_FindByEmail(t *testing.T) {
+func TestIntegrationUserRepository_FindByEmail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -197,7 +199,7 @@ func TestUserRepository_FindByEmail(t *testing.T) {
 	}
 }
 
-func TestUserRepository_FindByID(t *testing.T) {
+func TestIntegrationUserRepository_FindByID(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -281,7 +283,7 @@ func TestUserRepository_FindByID(t *testing.T) {
 	}
 }
 
-func TestUserRepository_Timestamps(t *testing.T) {
+func TestIntegrationUserRepository_Timestamps(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewUserRepository(db)
@@ -305,7 +307,7 @@ func TestUserRepository_Timestamps(t *testing.T) {
 
 // TestUserRepository_CreateUserWithOAuthAccount は OAuth 新規ユーザー作成の
 // トランザクション動作（成功・User 重複時のロールバック）を検証します。
-func TestUserRepository_CreateUserWithOAuthAccount(t *testing.T) {
+func TestIntegrationUserRepository_CreateUserWithOAuthAccount(t *testing.T) {
 	t.Parallel()
 
 	t.Run("success: create user and oauth account atomically", func(t *testing.T) {

@@ -1,3 +1,5 @@
+//go:build integration
+
 package watchlist
 
 import (
@@ -49,7 +51,7 @@ type userIDs struct {
 	u1, u2 int64
 }
 
-func TestWatchlistRepository_Add_and_ListByUser(t *testing.T) {
+func TestIntegrationWatchlistRepository_Add_and_ListByUser(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -70,7 +72,7 @@ func TestWatchlistRepository_Add_and_ListByUser(t *testing.T) {
 	assert.Equal(t, 1, list[1].SortKey)
 }
 
-func TestWatchlistRepository_Add_DuplicateEntry(t *testing.T) {
+func TestIntegrationWatchlistRepository_Add_DuplicateEntry(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -84,7 +86,7 @@ func TestWatchlistRepository_Add_DuplicateEntry(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAlreadyInWatchlist)
 }
 
-func TestWatchlistRepository_Add_UnknownSymbol(t *testing.T) {
+func TestIntegrationWatchlistRepository_Add_UnknownSymbol(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -95,7 +97,7 @@ func TestWatchlistRepository_Add_UnknownSymbol(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSymbolNotFound)
 }
 
-func TestWatchlistRepository_Remove(t *testing.T) {
+func TestIntegrationWatchlistRepository_Remove(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -110,7 +112,7 @@ func TestWatchlistRepository_Remove(t *testing.T) {
 	assert.Empty(t, list)
 }
 
-func TestWatchlistRepository_Remove_NotFound(t *testing.T) {
+func TestIntegrationWatchlistRepository_Remove_NotFound(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -119,7 +121,7 @@ func TestWatchlistRepository_Remove_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotInWatchlist)
 }
 
-func TestWatchlistRepository_AddWithNextSortKey(t *testing.T) {
+func TestIntegrationWatchlistRepository_AddWithNextSortKey(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -139,7 +141,7 @@ func TestWatchlistRepository_AddWithNextSortKey(t *testing.T) {
 	assert.Equal(t, "MSFT", list[2].SymbolCode)
 }
 
-func TestWatchlistRepository_AddWithNextSortKey_FirstEntry(t *testing.T) {
+func TestIntegrationWatchlistRepository_AddWithNextSortKey_FirstEntry(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -152,7 +154,7 @@ func TestWatchlistRepository_AddWithNextSortKey_FirstEntry(t *testing.T) {
 	assert.Equal(t, 0, list[0].SortKey)
 }
 
-func TestWatchlistRepository_AddWithNextSortKey_DuplicateSymbol(t *testing.T) {
+func TestIntegrationWatchlistRepository_AddWithNextSortKey_DuplicateSymbol(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -162,7 +164,7 @@ func TestWatchlistRepository_AddWithNextSortKey_DuplicateSymbol(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAlreadyInWatchlist)
 }
 
-func TestWatchlistRepository_UpdateSortKeys(t *testing.T) {
+func TestIntegrationWatchlistRepository_UpdateSortKeys(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -187,7 +189,7 @@ func TestWatchlistRepository_UpdateSortKeys(t *testing.T) {
 	assert.Equal(t, "GOOGL", list[2].SymbolCode)
 }
 
-func TestWatchlistRepository_UpdateSortKeys_TargetRowMissing(t *testing.T) {
+func TestIntegrationWatchlistRepository_UpdateSortKeys_TargetRowMissing(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -215,7 +217,7 @@ func TestWatchlistRepository_UpdateSortKeys_TargetRowMissing(t *testing.T) {
 	assert.Equal(t, 1, list[1].SortKey)
 }
 
-func TestWatchlistRepository_UpdateSortKeys_CountMismatch(t *testing.T) {
+func TestIntegrationWatchlistRepository_UpdateSortKeys_CountMismatch(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -243,7 +245,7 @@ func TestWatchlistRepository_UpdateSortKeys_CountMismatch(t *testing.T) {
 	assert.Equal(t, 2, list[2].SortKey)
 }
 
-func TestWatchlistRepository_ListByUser_Isolation(t *testing.T) {
+func TestIntegrationWatchlistRepository_ListByUser_Isolation(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -263,7 +265,7 @@ func TestWatchlistRepository_ListByUser_Isolation(t *testing.T) {
 	assert.Equal(t, "GOOGL", u2List[0].SymbolCode)
 }
 
-func TestWatchlistRepository_Add_DuplicateSortKey(t *testing.T) {
+func TestIntegrationWatchlistRepository_Add_DuplicateSortKey(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
