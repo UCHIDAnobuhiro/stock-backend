@@ -1,3 +1,5 @@
+//go:build integration
+
 package symbollist
 
 import (
@@ -75,7 +77,7 @@ func updateSymbolActive(t *testing.T, db *sql.DB, symbol *Symbol, isActive bool)
 	require.NoError(t, err, "failed to update symbol active status")
 }
 
-func TestSymbolRepository_ListActive(t *testing.T) {
+func TestIntegrationSymbolRepository_ListActive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -145,7 +147,7 @@ func TestSymbolRepository_ListActive(t *testing.T) {
 	}
 }
 
-func TestSymbolRepository_ListActive_FieldValues(t *testing.T) {
+func TestIntegrationSymbolRepository_ListActive_FieldValues(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
@@ -166,7 +168,7 @@ func TestSymbolRepository_ListActive_FieldValues(t *testing.T) {
 	assert.False(t, got.UpdatedAt.IsZero())
 }
 
-func TestSymbolRepository_ListActive_LogoURL(t *testing.T) {
+func TestIntegrationSymbolRepository_ListActive_LogoURL(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
@@ -193,7 +195,7 @@ func TestSymbolRepository_ListActive_LogoURL(t *testing.T) {
 	assert.True(t, symbols[0].LogoUpdatedAt.Equal(logoUpdatedAt))
 }
 
-func TestSymbolRepository_UpdateLogoURL(t *testing.T) {
+func TestIntegrationSymbolRepository_UpdateLogoURL(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
@@ -212,7 +214,7 @@ func TestSymbolRepository_UpdateLogoURL(t *testing.T) {
 	assert.True(t, symbols[0].LogoUpdatedAt.Equal(newLogoUpdatedAt))
 }
 
-func TestSymbolRepository_UpdateLogoURL_NoMatchingSymbol(t *testing.T) {
+func TestIntegrationSymbolRepository_UpdateLogoURL_NoMatchingSymbol(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)
@@ -220,7 +222,7 @@ func TestSymbolRepository_UpdateLogoURL_NoMatchingSymbol(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSymbolRepository_Exists(t *testing.T) {
+func TestIntegrationSymbolRepository_Exists(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -268,7 +270,7 @@ func TestSymbolRepository_Exists(t *testing.T) {
 	}
 }
 
-func TestSymbolRepository_ContextCancellation(t *testing.T) {
+func TestIntegrationSymbolRepository_ContextCancellation(t *testing.T) {
 	t.Parallel()
 	db := setupTestDB(t)
 	repo := NewRepository(db)

@@ -240,13 +240,21 @@ go test ./internal/feature/symbollist/symbollisthttp/... -v
 
 **実行コマンド:**
 ```bash
+# ユニットテスト（PostgreSQL 不要）
 go test ./internal/feature/symbollist/... -v
+
+# リポジトリのインテグレーションテスト（PostgreSQL が必要）
+go test -tags=integration -run '^TestIntegration' ./internal/feature/symbollist/... -v
 ```
 
 ### 全テスト実行
 
 ```bash
+# ユニットテスト
 go test ./internal/feature/symbollist/... -v -race -cover
+
+# インテグレーションテスト
+go test -tags=integration -run '^TestIntegration' ./internal/feature/symbollist/... -v -race -cover
 ```
 
 ## バッチ取り込みでの使用

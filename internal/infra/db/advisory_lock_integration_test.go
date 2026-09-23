@@ -1,3 +1,5 @@
+//go:build integration
+
 package db_test
 
 import (
@@ -23,7 +25,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestTryAdvisoryLock(t *testing.T) {
+func TestIntegrationTryAdvisoryLock(t *testing.T) {
 	t.Parallel()
 
 	sqlDB := dbtest.OpenIsolatedDB(t)
@@ -54,14 +56,4 @@ func TestTryAdvisoryLock(t *testing.T) {
 	require.True(t, acquired)
 	require.NotNil(t, reacquired)
 	require.NoError(t, reacquired.Unlock(ctx))
-}
-
-func TestTryAdvisoryLock_NilDB(t *testing.T) {
-	t.Parallel()
-
-	lock, acquired, err := infradb.TryAdvisoryLock(t.Context(), nil, 100, 1)
-
-	require.Error(t, err)
-	assert.False(t, acquired)
-	assert.Nil(t, lock)
 }

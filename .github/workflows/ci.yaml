@@ -121,16 +121,43 @@ jobs:
       - name: Run govulncheck
         run: govulncheck ./...
 
-  # ビルド確認とテスト実行
-  build-test:
-    name: Build & Test
+  # ビルド確認とユニットテスト（PostgreSQL 不要）
+  unit-test:
+    name: Build & Unit Test
+    needs: docs-check
+    if: needs.docs-check.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: Run build
+        run: go build ./...
+
+      - name: Run unit tests
+        run: go test -v -race -coverprofile=unit.coverage.out ./...
+
+      - name: Upload unit coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: unit.coverage.out
+          if-no-files-found: error
+
+  # PostgreSQL を使うインテグレーションテスト
+  integration-test:
+    name: Integration Test
     needs: docs-check
     if: needs.docs-check.outputs.code_changed == 'true'
     runs-on: ubuntu-latest
     services:
-      # dbtest ヘルパーは TEST_DB_DSN 未設定なら testcontainers-go で PostgreSQL を起動するが、
-      # GitHub Actions の Ryuk 周辺挙動が不安定なため、サービスコンテナで直接 PostgreSQL を提供する。
-      # ユーザーは superuser として作成され CREATEDB 権限を持つので dbtest の CREATE DATABASE が通る。
+      # dbtest は TEST_DB_DSN を使って PostgreSQL サービスへ接続する。
+      # サービスコンテナを使うことで testcontainers-go の Ryuk 周辺の不安定さを避ける。
       postgres:
         image: postgres:18
         env:
@@ -153,21 +180,56 @@ jobs:
         with:
           go-version: "1.27.0"
 
-      - name: Run build
-        run: go build ./...
+      - name: Check integration test names
+        run: bash scripts/check-integration-test-names.sh
 
-      - name: Run tests
+      - name: Run integration tests
         env:
           TEST_DB_DSN: postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable
-        run: go test ./... -v -race -coverprofile=coverage.out
+        run: go test -tags=integration -run '^TestIntegration' -v -race -coverprofile=integration.coverage.out ./...
 
-      - name: Check coverage threshold
+      - name: Upload integration coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: integration.coverage.out
+          if-no-files-found: error
+
+  # 両テストジョブのカバレッジを合算して基準を検証
+  coverage-check:
+    name: Coverage Threshold
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: Download unit coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: coverage/unit
+
+      - name: Download integration coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-coverage
+          path: coverage/integration
+
+      - name: Check combined coverage threshold
         env:
           COVERAGE_THRESHOLD: "63.0"  # 実測65.1%の約2pt下。カバレッジ向上時に引き上げる
         run: |
           set -euo pipefail
+          awk 'FNR == 1 { if (mode == "") mode = $0; else if (mode != $0) { print "coverage modes differ" > "/dev/stderr"; invalid = 1 } next } /^mode: / { if (mode != $0) { print "coverage modes differ" > "/dev/stderr"; invalid = 1 } next } { key = $1; if (key in statements && statements[key] != $2) { print "inconsistent statement count for " key > "/dev/stderr"; invalid = 1 } if (!(key in statements)) { order[++n] = key; statements[key] = $2 } counts[key] += $3 } END { if (invalid) exit 1; print mode; for (i = 1; i <= n; i++) { key = order[i]; print key, statements[key], counts[key] } }' \
+            coverage/unit/unit.coverage.out coverage/integration/integration.coverage.out > coverage.out
           total="$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')"
-          echo "total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
+          echo "combined total coverage: ${total}% (threshold: ${COVERAGE_THRESHOLD}%)"
           awk -v t="${total}" -v th="${COVERAGE_THRESHOLD}" 'BEGIN { exit !(t+0 >= th+0) }' \
             || { echo "::error::coverage ${total}% is below threshold ${COVERAGE_THRESHOLD}%"; exit 1; }
 
@@ -224,7 +286,7 @@ jobs:
   # GitHub Branch Protectionではこのジョブだけをrequiredに設定する
   ci-gate:
     name: CI Gate
-    needs: [docs-link-check, lint, arch-lint, vuln-scan, build-test, schema-doc-check]
+    needs: [docs-link-check, lint, arch-lint, vuln-scan, unit-test, integration-test, coverage-check, schema-doc-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -234,14 +296,18 @@ jobs:
           DOCS_LINK="${{ needs.docs-link-check.result }}"
           ARCH_LINT="${{ needs.arch-lint.result }}"
           VULN_SCAN="${{ needs.vuln-scan.result }}"
-          BUILD_TEST="${{ needs.build-test.result }}"
+          UNIT_TEST="${{ needs.unit-test.result }}"
+          INTEGRATION_TEST="${{ needs.integration-test.result }}"
+          COVERAGE="${{ needs.coverage-check.result }}"
           SCHEMA_DOC="${{ needs.schema-doc-check.result }}"
-          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} build-test=${BUILD_TEST} schema-doc=${SCHEMA_DOC}"
+          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} unit-test=${UNIT_TEST} integration-test=${INTEGRATION_TEST} coverage=${COVERAGE} schema-doc=${SCHEMA_DOC}"
           if [[ "${DOCS_LINK}" == "success" ]] && \
              [[ "${LINT}" == "success" || "${LINT}" == "skipped" ]] && \
              [[ "${ARCH_LINT}" == "success" || "${ARCH_LINT}" == "skipped" ]] && \
              [[ "${VULN_SCAN}" == "success" || "${VULN_SCAN}" == "skipped" ]] && \
-             [[ "${BUILD_TEST}" == "success" || "${BUILD_TEST}" == "skipped" ]] && \
+             [[ "${UNIT_TEST}" == "success" || "${UNIT_TEST}" == "skipped" ]] && \
+             [[ "${INTEGRATION_TEST}" == "success" || "${INTEGRATION_TEST}" == "skipped" ]] && \
+             [[ "${COVERAGE}" == "success" || "${COVERAGE}" == "skipped" ]] && \
              [[ "${SCHEMA_DOC}" == "success" || "${SCHEMA_DOC}" == "skipped" ]]; then
             echo "CI passed"
           else

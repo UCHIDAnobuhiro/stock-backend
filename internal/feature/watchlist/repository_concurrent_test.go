@@ -1,3 +1,5 @@
+//go:build integration
+
 package watchlist
 
 import (
@@ -35,7 +37,7 @@ func entriesFromPerm(userID int64, codes []string) []UserSymbol {
 // TestWatchlistRepository_UpdateSortKeys_Concurrent は同一ユーザーに対して
 // UpdateSortKeysを並行に呼び出しても、LockWatchlistByUserによる行ロック（取得順ロック）で
 // デッドロックやユニーク制約違反、件数不一致エラーなく直列化されることを検証します。
-func TestWatchlistRepository_UpdateSortKeys_Concurrent(t *testing.T) {
+func TestIntegrationWatchlistRepository_UpdateSortKeys_Concurrent(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -109,7 +111,7 @@ func (alwaysExistsSymbolChecker) Exists(ctx context.Context, code string) (bool,
 // これに加え、usecaseのListByUser呼び出し後・repository.UpdateSortKeysのロック取得前に
 // Removeが割り込んだ場合は、repository層のLockWatchlistByUserによる件数チェックでも
 // 同じErrReorderCodesMismatchが返る。
-func TestWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
+func TestIntegrationWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)
@@ -174,7 +176,7 @@ func TestWatchlistUsecase_ReorderSymbols_ConcurrentRemove(t *testing.T) {
 	assert.ElementsMatch(t, []string{"AAPL", "GOOGL"}, remainingCodes)
 }
 
-func TestWatchlistRepository_AddWithNextSortKey_Concurrent(t *testing.T) {
+func TestIntegrationWatchlistRepository_AddWithNextSortKey_Concurrent(t *testing.T) {
 	t.Parallel()
 	db, ids := setupTestDB(t)
 	repo := NewRepository(db)

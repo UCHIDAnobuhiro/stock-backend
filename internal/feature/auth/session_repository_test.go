@@ -1,3 +1,5 @@
+//go:build integration
+
 package auth
 
 import (
@@ -11,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRefreshSessionRepository_CreateAndFind(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_CreateAndFind(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
@@ -30,7 +32,7 @@ func TestRefreshSessionRepository_CreateAndFind(t *testing.T) {
 	assert.Nil(t, found.RevokedAt)
 }
 
-func TestRefreshSessionRepository_RotateAndDetectReuse(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_RotateAndDetectReuse(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
@@ -63,7 +65,7 @@ func TestRefreshSessionRepository_RotateAndDetectReuse(t *testing.T) {
 	assert.NotNil(t, revoked.RevokedAt)
 }
 
-func TestRefreshSessionRepository_RotateRejectsExpired(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_RotateRejectsExpired(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
@@ -80,7 +82,7 @@ func TestRefreshSessionRepository_RotateRejectsExpired(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRefreshTokenInvalid)
 }
 
-func TestRefreshSessionRepository_RotateRejectsDeletedUser(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_RotateRejectsDeletedUser(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
@@ -101,7 +103,7 @@ func TestRefreshSessionRepository_RotateRejectsDeletedUser(t *testing.T) {
 	assert.False(t, factoryCalled)
 }
 
-func TestRefreshSessionRepository_ConcurrentRotate(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_ConcurrentRotate(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
@@ -150,7 +152,7 @@ func TestRefreshSessionRepository_ConcurrentRotate(t *testing.T) {
 	require.NoError(t, repo.Rotate(context.Background(), active.TokenHash, now.Add(time.Second), fixedRefreshSessionFactory(successor)))
 }
 
-func TestRefreshSessionRepository_RevokeAndDeleteExpired(t *testing.T) {
+func TestIntegrationRefreshSessionRepository_RevokeAndDeleteExpired(t *testing.T) {
 	t.Parallel()
 
 	db := setupTestDB(t)
