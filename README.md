@@ -283,6 +283,7 @@ go generate ./internal/api/...
 ## CI/CD
 
 - **GitHub Actions** がプルリクエスト作成時に自動テストを実行
+- watchlist の E2E テストは `e2e` タグの専用ジョブで実行し、`integration` タグのテストとは分離する。ローカルでは Docker を使うか、`TEST_DB_DSN` に `CREATEDB` 権限を持つ PostgreSQL の接続先を指定して `go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e` を実行する
 - ドキュメントのみの変更でもMarkdown内のローカルリンク切れを検証
 - API用・batch用のCDワークフローは、mainへのマージ（コード変更を含むpush）で自動起動する。
   ドキュメントのみの変更（`**.md` / `docs/**` / `LICENSE`）では起動しない
