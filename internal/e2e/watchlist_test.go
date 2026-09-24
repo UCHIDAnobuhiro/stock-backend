@@ -76,6 +76,8 @@ func TestE2EWatchlist(t *testing.T) {
 	addBody := `{"symbol_code":"TSLA"}`
 	forbidden := request(t, client, http.MethodPost, watchlistURL, addBody, "")
 	require.Equal(t, http.StatusForbidden, forbidden.status, string(forbidden.body))
+	require.JSONEq(t, `{"error":"csrf token mismatch"}`, string(forbidden.body))
+	assertWatchlist(t, client, watchlistURL, []string{"AAPL", "MSFT", "GOOGL"})
 
 	added := request(t, client, http.MethodPost, watchlistURL, addBody, csrfToken)
 	require.Equal(t, http.StatusCreated, added.status, string(added.body))
@@ -113,7 +115,9 @@ func newWatchlistServer(t *testing.T) (*httptest.Server, *http.Client) {
 	validator, err := openapivalidate.New()
 	require.NoError(t, err)
 
-	// 対象外のルートは登録だけ行い、外部APIクライアントを起動しない。
+	// watchlist 専用の E2E 構成。認証と watchlist の配線は cmd/api/main.go に合わせているため、
+	// 本番の配線を変更した際はここも確認する。対象外のルートは呼ばず、外部 API クライアントを
+	// 起動しないため、それらの usecase は nil で登録する。
 	handlers := router.Handlers{
 		Auth:      authhttp.NewHandler(authUC, limiter, authhttp.SessionCookieConfig{}, testJWTSecret, blacklist, watchlistUC),
 		Candles:   candleshttp.NewHandler(nil),

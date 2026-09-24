@@ -280,10 +280,19 @@ go generate ./internal/api/...
 - アプリケーションは注入された値を起動時に `os.Getenv()` で読み込み
 - **ローカル開発では `docker/.env` から読み込み**
 
+## E2E テスト
+
+watchlist の E2E テストは `internal/e2e/` に置き、`e2e` タグと `TestE2E` 接頭辞を使います。
+PostgreSQL が必要です。Docker が利用できない場合は、`CREATEDB` 権限を持つ接続先を `TEST_DB_DSN` に指定してください。
+
+```bash
+go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e
+```
+
 ## CI/CD
 
 - **GitHub Actions** がプルリクエスト作成時に自動テストを実行
-- watchlist の E2E テストは `e2e` タグの専用ジョブで実行し、`integration` タグのテストとは分離する。ローカルでは Docker を使うか、`TEST_DB_DSN` に `CREATEDB` 権限を持つ PostgreSQL の接続先を指定して `go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e` を実行する
+- watchlist の E2E テストは `integration` テストと別の専用ジョブで実行する
 - ドキュメントのみの変更でもMarkdown内のローカルリンク切れを検証
 - API用・batch用のCDワークフローは、mainへのマージ（コード変更を含むpush）で自動起動する。
   ドキュメントのみの変更（`**.md` / `docs/**` / `LICENSE`）では起動しない

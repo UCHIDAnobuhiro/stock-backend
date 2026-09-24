@@ -181,7 +181,7 @@ jobs:
           go-version: "1.27.0"
 
       - name: Check integration test names
-        run: bash scripts/check-integration-test-names.sh
+        run: bash scripts/check-tagged-test-names.sh integration TestIntegration
 
       - name: Run integration tests
         env:
@@ -223,6 +223,9 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: "1.27.0"
+
+      - name: Check E2E test names
+        run: bash scripts/check-tagged-test-names.sh e2e TestE2E internal/e2e
 
       - name: Run E2E tests
         env:
