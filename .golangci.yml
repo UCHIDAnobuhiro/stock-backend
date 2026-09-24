@@ -3,6 +3,7 @@ version: "2"
 run:
   build-tags:
     - integration
+    - e2e
 
 linters:
   default: standard
