@@ -143,7 +143,7 @@ jobs:
         run: go test -v -race -coverprofile=unit.coverage.out ./...
 
       - name: Upload unit coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: unit.coverage.out
@@ -181,7 +181,7 @@ jobs:
           go-version: "1.27.0"
 
       - name: Check integration test names
-        run: bash scripts/check-integration-test-names.sh
+        run: bash scripts/check-tagged-test-names.sh integration TestIntegration
 
       - name: Run integration tests
         env:
@@ -189,11 +189,48 @@ jobs:
         run: go test -tags=integration -run '^TestIntegration' -v -race -coverprofile=integration.coverage.out ./...
 
       - name: Upload integration coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-coverage
           path: integration.coverage.out
           if-no-files-found: error
+
+  # 公開HTTP APIを通す E2E テスト。integration タグとは独立して実行する。
+  e2e-test:
+    name: E2E Test
+    needs: docs-check
+    if: needs.docs-check.outputs.code_changed == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: apppass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U appuser -d postgres"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: Check E2E test names
+        run: bash scripts/check-tagged-test-names.sh e2e TestE2E internal/e2e
+
+      - name: Run E2E tests
+        env:
+          TEST_DB_DSN: postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable
+        run: go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e
 
   # 両テストジョブのカバレッジを合算して基準を検証
   coverage-check:
@@ -286,7 +323,7 @@ jobs:
   # GitHub Branch Protectionではこのジョブだけをrequiredに設定する
   ci-gate:
     name: CI Gate
-    needs: [docs-link-check, lint, arch-lint, vuln-scan, unit-test, integration-test, coverage-check, schema-doc-check]
+    needs: [docs-link-check, lint, arch-lint, vuln-scan, unit-test, integration-test, e2e-test, coverage-check, schema-doc-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -298,15 +335,17 @@ jobs:
           VULN_SCAN="${{ needs.vuln-scan.result }}"
           UNIT_TEST="${{ needs.unit-test.result }}"
           INTEGRATION_TEST="${{ needs.integration-test.result }}"
+          E2E_TEST="${{ needs.e2e-test.result }}"
           COVERAGE="${{ needs.coverage-check.result }}"
           SCHEMA_DOC="${{ needs.schema-doc-check.result }}"
-          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} unit-test=${UNIT_TEST} integration-test=${INTEGRATION_TEST} coverage=${COVERAGE} schema-doc=${SCHEMA_DOC}"
+          echo "docs-link=${DOCS_LINK} lint=${LINT} arch-lint=${ARCH_LINT} vuln-scan=${VULN_SCAN} unit-test=${UNIT_TEST} integration-test=${INTEGRATION_TEST} e2e-test=${E2E_TEST} coverage=${COVERAGE} schema-doc=${SCHEMA_DOC}"
           if [[ "${DOCS_LINK}" == "success" ]] && \
              [[ "${LINT}" == "success" || "${LINT}" == "skipped" ]] && \
              [[ "${ARCH_LINT}" == "success" || "${ARCH_LINT}" == "skipped" ]] && \
              [[ "${VULN_SCAN}" == "success" || "${VULN_SCAN}" == "skipped" ]] && \
              [[ "${UNIT_TEST}" == "success" || "${UNIT_TEST}" == "skipped" ]] && \
              [[ "${INTEGRATION_TEST}" == "success" || "${INTEGRATION_TEST}" == "skipped" ]] && \
+             [[ "${E2E_TEST}" == "success" || "${E2E_TEST}" == "skipped" ]] && \
              [[ "${COVERAGE}" == "success" || "${COVERAGE}" == "skipped" ]] && \
              [[ "${SCHEMA_DOC}" == "success" || "${SCHEMA_DOC}" == "skipped" ]]; then
             echo "CI passed"

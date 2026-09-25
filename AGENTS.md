@@ -70,6 +70,8 @@ go tool sqlc generate
 `integration` ビルドタグを付けてあり、[testcontainers-go](https://golang.testcontainers.org/) で
 実 PostgreSQL を立ち上げます。Docker daemon が利用できない環境では、ホストの PostgreSQL を `TEST_DB_DSN` で
 指定すると testcontainers をスキップできます（DB ユーザーには `CREATEDB` 権限が必要）。
+公開 HTTP API を通す E2E テストは `internal/e2e/` に配置し、`e2e` ビルドタグと `TestE2E` 接頭辞を使います。
+`integration` テストとは別に実行し、CI では両方のタグ付きテスト名を検査します。
 
 ```bash
 # ユニットテスト（PostgreSQL 不要）
@@ -77,6 +79,9 @@ go test ./... -v -race -cover
 
 # インテグレーションテスト（Docker が必要）
 go test -tags=integration -run '^TestIntegration' ./... -v -race -cover
+
+# E2E テスト（Docker または TEST_DB_DSN が必要）
+go test -tags=e2e -run '^TestE2E' ./internal/e2e -v -race
 
 # ホストの PostgreSQL を使う場合
 TEST_DB_DSN="postgres://appuser:apppass@localhost:5432/postgres?sslmode=disable" \
@@ -132,6 +137,7 @@ internal/
 │   ├── logodetection/
 │   ├── symbollist/
 │   └── watchlist/
+├── e2e/              # 公開HTTP APIの E2E テスト（e2e ビルドタグ）
 ├── transport/        # inbound HTTP 層（net/http ハンドラー/ミドルウェア、chi ルーター）
 │   ├── csrf/         # CSRF保護（Double Submit Cookieパターン）
 │   ├── handler/      # プラットフォームレベルのHTTPハンドラー（ヘルスチェック等）
