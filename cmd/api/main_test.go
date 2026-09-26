@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,6 +67,8 @@ func TestRun_RedisUnavailableStopsStartup(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clearEnv(t)
+			// 起動停止が退行しても、開発環境のADCでVision初期化が成功してサーバーが待機しないようにする。
+			t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing-adc.json"))
 			t.Setenv(jwt.EnvKeyJWTSecret, "0123456789abcdef0123456789abcdef")
 			t.Setenv(auth.EnvKeyPasswordPepper, "0123456789abcdef0123456789abcdef")
 			if tc.oauth {
@@ -122,6 +125,9 @@ func TestRun_RedisUnavailableStopsStartup(t *testing.T) {
 			}
 			if strings.Contains(string(output), "Starting server") {
 				t.Errorf("HTTP server started despite Redis failure: %s", output)
+			}
+			if strings.Contains(string(output), "failed to create vision client") {
+				t.Errorf("startup proceeded to Vision after Redis failure: %s", output)
 			}
 		})
 	}
