@@ -95,11 +95,11 @@ func validationLogFields(err error) (field, reason string) {
 	if !errors.As(err, &requestErr) {
 		return field, reason
 	}
+	if errors.Is(err, openapi3filter.ErrInvalidRequired) {
+		reason = "required"
+	}
 	if requestErr.Parameter != nil {
 		field = requestErr.Parameter.Name // OpenAPI 定義から渡された Parameter の名前
-		if errors.Is(err, openapi3filter.ErrInvalidRequired) {
-			reason = "required"
-		}
 	} else if requestErr.RequestBody != nil {
 		field = "body"
 	}

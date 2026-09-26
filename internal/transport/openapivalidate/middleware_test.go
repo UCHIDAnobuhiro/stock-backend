@@ -29,6 +29,7 @@ func TestMiddleware_ValidationLogOmitsInputValues(t *testing.T) {
 	}{
 		{"short password", http.MethodPost, "/v1/signup", `{"email":"test@example.com","password":"S3cr3t!"}`, "S3cr3t!", "test@example.com", "password", "minLength"},
 		{"missing email", http.MethodPost, "/v1/login", `{"password":"secret-login-value"}`, "secret-login-value", "", "email", "required"},
+		{"missing body", http.MethodPost, "/v1/login", "", "", "", "body", "required"},
 		{"invalid email format", http.MethodPost, "/v1/signup", `{"email":"private-invalid-email","password":"password12345"}`, "private-invalid-email", "password12345", "email", "format"},
 		{"invalid password type", http.MethodPost, "/v1/signup", `{"email":"test@example.com","password":{"secret":"nested-private-value"}}`, "nested-private-value", "test@example.com", "password", "type"},
 		{"malformed JSON", http.MethodPost, "/v1/login", `{"email":"private-json-value",`, "private-json-value", "", "body", "invalid_request"},
@@ -44,8 +45,10 @@ func TestMiddleware_ValidationLogOmitsInputValues(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 			assert.JSONEq(t, `{"error":"invalid request"}`, w.Body.String())
-			assert.NotContains(t, logs.String(), tt.secret)
-			assert.NotContains(t, w.Body.String(), tt.secret)
+			if tt.secret != "" {
+				assert.NotContains(t, logs.String(), tt.secret)
+				assert.NotContains(t, w.Body.String(), tt.secret)
+			}
 			if tt.otherSecret != "" {
 				assert.NotContains(t, logs.String(), tt.otherSecret)
 				assert.NotContains(t, w.Body.String(), tt.otherSecret)
