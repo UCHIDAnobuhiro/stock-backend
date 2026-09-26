@@ -549,8 +549,11 @@ Redis Sorted Setを使用したSliding Window Logアルゴリズム:
 
 ### Redis障害時の挙動
 
+API起動時にRedisへの接続確認（PING）が失敗すると、OAuthの有効・無効にかかわらず
+起動を失敗させます。Redis復旧後はAPIプロセスを再起動して接続し直します。
+
 認証系エンドポイント（signup / login IP・メール / OAuth 認可開始・コールバック）のレートリミットは
-**fail-closed** です。Redisが利用できない場合（未接続・Luaスクリプト実行エラー）、
+**fail-closed** です。起動後にRedisが利用できなくなった場合（Luaスクリプト実行エラー等）、
 判定不能としてリクエストを拒否し、**503 Service Unavailable**
 （`{"error": "service temporarily unavailable"}`、`Retry-After`ヘッダーなし）を返します。
 
@@ -906,7 +909,7 @@ go test -tags=integration -run '^TestIntegration' ./internal/feature/auth/... -v
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth クライアントシークレット | GitHub有効時 |
 | `GITHUB_REDIRECT_URL` | GitHub OAuth コールバック URL | GitHub有効時 |
 
-`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID` のいずれかが設定されている場合、OAuth 機能が有効化されます。OAuth 有効時は Redis 接続が必須です（state 保存に使用）。
+`GOOGLE_CLIENT_ID` または `GITHUB_CLIENT_ID` のいずれかが設定されている場合、OAuth 機能が有効化されます。API起動時はOAuthの設定にかかわらずRedis接続が必須です（認証系レートリミット、OAuth state 保存等に使用）。
 
 **設定例**（`docker/.env`）:
 ```

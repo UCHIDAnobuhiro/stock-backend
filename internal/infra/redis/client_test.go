@@ -2,11 +2,14 @@ package redis
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/alicebob/miniredis/v2"
 )
 
 // TestPassword_Masking は Password 型がログ・文字列化・JSON シリアライズのいずれの経路でも
@@ -69,4 +72,38 @@ func TestPassword_Masking(t *testing.T) {
 			t.Errorf("string(p) = %q, want %q", string(p), secret)
 		}
 	})
+}
+
+func TestNewRedisClient_Ping(t *testing.T) {
+	server := miniredis.RunT(t)
+	host, port, ok := strings.Cut(server.Addr(), ":")
+	if !ok {
+		t.Fatalf("invalid Redis address: %q", server.Addr())
+	}
+
+	client, err := NewRedisClient(host, port, "")
+	if err != nil || client == nil {
+		t.Fatalf("healthy Redis: client = %v, err = %v", client, err)
+	}
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		t.Errorf("returned client cannot PING Redis: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Errorf("close client: %v", err)
+	}
+
+	server.SetError("LOADING Redis is loading the dataset in memory")
+	client, err = NewRedisClient(host, port, "")
+	if err == nil || client != nil {
+		t.Errorf("unavailable Redis: client = %v, err = %v; want nil client and error", client, err)
+	}
+
+	server.SetError("")
+	client, err = NewRedisClient(host, port, "")
+	if err != nil || client == nil {
+		t.Fatalf("recovered Redis: client = %v, err = %v", client, err)
+	}
+	if err := client.Close(); err != nil {
+		t.Errorf("close recovered client: %v", err)
+	}
 }
