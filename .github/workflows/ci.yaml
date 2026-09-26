@@ -143,7 +143,7 @@ jobs:
         run: go test -v -race -coverprofile=unit.coverage.out ./...
 
       - name: Upload unit coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: unit.coverage.out
@@ -189,7 +189,7 @@ jobs:
         run: go test -tags=integration -run '^TestIntegration' -v -race -coverprofile=integration.coverage.out ./...
 
       - name: Upload integration coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-coverage
           path: integration.coverage.out
@@ -247,13 +247,13 @@ jobs:
           go-version: "1.27.0"
 
       - name: Download unit coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: unit-coverage
           path: coverage/unit
 
       - name: Download integration coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: integration-coverage
           path: coverage/integration
