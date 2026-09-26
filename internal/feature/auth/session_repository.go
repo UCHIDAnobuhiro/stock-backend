@@ -65,7 +65,7 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 	if nextFactory == nil {
 		return errors.New("refresh session factory is nil")
 	}
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin refresh rotation tx: %w", err)
 	}
@@ -77,6 +77,13 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 	}()
 
 	qtx := r.q.WithTx(tx)
+	found, err := lockRefreshSessionFamily(ctx, qtx, currentTokenHash)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrRefreshTokenInvalid
+	}
 	row, err := qtx.LockRefreshSessionForRotation(ctx, currentTokenHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -141,23 +148,9 @@ func (r *refreshSessionRepository) Rotate(ctx context.Context, currentTokenHash 
 	return nil
 }
 
-func refreshSessionFromRotationSQLC(row authsqlc.LockRefreshSessionForRotationRow) RefreshSession {
-	return RefreshSession{
-		ID:         row.ID,
-		FamilyID:   row.FamilyID,
-		UserID:     row.UserID,
-		TokenHash:  row.TokenHash,
-		ExpiresAt:  row.ExpiresAt,
-		ConsumedAt: nullTimePointer(row.ConsumedAt),
-		RevokedAt:  nullTimePointer(row.RevokedAt),
-		ReplacedBy: nullStringPointer(row.ReplacedBy),
-		CreatedAt:  row.CreatedAt,
-	}
-}
-
 // Revoke はトークンが属する系列を失効させます。未知のトークンは冪等に成功します。
 func (r *refreshSessionRepository) Revoke(ctx context.Context, tokenHash []byte, now time.Time) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin refresh revocation tx: %w", err)
 	}
@@ -169,6 +162,13 @@ func (r *refreshSessionRepository) Revoke(ctx context.Context, tokenHash []byte,
 	}()
 
 	qtx := r.q.WithTx(tx)
+	found, err := lockRefreshSessionFamily(ctx, qtx, tokenHash)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
 	current, err := qtx.LockRefreshSessionByTokenHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -212,6 +212,20 @@ func refreshSessionFromSQLC(row authsqlc.RefreshSession) RefreshSession {
 	}
 }
 
+func refreshSessionFromRotationSQLC(row authsqlc.LockRefreshSessionForRotationRow) RefreshSession {
+	return RefreshSession{
+		ID:         row.ID,
+		FamilyID:   row.FamilyID,
+		UserID:     row.UserID,
+		TokenHash:  row.TokenHash,
+		ExpiresAt:  row.ExpiresAt,
+		ConsumedAt: nullTimePointer(row.ConsumedAt),
+		RevokedAt:  nullTimePointer(row.RevokedAt),
+		ReplacedBy: nullStringPointer(row.ReplacedBy),
+		CreatedAt:  row.CreatedAt,
+	}
+}
+
 func nullTimePointer(value sql.NullTime) *time.Time {
 	if !value.Valid {
 		return nil
@@ -224,4 +238,20 @@ func nullStringPointer(value sql.NullString) *string {
 		return nil
 	}
 	return &value.String
+}
+
+// lockRefreshSessionFamily は系列を取得し、行をロックする前に系列単位のトランザクションロックを取ります。
+// 呼出元は別SQLで行を再読取する必要があります。Read Committedでは待機中に行の状態が変わり得ます。
+func lockRefreshSessionFamily(ctx context.Context, qtx *authsqlc.Queries, tokenHash []byte) (bool, error) {
+	familyID, err := qtx.FindRefreshSessionFamilyByTokenHash(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := qtx.LockRefreshSessionFamily(ctx, familyID); err != nil {
+		return false, err
+	}
+	return true, nil
 }

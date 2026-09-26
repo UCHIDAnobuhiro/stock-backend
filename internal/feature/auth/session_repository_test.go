@@ -4,6 +4,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -152,6 +153,93 @@ func TestIntegrationRefreshSessionRepository_ConcurrentRotate(t *testing.T) {
 	require.NoError(t, repo.Rotate(context.Background(), active.TokenHash, now.Add(time.Second), fixedRefreshSessionFactory(successor)))
 }
 
+func TestIntegrationRefreshSessionRepository_FamilyRevocationWaitsForRotation(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		revoke     bool
+		wantResult error
+	}{
+		{name: "reuse", wantResult: ErrRefreshTokenReused},
+		{name: "logout", revoke: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			user := seedUser(t, db, "refresh-family-race@example.com", "hash")
+			repo := NewRefreshSessionRepository(db)
+			now := time.Now().UTC()
+			a := makeRefreshSession("a", "family", user.ID, "token-a", now.Add(time.Hour))
+			b := makeRefreshSession("b", "family", user.ID, "token-b", now.Add(time.Hour))
+			c := makeRefreshSession("c", "family", user.ID, "token-c", now.Add(time.Hour))
+			other := makeRefreshSession("other", "other-family", user.ID, "other-token", now.Add(time.Hour))
+			otherNext := makeRefreshSession("other-next", "other-family", user.ID, "other-next-token", now.Add(time.Hour))
+			require.NoError(t, repo.Create(context.Background(), a))
+			require.NoError(t, repo.Create(context.Background(), other))
+			require.NoError(t, repo.Rotate(context.Background(), a.TokenHash, now, fixedRefreshSessionFactory(b)))
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			factoryEntered := make(chan struct{})
+			releaseFactory := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseFactory) }) }
+			defer release()
+			rotateDone := make(chan error, 1)
+			go func() {
+				rotateDone <- repo.Rotate(ctx, b.TokenHash, now.Add(time.Second), func(RefreshSession, string) (*RefreshSession, error) {
+					close(factoryEntered)
+					select {
+					case <-releaseFactory:
+						return c, nil
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				})
+			}()
+			select {
+			case <-factoryEntered:
+			case <-ctx.Done():
+				t.Fatal("rotation did not reach the factory")
+			}
+
+			revokeDone := make(chan error, 1)
+			go func() {
+				if tc.revoke {
+					revokeDone <- repo.Revoke(ctx, a.TokenHash, now.Add(2*time.Second))
+				} else {
+					revokeDone <- repo.Rotate(ctx, a.TokenHash, now.Add(refreshTokenReuseGracePeriod+time.Second), fixedRefreshSessionFactory(c))
+				}
+			}()
+			waitForFamilyLock(t, ctx, db)
+			require.NoError(t, repo.Rotate(ctx, other.TokenHash, now.Add(time.Second), fixedRefreshSessionFactory(otherNext)))
+			release()
+			require.NoError(t, <-rotateDone)
+			revocationErr := <-revokeDone
+			if tc.wantResult == nil {
+				require.NoError(t, revocationErr)
+			} else {
+				require.ErrorIs(t, revocationErr, tc.wantResult)
+			}
+			for _, token := range [][]byte{a.TokenHash, b.TokenHash, c.TokenHash} {
+				found, err := repo.FindByTokenHash(ctx, token)
+				require.NoError(t, err)
+				assert.NotNil(t, found.RevokedAt)
+			}
+			var activeCount int
+			require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM refresh_sessions WHERE family_id = $1 AND revoked_at IS NULL", a.FamilyID).Scan(&activeCount))
+			assert.Zero(t, activeCount)
+			factoryCalled := false
+			assert.ErrorIs(t, repo.Rotate(ctx, c.TokenHash, now.Add(3*time.Second), func(RefreshSession, string) (*RefreshSession, error) {
+				factoryCalled = true
+				return nil, nil
+			}), ErrRefreshTokenInvalid)
+			assert.False(t, factoryCalled)
+			unrelated, err := repo.FindByTokenHash(ctx, otherNext.TokenHash)
+			require.NoError(t, err)
+			assert.Nil(t, unrelated.RevokedAt)
+		})
+	}
+}
+
 func TestIntegrationRefreshSessionRepository_RevokeAndDeleteExpired(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +263,32 @@ func TestIntegrationRefreshSessionRepository_RevokeAndDeleteExpired(t *testing.T
 	_, err = repo.FindByTokenHash(context.Background(), expired.TokenHash)
 	assert.ErrorIs(t, err, ErrRefreshTokenInvalid)
 	require.NoError(t, repo.Revoke(context.Background(), hashRefreshToken("unknown"), now))
+}
+
+func waitForFamilyLock(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var blocked bool
+		err := db.QueryRowContext(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND wait_event_type = 'Lock'
+      AND (query LIKE '%-- name: LockRefreshSessionFamily%'
+           OR query LIKE '%-- name: RevokeRefreshSessionFamily%')
+)`).Scan(&blocked)
+		require.NoError(t, err)
+		if blocked {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal("family revocation did not wait for the active rotation")
+		}
+	}
 }
 
 func makeRefreshSession(id, familyID string, userID int64, token string, expiresAt time.Time) *RefreshSession {

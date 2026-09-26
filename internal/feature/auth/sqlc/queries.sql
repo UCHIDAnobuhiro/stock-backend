@@ -41,6 +41,15 @@ FROM refresh_sessions
 WHERE token_hash = $1
 LIMIT 1;
 
+-- name: FindRefreshSessionFamilyByTokenHash :one
+SELECT family_id
+FROM refresh_sessions
+WHERE token_hash = $1
+LIMIT 1;
+
+-- name: LockRefreshSessionFamily :exec
+SELECT pg_advisory_xact_lock(hashtextextended('auth:refresh-family:' || sqlc.arg(family_id)::text, 0));
+
 -- name: LockRefreshSessionForRotation :one
 SELECT rs.id, rs.family_id, rs.user_id, rs.token_hash, rs.expires_at,
        rs.consumed_at, rs.revoked_at, rs.replaced_by, rs.created_at,

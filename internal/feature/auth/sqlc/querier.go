@@ -17,9 +17,11 @@ type Querier interface {
 	DeleteExpiredRefreshSessions(ctx context.Context, expiresAt time.Time) (int64, error)
 	FindOAuthAccountByProvider(ctx context.Context, arg FindOAuthAccountByProviderParams) (OauthAccount, error)
 	FindRefreshSessionByTokenHash(ctx context.Context, tokenHash []byte) (RefreshSession, error)
+	FindRefreshSessionFamilyByTokenHash(ctx context.Context, tokenHash []byte) (string, error)
 	FindUserByEmail(ctx context.Context, email string) (User, error)
 	FindUserByID(ctx context.Context, id int64) (User, error)
 	LockRefreshSessionByTokenHash(ctx context.Context, tokenHash []byte) (RefreshSession, error)
+	LockRefreshSessionFamily(ctx context.Context, familyID string) error
 	LockRefreshSessionForRotation(ctx context.Context, tokenHash []byte) (LockRefreshSessionForRotationRow, error)
 	RevokeRefreshSessionFamily(ctx context.Context, arg RevokeRefreshSessionFamilyParams) error
 }

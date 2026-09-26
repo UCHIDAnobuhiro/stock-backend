@@ -181,6 +181,20 @@ func (q *Queries) FindRefreshSessionByTokenHash(ctx context.Context, tokenHash [
 	return i, err
 }
 
+const findRefreshSessionFamilyByTokenHash = `-- name: FindRefreshSessionFamilyByTokenHash :one
+SELECT family_id
+FROM refresh_sessions
+WHERE token_hash = $1
+LIMIT 1
+`
+
+func (q *Queries) FindRefreshSessionFamilyByTokenHash(ctx context.Context, tokenHash []byte) (string, error) {
+	row := q.db.QueryRowContext(ctx, findRefreshSessionFamilyByTokenHash, tokenHash)
+	var family_id string
+	err := row.Scan(&family_id)
+	return family_id, err
+}
+
 const findUserByEmail = `-- name: FindUserByEmail :one
 SELECT id, email, password_hash, created_at, updated_at
 FROM users
@@ -245,6 +259,15 @@ func (q *Queries) LockRefreshSessionByTokenHash(ctx context.Context, tokenHash [
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const lockRefreshSessionFamily = `-- name: LockRefreshSessionFamily :exec
+SELECT pg_advisory_xact_lock(hashtextextended('auth:refresh-family:' || $1::text, 0))
+`
+
+func (q *Queries) LockRefreshSessionFamily(ctx context.Context, familyID string) error {
+	_, err := q.db.ExecContext(ctx, lockRefreshSessionFamily, familyID)
+	return err
 }
 
 const lockRefreshSessionForRotation = `-- name: LockRefreshSessionForRotation :one
