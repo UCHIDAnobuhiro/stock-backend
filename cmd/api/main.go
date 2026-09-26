@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,8 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	redisv9 "github.com/redis/go-redis/v9"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/di"
@@ -45,6 +44,10 @@ func main() {
 // run は API サーバーを構成・起動し、終了コードを返す。
 // 設定不正は 2、外部接続や起動の失敗は 1、正常終了は 0。
 func run() int {
+	return runWithDBOpener(infradb.OpenSQL)
+}
+
+func runWithDBOpener(openDB func(infradb.Config) (*sql.DB, error)) int {
 	// 環境変数を一括で読み込み・検証する（os.Getenv の呼び出しは config に集約）。
 	cfg, err := config.LoadAPI()
 	// ロガーは設定読み込みの成否に関わらず構成する（cfg.Log は best-effort で埋まる）。
@@ -59,7 +62,7 @@ func run() int {
 	}
 
 	// データベース接続。スキーマ適用は cmd/migrate バイナリ（goose）で別途実施する。
-	sqlDB, err := infradb.OpenSQL(cfg.DB)
+	sqlDB, err := openDB(cfg.DB)
 	if err != nil {
 		slog.Error("DB open failed", "error", err)
 		return 1
@@ -71,18 +74,16 @@ func run() int {
 	}()
 
 	// Redis接続
-	var rdb *redisv9.Client
-	if tmp, err := infraredis.NewRedisClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password); err != nil {
-		slog.Warn("Redis unavailable: running without cache; signup/login will return 503 (fail-closed rate limiting)", "error", err)
-		rdb = nil
-	} else {
-		rdb = tmp
-		defer func() {
-			if err := rdb.Close(); err != nil {
-				slog.Error("Failed to close Redis client", "error", err)
-			}
-		}()
+	rdb, err := infraredis.NewRedisClient(cfg.Redis.Host, cfg.Redis.Port, cfg.Redis.Password)
+	if err != nil {
+		slog.Error("Redis startup failed", "error", err)
+		return 1
 	}
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			slog.Error("Failed to close Redis client", "error", err)
+		}
+	}()
 
 	// 全 feature が sqlc 化済み。
 	userRepo := auth.NewUserRepository(sqlDB)

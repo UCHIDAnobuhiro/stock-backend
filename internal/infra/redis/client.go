@@ -43,6 +43,9 @@ func NewRedisClient(host, port, password string) (*redis.Client, error) {
 	// 接続を検証
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		slog.Error("Redis connection failed", "address", addr, "error", err)
+		if closeErr := rdb.Close(); closeErr != nil {
+			slog.Warn("Failed to close Redis client after connection failure", "error", closeErr)
+		}
 		return nil, err
 	}
 
