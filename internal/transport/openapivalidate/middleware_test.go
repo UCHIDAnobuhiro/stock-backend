@@ -1,8 +1,10 @@
 package openapivalidate_test
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +16,49 @@ import (
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/openapivalidate"
 )
+
+func TestMiddleware_ValidationLogOmitsInputValues(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	router := newValidatedRouter(t)
+	tests := []struct {
+		name, method, path, body, secret, otherSecret, field, reason string
+	}{
+		{"short password", http.MethodPost, "/v1/signup", `{"email":"test@example.com","password":"S3cr3t!"}`, "S3cr3t!", "test@example.com", "password", "minLength"},
+		{"missing email", http.MethodPost, "/v1/login", `{"password":"secret-login-value"}`, "secret-login-value", "", "email", "required"},
+		{"missing body", http.MethodPost, "/v1/login", "", "", "", "body", "required"},
+		{"invalid email format", http.MethodPost, "/v1/signup", `{"email":"private-invalid-email","password":"password12345"}`, "private-invalid-email", "password12345", "email", "format"},
+		{"invalid password type", http.MethodPost, "/v1/signup", `{"email":"test@example.com","password":{"secret":"nested-private-value"}}`, "nested-private-value", "test@example.com", "password", "type"},
+		{"malformed JSON", http.MethodPost, "/v1/login", `{"email":"private-json-value",`, "private-json-value", "", "body", "invalid_request"},
+		{"invalid parameter", http.MethodGet, "/v1/candles/AAPL?outputsize=secret-query-value", "", "secret-query-value", "", "outputsize", "invalid_request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs.Reset()
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			assert.JSONEq(t, `{"error":"invalid request"}`, w.Body.String())
+			if tt.secret != "" {
+				assert.NotContains(t, logs.String(), tt.secret)
+				assert.NotContains(t, w.Body.String(), tt.secret)
+			}
+			if tt.otherSecret != "" {
+				assert.NotContains(t, logs.String(), tt.otherSecret)
+				assert.NotContains(t, w.Body.String(), tt.otherSecret)
+			}
+			assert.Contains(t, logs.String(), `"field":"`+tt.field+`"`)
+			assert.Contains(t, logs.String(), `"reason":"`+tt.reason+`"`)
+			assert.Contains(t, logs.String(), `"status":400`)
+		})
+	}
+}
 
 // newValidatedRouter は OpenAPI バリデーションミドルウェアを /v1 に適用したルーターを返す。
 // 各ルートは到達したら 200 を返すだけのダミーハンドラーに繋ぐ。
