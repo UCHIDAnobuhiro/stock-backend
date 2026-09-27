@@ -487,15 +487,17 @@ func TestIngestUsecase_IngestAll_MidLoopFatal(t *testing.T) {
 		mockMarket := &mockMarketRepository{
 			GetTimeSeriesFunc: func(ctx context.Context, symbol, interval string, outputsize int, loc *time.Location) ([]Candle, error) {
 				processedCount++
-				if processedCount == 1 {
-					// 1銘柄目の処理完了後に ctx をキャンセルし、2銘柄目のループ先頭で検出させる
-					cancel()
-				}
 				return mockCandles, nil
 			},
 		}
 		mockCandle := &mockWriteRepository{
-			UpsertBatchFunc: func(ctx context.Context, candles []Candle) error { return nil },
+			UpsertBatchFunc: func(ctx context.Context, candles []Candle) error {
+				if processedCount == 1 {
+					// 保存成功直前のキャンセルでも成功件数を維持する。
+					cancel()
+				}
+				return nil
+			},
 		}
 		mockSymbol := &mockSymbolRepository{
 			ListActiveSymbolsFunc: func(ctx context.Context) ([]ActiveSymbol, error) {
