@@ -92,7 +92,7 @@ func (m *mockUserRepository) FindByEmail(ctx context.Context, email string) (*au
 		return m.FindByEmailFunc(ctx, email)
 	}
 	// デフォルト: ユーザー未検出エラーを返す
-	return nil, errors.New("user not found")
+	return nil, auth.ErrUserNotFound
 }
 
 // FindByID はFindByIDメソッドのモック実装です。
@@ -285,7 +285,7 @@ func TestAuthUsecase_Login(t *testing.T) {
 			password:       "password12345",
 			wantErr:        true,
 			errMsg:         "invalid email or password",
-			findByEmailErr: errors.New("user not found"),
+			findByEmailErr: auth.ErrUserNotFound,
 		},
 		{
 			name:              "incorrect password",
@@ -391,6 +391,48 @@ func TestAuthUsecase_Login_RejectsOAuthOnlyUser(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAuthUsecase_Login_FindByEmailErrors(t *testing.T) {
+	t.Parallel()
+
+	dbErr := errors.New("database connection failed")
+	tests := []struct {
+		name        string
+		lookupErr   error
+		wantInvalid bool
+	}{
+		{name: "wrapped user not found", lookupErr: fmt.Errorf("lookup: %w", auth.ErrUserNotFound), wantInvalid: true},
+		{name: "database failure", lookupErr: dbErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			repo := &mockUserRepository{FindByEmailFunc: func(context.Context, string) (*auth.User, error) {
+				return nil, tt.lookupErr
+			}}
+			sessions := &mockJWTGenerator{GenerateTokenFunc: func(int64, string) (string, error) {
+				t.Error("lookup failure must not issue a session")
+				return "unexpected-token", nil
+			}}
+			uc := auth.NewUsecase(repo, sessions, testPepper)
+			pair, err := uc.Login(context.Background(), "test@example.com", "password12345")
+			if pair != (auth.TokenPair{}) {
+				t.Error("lookup failure must not return tokens")
+			}
+			if errors.Is(err, auth.ErrInvalidCredentials) != tt.wantInvalid {
+				t.Errorf("invalid credentials classification = %t, want %t: %v", errors.Is(err, auth.ErrInvalidCredentials), tt.wantInvalid, err)
+			}
+			if !tt.wantInvalid {
+				if !errors.Is(err, dbErr) {
+					t.Errorf("database cause was not preserved: %v", err)
+				}
+				if errors.Is(err, auth.ErrSessionUnavailable) {
+					t.Errorf("database lookup error must not be classified as session unavailable: %v", err)
+				}
+			}
+		})
 	}
 }
 

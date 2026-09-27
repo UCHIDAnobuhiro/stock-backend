@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 
 	// FindByEmail は指定されたメールアドレスに一致するユーザーを取得します。
-	// ユーザーが存在しない場合、エラーを返します。
+	// ユーザーが存在しない場合、ErrUserNotFound を返します。
 	FindByEmail(ctx context.Context, email string) (*User, error)
 
 	// FindByID は指定されたIDに一致するユーザーを取得します。
@@ -146,10 +147,16 @@ func (u *usecase) Login(ctx context.Context, email, password string) (TokenPair,
 	// 第1引数はハッシュ化パスワード、第2引数は平文パスワード
 	pepperedPassword := u.pepperPassword(password)
 	compareErr := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(pepperedPassword))
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return TokenPair{}, ErrInvalidCredentials
+		}
+		return TokenPair{}, fmt.Errorf("failed to find user: %w", err)
+	}
 
 	// ダミーハッシュとの一致を認証成功にしない。OAuth専用ユーザーも
 	// 比較は実行して時間差を抑えるが、パスワード認証では必ず拒否する。
-	if err != nil || user.PasswordHash == nil || compareErr != nil {
+	if user.PasswordHash == nil || compareErr != nil {
 		return TokenPair{}, ErrInvalidCredentials
 	}
 
