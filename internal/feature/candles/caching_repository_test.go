@@ -106,7 +106,7 @@ func TestCachingCandleRepository_Find_NilRedis(t *testing.T) {
 	t.Parallel()
 
 	expectedCandles := []Candle{
-		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 150.0, Close: 155.0},
 	}
 
 	inner := &mockReadWriteRepository{
@@ -135,7 +135,7 @@ func TestCachingCandleRepository_Find_CacheHit(t *testing.T) {
 	defer func() { _ = rdb.Close() }()
 
 	cachedCandles := []Candle{
-		{SymbolCode: "AAPL", Interval: "1day", Open: 150.0, Close: 155.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 150.0, Close: 155.0},
 	}
 	cachedJSON := latestCacheJSON(t, cachedCandles)
 
@@ -166,8 +166,8 @@ func TestCachingCandleRepository_Find_CacheHit(t *testing.T) {
 	}
 }
 
-// TestCachingCandleRepository_Find_LegacyCacheHit は移行前のJSON配列キャッシュも読み取れることを検証します。
-func TestCachingCandleRepository_Find_LegacyCacheHit(t *testing.T) {
+// TestCachingCandleRepository_Find_LegacyCacheMiss はtimezoneを持たない旧配列をDBから再取得します。
+func TestCachingCandleRepository_Find_LegacyCacheMiss(t *testing.T) {
 	t.Parallel()
 
 	rdb, mock := redismock.NewClientMock()
@@ -179,12 +179,15 @@ func TestCachingCandleRepository_Find_LegacyCacheHit(t *testing.T) {
 		{SymbolCode: "AAPL", Interval: "1day", Open: 102.0},
 	}
 	mock.ExpectGet(testLatestCacheKey).SetVal(string(mustMarshalJSON(t, cachedCandles)))
+	mock.ExpectDel(testLatestCacheKey).SetVal(1)
+	updated := []Candle{{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 200}}
+	mock.ExpectSetNX(testLatestCacheKey, latestCacheJSON(t, updated), 5*time.Minute).SetVal(true)
 
 	innerCalled := false
 	inner := &mockReadWriteRepository{
 		findFn: func(context.Context, string, string, int) ([]Candle, error) {
 			innerCalled = true
-			return nil, nil
+			return updated, nil
 		},
 	}
 
@@ -193,14 +196,72 @@ func TestCachingCandleRepository_Find_LegacyCacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if innerCalled {
-		t.Error("inner repository should not be called on legacy cache hit")
+	if !innerCalled {
+		t.Error("inner repository should be called on legacy cache miss")
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 candles, got %d", len(got))
+	if len(got) != 1 || got[0].Open != 200 {
+		t.Fatalf("expected refreshed candle, got %v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestCachingCandleRepository_Find_StaleTimezoneCacheMiss(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, timezone string
+	}{
+		{"missing", ""},
+		{"invalid", "Mars/Olympus_Mons"},
+		{"local", "Local"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rdb, mock := redismock.NewClientMock()
+			t.Cleanup(func() { _ = rdb.Close() })
+			stale := []Candle{{SymbolCode: "AAPL", Interval: "1day", Timezone: tt.timezone, Open: 100}}
+			fresh := []Candle{{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 200}}
+			mock.ExpectGet(testLatestCacheKey).SetVal(string(latestCacheJSON(t, stale)))
+			mock.ExpectDel(testLatestCacheKey).SetVal(1)
+			mock.ExpectSetNX(testLatestCacheKey, latestCacheJSON(t, fresh), 5*time.Minute).SetVal(true)
+			calls := 0
+			inner := &mockReadWriteRepository{findFn: func(context.Context, string, string, int) ([]Candle, error) {
+				calls++
+				return fresh, nil
+			}}
+			repo := NewCachingRepository(rdb, 5*time.Minute, inner, "candles")
+			got, err := repo.Find(context.Background(), "AAPL", "1day", 1)
+			if err != nil || calls != 1 || len(got) != 1 || got[0].Open != 200 {
+				t.Fatalf("stale entry not refreshed: got=%v err=%v DB calls=%d", got, err, calls)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestCachingCandleRepository_Find_RestoresMarketLocationOnHit(t *testing.T) {
+	t.Parallel()
+	rdb, mock := redismock.NewClientMock()
+	t.Cleanup(func() { _ = rdb.Close() })
+	instant := time.Date(2023, 12, 31, 15, 0, 0, 0, time.UTC)
+	cached := []Candle{{SymbolCode: "7203.T", Interval: "1day", Time: instant, Timezone: "Asia/Tokyo"}}
+	mock.ExpectGet("candles:7203.T:1day").SetVal(string(latestCacheJSON(t, cached)))
+	inner := &mockReadWriteRepository{findFn: func(context.Context, string, string, int) ([]Candle, error) {
+		t.Fatal("database must not be read on valid cache hit")
+		return nil, nil
+	}}
+	got, err := NewCachingRepository(rdb, time.Minute, inner, "candles").Find(context.Background(), "7203.T", "1day", 1)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("cache hit failed: got=%v err=%v", got, err)
+	}
+	if !got[0].Time.Equal(instant) || got[0].Time.Format("2006-01-02") != "2024-01-01" || got[0].Time.Location().String() != "Asia/Tokyo" {
+		t.Fatalf("market location not restored: %s", got[0].Time)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -213,11 +274,11 @@ func TestCachingCandleRepository_Find_CacheHit_Slices(t *testing.T) {
 
 	// キャッシュには5件保存されている
 	cachedCandles := []Candle{
-		{SymbolCode: "AAPL", Interval: "1day", Open: 100.0},
-		{SymbolCode: "AAPL", Interval: "1day", Open: 101.0},
-		{SymbolCode: "AAPL", Interval: "1day", Open: 102.0},
-		{SymbolCode: "AAPL", Interval: "1day", Open: 103.0},
-		{SymbolCode: "AAPL", Interval: "1day", Open: 104.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 100.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 101.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 102.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 103.0},
+		{SymbolCode: "AAPL", Interval: "1day", Timezone: "America/New_York", Open: 104.0},
 	}
 	cachedJSON := latestCacheJSON(t, cachedCandles)
 

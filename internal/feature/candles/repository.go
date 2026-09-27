@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/candles/sqlc"
 )
@@ -79,11 +80,22 @@ func (r *dbRepository) Find(ctx context.Context, symbol, interval string, output
 		return nil, err
 	}
 	out := make([]Candle, 0, len(rows))
+	var loc *time.Location
 	for _, row := range rows {
+		if loc == nil {
+			if row.Timezone == "" || row.Timezone == "Local" {
+				return nil, fmt.Errorf("find candles: invalid timezone %q for %s", row.Timezone, row.SymbolCode)
+			}
+			loc, err = time.LoadLocation(row.Timezone)
+			if err != nil {
+				return nil, fmt.Errorf("find candles: load timezone %q for %s: %w", row.Timezone, row.SymbolCode, err)
+			}
+		}
 		out = append(out, Candle{
 			SymbolCode: row.SymbolCode,
 			Interval:   row.Interval,
-			Time:       row.Time,
+			Time:       row.Time.In(loc),
+			Timezone:   row.Timezone,
 			Open:       row.Open,
 			High:       row.High,
 			Low:        row.Low,

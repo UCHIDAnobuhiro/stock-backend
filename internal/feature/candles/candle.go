@@ -7,6 +7,7 @@ type Candle struct {
 	SymbolCode string    // 銘柄コード（例: "AAPL", "7203.T"）
 	Interval   string    // 時間間隔（例: "1day", "1week", "1month"）
 	Time       time.Time // このローソク足期間の開始タイムスタンプ
+	Timezone   string    // symbols.timezone の IANA 名。キャッシュ復元時にも使用する
 	Open       float64   // 始値
 	High       float64   // 期間中の高値
 	Low        float64   // 期間中の安値

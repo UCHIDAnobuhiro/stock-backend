@@ -85,7 +85,7 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 	out := make([]api.CandleResponse, 0, len(result))
 	for _, x := range result {
 		out = append(out, api.CandleResponse{
-			Time:   x.Time.UTC().Format("2006-01-02"),
+			Time:   x.Time.Format("2006-01-02"),
 			Open:   x.Open,
 			High:   x.High,
 			Low:    x.Low,
@@ -155,7 +155,7 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 	for _, q := range result.Quotes {
 		item := api.QuoteResponse{
 			Code:          q.Code,
-			Time:          q.Time.UTC().Format("2006-01-02"),
+			Time:          q.Time.Format("2006-01-02"),
 			Close:         q.Close,
 			PrevClose:     q.PrevClose,
 			Change:        q.Change,
