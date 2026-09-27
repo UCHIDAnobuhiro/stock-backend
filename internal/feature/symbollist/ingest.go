@@ -58,6 +58,8 @@ func NewLogoIngestUsecase(provider LogoProvider, symbolRepo LogoSymbolRepository
 
 // IngestAll はactive銘柄のロゴURLを毎回再取得し、成功時のみDBを更新します。
 // 銘柄単位の失敗では処理を止めず、既存logo_urlも保持します。
+// 親 context 終了時は部分集計と error を返します。中断した銘柄は失敗時に
+// Failed、保存成功時に Succeeded として数え、未着手の銘柄は加算しません。
 func (u *LogoIngestUsecase) IngestAll(ctx context.Context) (LogoIngestResult, error) {
 	symbols, err := u.symbolRepo.ListActive(ctx)
 	if err != nil {
@@ -72,19 +74,35 @@ func (u *LogoIngestUsecase) IngestAll(ctx context.Context) (LogoIngestResult, er
 		if err := u.rateLimiter.WaitIfNeeded(ctx); err != nil {
 			return result, err
 		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 
 		logoURL, err := u.logoProvider.GetLogoURL(ctx, s.Code)
 		if err != nil {
 			slog.Error("failed to fetch logo url", "symbol", s.Code, "error", err)
 			result.Failed++
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			result.Failed++
+			return result, err
 		}
 		if err := u.symbolRepo.UpdateLogoURL(ctx, s.Code, logoURL, u.now()); err != nil {
 			slog.Error("failed to update logo url", "symbol", s.Code, "error", err)
 			result.Failed++
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
 			continue
 		}
 		result.Succeeded++
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }

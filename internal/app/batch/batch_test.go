@@ -105,6 +105,27 @@ func TestShouldFailExit(t *testing.T) {
 	}
 }
 
+func TestIngestExitCode(t *testing.T) {
+	tests := []struct {
+		name   string
+		result failureRater
+		err    error
+		want   int
+	}{
+		{"candles at threshold", candles.IngestResult{Total: 5, Succeeded: 4, Failed: 1}, nil, 0},
+		{"candles context canceled", candles.IngestResult{Total: 5, Succeeded: 4, Failed: 1}, context.Canceled, 1},
+		{"candles saved then deadline", candles.IngestResult{Total: 5, Succeeded: 5}, context.DeadlineExceeded, 1},
+		{"logo at threshold", symbollist.LogoIngestResult{Total: 5, Succeeded: 4, Failed: 1}, nil, 0},
+		{"logo context canceled", symbollist.LogoIngestResult{Total: 5, Succeeded: 4, Failed: 1}, context.Canceled, 1},
+		{"logo saved then deadline", symbollist.LogoIngestResult{Total: 5, Succeeded: 5}, context.DeadlineExceeded, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, ingestExitCode(tc.result, 0.2, tc.err))
+		})
+	}
+}
+
 // TestRunInvalidJobID は job_id 未指定・未知の値で exit code 2 を返すことを検証します。
 // 各ジョブは DB 接続を伴うため、ここでは引数ディスパッチのエラー系のみを対象とします。
 func TestRunInvalidJobID(t *testing.T) {

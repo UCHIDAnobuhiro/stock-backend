@@ -84,6 +84,8 @@ func NewIngestUsecase(market MarketRepository, candle WriteRepository, symbol Sy
 // 銘柄単位の失敗は IngestResult に集約され処理は継続します。
 // 致命的エラー（symbol 一覧取得失敗、ctx キャンセル、rateLimiter 失敗）は
 // それまでの部分集計と共に error を返します。
+// 中断した銘柄は失敗時に Failed、保存成功時に Succeeded として数え、
+// 未着手の銘柄はどちらにも加算しません。
 func (iu *IngestUsecase) IngestAll(ctx context.Context) (IngestResult, error) {
 	symbols, err := iu.symbol.ListActiveSymbols(ctx)
 	if err != nil {
@@ -100,13 +102,22 @@ func (iu *IngestUsecase) IngestAll(ctx context.Context) (IngestResult, error) {
 		if err := iu.rateLimiter.WaitIfNeeded(ctx); err != nil {
 			return result, err
 		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if err := iu.ingestOne(ctx, s, ingestOutputSize); err != nil {
 			// 1銘柄のエラーで処理を停止せず、エラーをログに記録して続行
 			slog.Error("failed to ingest data", "symbol", s.Code, "error", err)
 			result.Failed++
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
 			continue
 		}
 		result.Succeeded++
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -123,6 +134,9 @@ func (iu *IngestUsecase) ingestOne(ctx context.Context, sym ActiveSymbol, output
 
 	daily, err := iu.market.GetTimeSeries(ctx, sym.Code, "1day", outputsize, loc)
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 

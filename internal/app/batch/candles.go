@@ -62,15 +62,13 @@ func runCandleIngest(cfg *config.Config, sqlDB *sql.DB) int {
 
 	if err != nil {
 		slog.Error("ingest aborted by fatal error", "error", err)
-		return 1
-	}
-	if shouldFailExit(result, maxFailureRate) {
+	} else if shouldFailExit(result, maxFailureRate) {
 		slog.Error("ingest failure rate exceeded threshold",
 			"failure_rate", result.FailureRate(),
 			"threshold", maxFailureRate,
 		)
-		return 1
+	} else {
+		slog.Info("ingest ok")
 	}
-	slog.Info("ingest ok")
-	return 0
+	return ingestExitCode(result, maxFailureRate, err)
 }
