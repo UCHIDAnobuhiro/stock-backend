@@ -130,6 +130,8 @@ func (iu *IngestUsecase) ingestOne(ctx context.Context, sym ActiveSymbol, output
 		daily[i].SymbolCode = sym.Code
 		daily[i].Interval = "1day"
 	}
+	// 保存する日足と週・月足の集計元を揃え、重複日の出来高などの過剰集計を防ぐ。
+	daily = dedupCandles(daily)
 
 	weekly := trimIncompleteFirstBucket(aggregateWeekly(daily, loc), daily, func(t time.Time) bool {
 		return int(t.In(loc).Weekday()) == 1 // 月曜日が ISO 週の開始
