@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth/authhttp"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/logging"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpratelimit"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
 )
@@ -462,6 +464,55 @@ func TestAuthHandler_Login(t *testing.T) {
 			if tt.checkCookies {
 				assertSessionCookies(t, w, cookies)
 			}
+		})
+	}
+}
+
+func TestAuthHandler_Login_LookupFailureDoesNotLeakDetails(t *testing.T) {
+	const email = "private@example.com"
+	const password = "private-password"
+	const internalDetail = "postgres://db.internal/private password=db-secret private@example.com"
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	tests := []struct {
+		name       string
+		loginErr   error
+		wantStatus int
+		wantBody   H
+	}{
+		{
+			name:       "database failure",
+			loginErr:   fmt.Errorf("failed to find user: %w", errors.New(internalDetail)),
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   H{"error": "internal error"},
+		},
+		{
+			name:       "invalid credentials",
+			loginErr:   auth.ErrInvalidCredentials,
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   H{"error": "invalid email or password"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs.Reset()
+			limiter := newAllowingLimiter(t, email)
+			h := authhttp.NewHandler(&mockUsecase{LoginFunc: func(context.Context, string, string) (auth.TokenPair, error) {
+				return auth.TokenPair{}, tt.loginErr
+			}}, limiter, authhttp.SessionCookieConfig{}, "", nil)
+			w := makeRequest(t, h.Login, http.MethodPost, "/login", H{"email": email, "password": password})
+
+			assertJSONResponse(t, w, tt.wantStatus, tt.wantBody)
+			assert.Empty(t, w.Header().Values("Set-Cookie"))
+			assert.NotContains(t, w.Body.String(), internalDetail)
+			assert.NotContains(t, logs.String(), internalDetail)
+			assert.NotContains(t, logs.String(), email)
+			assert.NotContains(t, logs.String(), password)
+			assert.Contains(t, logs.String(), "email_hash="+logging.HashedEmail(email).LogValue().String())
 		})
 	}
 }

@@ -168,7 +168,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
 			return
 		}
-		slog.Error("login failed with internal error", "error", err, "email_hash", logging.HashedEmail(req.Email))
+		slog.Error("login failed with internal error", "email_hash", logging.HashedEmail(req.Email))
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
