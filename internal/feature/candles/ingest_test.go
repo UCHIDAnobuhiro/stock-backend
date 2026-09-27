@@ -472,6 +472,92 @@ func TestIngestUsecase_IngestAll(t *testing.T) {
 	}
 }
 
+// TestIngestUsecase_IngestAll_DeduplicatesDailyBeforeAggregation checks the saved
+// daily, weekly, and monthly values through the public batch entry point.
+func TestIngestUsecase_IngestAll_DeduplicatesDailyBeforeAggregation(t *testing.T) {
+	makeCandle := func(month time.Month, date int, open, high, low, close float64, volume int64) Candle {
+		return Candle{Time: time.Date(2026, month, date, 0, 0, 0, 0, time.UTC),
+			Open: open, High: high, Low: low, Close: close, Volume: volume}
+	}
+	flat := makeCandle(time.June, 1, 100, 100, 100, 100, 10) // Monday and month start
+	jun1 := makeCandle(time.June, 1, 100, 110, 90, 105, 10)
+	jun2 := makeCandle(time.June, 2, 106, 120, 95, 115, 20)
+	jun3 := makeCandle(time.June, 3, 116, 130, 100, 125, 30)
+	may29 := makeCandle(time.May, 29, 80, 90, 70, 85, 5)
+	jun12 := makeCandle(time.June, 1, 100, 120, 90, 115, 30)
+	jun123 := makeCandle(time.June, 1, 100, 130, 90, 125, 60)
+	keyed := func(c Candle, interval string) Candle {
+		c.SymbolCode, c.Interval = "AAPL", interval
+		return c
+	}
+	daily := func(c Candle) Candle { return keyed(c, "1day") }
+	weekly := func(c Candle) Candle { return keyed(c, "1week") }
+	monthly := func(c Candle) Candle { return keyed(c, "1month") }
+	wrongKey := jun1
+	wrongKey.SymbolCode, wrongKey.Interval = "WRONG", "1week"
+	extreme := makeCandle(time.June, 1, 1, 999, 0, 999, 999)
+	extreme.SymbolCode, extreme.Interval = "OTHER", "1month"
+
+	testCases := []struct {
+		name  string
+		input []Candle
+		want  []Candle
+	}{
+		{"duplicate at week and month start", []Candle{flat, flat},
+			[]Candle{daily(flat), weekly(flat), monthly(flat)}},
+		{"duplicate among other days", []Candle{jun2, jun1, jun2},
+			[]Candle{daily(jun2), daily(jun1), weekly(jun12), monthly(jun12)}},
+		{"first value wins after key normalization", []Candle{wrongKey, extreme},
+			[]Candle{daily(jun1), weekly(jun1), monthly(jun1)}},
+		{"no duplicate", []Candle{jun1, jun2},
+			[]Candle{daily(jun1), daily(jun2), weekly(jun12), monthly(jun12)}},
+		{"empty input still saves once", []Candle{}, []Candle{}},
+		{"reverse chronological input", []Candle{jun3, jun2, jun1},
+			[]Candle{daily(jun3), daily(jun2), daily(jun1), weekly(jun123), monthly(jun123)}},
+		{"incomplete first week and month are trimmed", []Candle{jun2, may29, may29, jun1},
+			[]Candle{daily(jun2), daily(may29), daily(jun1), weekly(jun12), monthly(jun12)}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var saved []Candle
+			var saveCalls int
+			market := &mockMarketRepository{GetTimeSeriesFunc: func(_ context.Context, symbol, interval string, outputsize int, loc *time.Location) ([]Candle, error) {
+				if symbol != "AAPL" || interval != "1day" || outputsize != ingestOutputSize || loc.String() != "UTC" {
+					t.Errorf("GetTimeSeries arguments: %q %q %d %v", symbol, interval, outputsize, loc)
+				}
+				return append([]Candle(nil), tc.input...), nil
+			}}
+			writer := &mockWriteRepository{UpsertBatchFunc: func(_ context.Context, candles []Candle) error {
+				saveCalls++
+				saved = candles
+				return nil
+			}}
+			symbols := &mockSymbolRepository{ListActiveSymbolsFunc: func(context.Context) ([]ActiveSymbol, error) {
+				return []ActiveSymbol{{Code: "AAPL", Timezone: "UTC"}}, nil
+			}}
+			result, err := NewIngestUsecase(market, writer, symbols, &mockRateLimiter{}).IngestAll(context.Background())
+			if err != nil {
+				t.Fatalf("IngestAll: %v", err)
+			}
+			if result != (IngestResult{Total: 1, Succeeded: 1}) {
+				t.Errorf("result = %+v, want one success", result)
+			}
+			if market.GetTimeSeriesCalls != 1 || saveCalls != 1 {
+				t.Fatalf("calls: market=%d save=%d, want one each", market.GetTimeSeriesCalls, saveCalls)
+			}
+			if len(saved) != len(tc.want) {
+				t.Fatalf("saved %d candles, want %d: %+v", len(saved), len(tc.want), saved)
+			}
+			for i, want := range tc.want {
+				if saved[i] != want {
+					t.Errorf("saved[%d] = %+v, want %+v", i, saved[i], want)
+				}
+			}
+		})
+	}
+}
+
 // TestIngestUsecase_IngestAll_MidLoopFatal はループ途中で発生する致命的エラー
 // （ctx キャンセル、rateLimiter 失敗）が部分集計と共に error を返すことを検証します。
 func TestIngestUsecase_IngestAll_MidLoopFatal(t *testing.T) {
