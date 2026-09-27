@@ -293,4 +293,18 @@ func TestIntegrationCandleRepository_Find_EntityMapping(t *testing.T) {
 	assert.Equal(t, 149.25, result[0].Low)
 	assert.Equal(t, 154.0, result[0].Close)
 	assert.Equal(t, int64(5000000), result[0].Volume)
+	assert.Equal(t, "America/New_York", result[0].Timezone)
+}
+
+func TestIntegrationCandleRepository_Find_InvalidTimezone(t *testing.T) {
+	for _, zone := range []string{"", "Local", "Mars/Olympus_Mons"} {
+		t.Run(zone, func(t *testing.T) {
+			db := setupTestDB(t)
+			_, err := db.ExecContext(t.Context(), `UPDATE symbols SET timezone = $1 WHERE code = 'AAPL'`, zone)
+			require.NoError(t, err)
+			seedCandle(t, db, "AAPL", "1day", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+			_, err = NewRepository(db).Find(t.Context(), "AAPL", "1day", 1)
+			require.Error(t, err)
+		})
+	}
 }

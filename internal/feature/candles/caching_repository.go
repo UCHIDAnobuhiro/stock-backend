@@ -23,7 +23,7 @@ const (
 )
 
 // latestCacheEntry は最新足キャッシュの保存形式です。
-// 旧形式はCandleのJSON配列であり、新revisionは移行期間中も読み取り互換性を維持します。
+// 旧形式はCandleのJSON配列です。日時の復元に必要なtimezoneがなければ再取得します。
 type latestCacheEntry struct {
 	Version int      `json:"version"`
 	Candles []Candle `json:"candles"`
@@ -171,7 +171,7 @@ func decodeCachedCandles(b []byte) ([]Candle, bool) {
 		if err := json.Unmarshal(b, &legacy); err != nil {
 			return nil, false
 		}
-		return legacy, true
+		return restoreCachedTimezone(legacy)
 	}
 
 	var entry latestCacheEntry
@@ -179,7 +179,30 @@ func decodeCachedCandles(b []byte) ([]Candle, bool) {
 		entry.Version != latestCacheVersion || entry.Candles == nil {
 		return nil, false
 	}
-	return entry.Candles, true
+	return restoreCachedTimezone(entry.Candles)
+}
+
+// restoreCachedTimezone はJSONのUTCオフセットだけでは失われる取引所のIANA名を復元します。
+// timezoneのない旧エントリは日付を安全に判断できないため、DBから再取得させます。
+func restoreCachedTimezone(candles []Candle) ([]Candle, bool) {
+	locations := make(map[string]*time.Location)
+	for i := range candles {
+		zone := candles[i].Timezone
+		if zone == "" || zone == "Local" {
+			return nil, false
+		}
+		loc := locations[zone]
+		if loc == nil {
+			var err error
+			loc, err = time.LoadLocation(zone)
+			if err != nil {
+				return nil, false
+			}
+			locations[zone] = loc
+		}
+		candles[i].Time = candles[i].Time.In(loc)
+	}
+	return candles, true
 }
 
 // sliceCandles は全ローソク足データから先頭 outputsize 件を返します。

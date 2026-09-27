@@ -7,13 +7,15 @@ package candlessqlc
 
 import (
 	"context"
+	"time"
 )
 
 const findCandlesLimit = `-- name: FindCandlesLimit :many
-SELECT symbol_code, "interval", "time", open, high, low, close, volume
-FROM candles
-WHERE symbol_code = $1 AND "interval" = $2
-ORDER BY "time" DESC
+SELECT c.symbol_code, c."interval", c."time", c.open, c.high, c.low, c.close, c.volume, s.timezone
+FROM candles AS c
+JOIN symbols AS s ON s.code = c.symbol_code
+WHERE c.symbol_code = $1 AND c."interval" = $2
+ORDER BY c."time" DESC
 LIMIT $3
 `
 
@@ -23,15 +25,27 @@ type FindCandlesLimitParams struct {
 	Limit      int32
 }
 
-func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]Candle, error) {
+type FindCandlesLimitRow struct {
+	SymbolCode string
+	Interval   string
+	Time       time.Time
+	Open       float64
+	High       float64
+	Low        float64
+	Close      float64
+	Volume     int64
+	Timezone   string
+}
+
+func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitParams) ([]FindCandlesLimitRow, error) {
 	rows, err := q.db.QueryContext(ctx, findCandlesLimit, arg.SymbolCode, arg.Interval, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Candle{}
+	items := []FindCandlesLimitRow{}
 	for rows.Next() {
-		var i Candle
+		var i FindCandlesLimitRow
 		if err := rows.Scan(
 			&i.SymbolCode,
 			&i.Interval,
@@ -41,6 +55,7 @@ func (q *Queries) FindCandlesLimit(ctx context.Context, arg FindCandlesLimitPara
 			&i.Low,
 			&i.Close,
 			&i.Volume,
+			&i.Timezone,
 		); err != nil {
 			return nil, err
 		}
