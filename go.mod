@@ -3,7 +3,7 @@ module github.com/UCHIDAnobuhiro/stock-backend
 go 1.27.0
 
 require (
-	cloud.google.com/go/vision/v2 v2.15.0
+	cloud.google.com/go/vision/v2 v2.16.0
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/go-chi/chi/v5 v5.3.2
