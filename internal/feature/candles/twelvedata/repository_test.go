@@ -2,6 +2,7 @@ package twelvedata
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,6 +41,32 @@ func TestNewTwelveDataMarket(t *testing.T) {
 	}
 	if market.cfg.TwelveDataAPIKey != cfg.TwelveDataAPIKey {
 		t.Errorf("expected API key %q, got %q", cfg.TwelveDataAPIKey, market.cfg.TwelveDataAPIKey)
+	}
+}
+
+func TestTwelveDataMarket_GetTimeSeries_NonFinitePrices(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"open", "high", "low", "close"} {
+		for _, value := range []string{"NaN", "+Inf", "-Inf", "Infinity"} {
+			t.Run(field+"/"+value, func(t *testing.T) {
+				t.Parallel()
+				body := `{"status":"ok","values":[{"datetime":"2025-01-15","open":"150","high":"150","low":"150","close":"150","volume":"100"}]}`
+				body = strings.Replace(body, fmt.Sprintf(`"%s":"150"`, field), fmt.Sprintf(`"%s":"%s"`, field, value), 1)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(body))
+				}))
+				defer server.Close()
+				market := NewTwelveDataMarket(retryTestConfig(server.URL, 0), server.Client())
+				got, err := market.GetTimeSeries(t.Context(), "AAPL", "1day", 100, time.UTC)
+				if err == nil || !strings.Contains(err.Error(), field) {
+					t.Errorf("expected %s validation error, got %v", field, err)
+				}
+				if len(got) != 0 {
+					t.Errorf("invalid prices must not reach ingestion: %v", got)
+				}
+			})
+		}
 	}
 }
 

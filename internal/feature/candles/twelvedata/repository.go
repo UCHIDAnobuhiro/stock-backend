@@ -77,22 +77,22 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 			}
 		}
 		// 始値をパース
-		o, err := strconv.ParseFloat(v.Open, 64)
+		o, err := parsePrice(v.Open)
 		if err != nil {
 			return nil, fmt.Errorf("parse open %q: %w", v.Open, err)
 		}
 		// 高値をパース
-		h, err := strconv.ParseFloat(v.High, 64)
+		h, err := parsePrice(v.High)
 		if err != nil {
 			return nil, fmt.Errorf("parse high %q: %w", v.High, err)
 		}
 		// 安値をパース
-		l, err := strconv.ParseFloat(v.Low, 64)
+		l, err := parsePrice(v.Low)
 		if err != nil {
 			return nil, fmt.Errorf("parse low %q: %w", v.Low, err)
 		}
 		// 終値をパース
-		c, err := strconv.ParseFloat(v.Close, 64)
+		c, err := parsePrice(v.Close)
 		if err != nil {
 			return nil, fmt.Errorf("parse close %q: %w", v.Close, err)
 		}
@@ -113,6 +113,17 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 		})
 	}
 	return result, nil
+}
+
+func parsePrice(value string) (float64, error) {
+	price, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(price) || math.IsInf(price, 0) {
+		return 0, errors.New("price must be finite")
+	}
+	return price, nil
 }
 
 // doRequestWithRetry は指定された HTTP リクエストを実行し、

@@ -306,8 +306,12 @@ type BeginOAuthParamsProvider string
 
 // OauthCallbackParams defines parameters for OauthCallback.
 type OauthCallbackParams struct {
-	Code  string `form:"code" json:"code"`
-	State string `form:"state" json:"state"`
+	// Code 認可成功時のコード（error 応答時は省略）
+	Code *string `form:"code,omitempty" json:"code,omitempty"`
+
+	// Error 認可キャンセル等のプロバイダーエラー。code より優先して認証を中断する
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
+	State string  `form:"state" json:"state"`
 }
 
 // OauthCallbackParamsProvider defines parameters for OauthCallback.

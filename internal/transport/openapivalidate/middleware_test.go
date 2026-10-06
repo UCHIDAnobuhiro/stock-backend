@@ -116,7 +116,10 @@ func TestMiddleware_RequestValidation(t *testing.T) {
 		{"oauth begin: 正常", http.MethodGet, "/v1/auth/oauth/google", "", http.StatusOK},
 		{"oauth begin: provider が許可値外", http.MethodGet, "/v1/auth/oauth/twitter", "", http.StatusBadRequest},
 		{"oauth callback: 正常", http.MethodGet, "/v1/auth/oauth/github/callback?code=code&state=state", "", http.StatusOK},
-		{"oauth callback: code 欠落", http.MethodGet, "/v1/auth/oauth/github/callback?state=state", "", http.StatusBadRequest},
+		{"oauth callback: code 欠落はハンドラーで拒否", http.MethodGet, "/v1/auth/oauth/github/callback?state=state", "", http.StatusOK},
+		{"oauth callback: 認可キャンセル", http.MethodGet, "/v1/auth/oauth/github/callback?error=access_denied&state=state", "", http.StatusOK},
+		{"oauth callback: エラーでも state 必須", http.MethodGet, "/v1/auth/oauth/github/callback?error=access_denied", "", http.StatusBadRequest},
+		{"oauth callback: エラーでも provider を検証", http.MethodGet, "/v1/auth/oauth/twitter/callback?error=access_denied&state=state", "", http.StatusBadRequest},
 		{"oauth callback: state 欠落", http.MethodGet, "/v1/auth/oauth/github/callback?code=code", "", http.StatusBadRequest},
 
 		// --- logo/analyze ---
