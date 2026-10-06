@@ -233,8 +233,8 @@ sequenceDiagram
     participant JWT as JWTGenerator
 
     Client->>Validator: GET /v1/auth/oauth/{provider}/callback?code=...&state=...
-    Validator->>Validator: provider / code / state を検証
-    alt provider が許可値外、または code/state クエリ欠落
+    Validator->>Validator: provider / state を検証（code は成功時のみ）
+    alt provider が許可値外、または state クエリ欠落
         Validator-->>Client: 400 Bad Request<br/>{error: "invalid request"}
     end
     Validator->>RateLimit: Request forwarded
@@ -249,6 +249,9 @@ sequenceDiagram
     end
 
     Handler->>Handler: ClearCookie oauth_state (照合成功 → 使い捨て)
+    alt プロバイダーから error が返された（認可キャンセル等）
+        Handler-->>Client: 302 Redirect → {FRONTEND_URL}/login?error=oauth_failed<br/>コード交換・セッション発行は行わない
+    end
     Handler->>Usecase: HandleCallback(provider, code, state)
     Usecase->>StateStore: ConsumeState(state) (GETDEL: atomic)
 
@@ -496,8 +499,11 @@ OAuth2 認可フローを開始し、プロバイダーの認可画面へリダ�
 - `provider`: `google` | `github`
 
 **クエリパラメータ**
-- `code`: 認可コード（必須）
+- `code`: 認可成功時のコード（`error` 応答時は省略）
+- `error`: 認可キャンセル等のプロバイダーエラー（任意）。指定時は `code` があっても認証を中断する
 - `state`: CSRF 保護用 state トークン（必須）
+
+`code` と `error` が両方欠落した場合も、ハンドラーは `oauth_failed` でログイン画面へ戻します。
 
 **Cookie**
 - `oauth_state`: 認可開始時に発行した state を保持する短命host-only Cookie（必須）。`HttpOnly; SameSite=Lax; Max-Age=600` を持ち、`Secure` 属性は `COOKIE_SECURE` に従います。クエリの `state` と一致しない場合はエラーリダイレクト。ログイン CSRF / セッションフィクセーション対策。
@@ -515,11 +521,11 @@ OpenAPI バリデーション通過後の処理はブラウザのトップレベ
     - `Set-Cookie: oauth_state=; Max-Age=0`（使い捨て: 照合後に削除。常にhost-only）
   - エラー時: `{OAUTH_FRONTEND_REDIRECT_URL}/login?error=<code>` へリダイレクト（認証Cookieはセットしない。state照合後は `oauth_state` の削除Cookieを返す）
     - `code=account_conflict`: 同メールアドレスの既存アカウントが存在（乗っ取り防止のため自動リンクは行わない）
-    - `code=oauth_failed`: 上記以外のハンドラー到達後のエラー（`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、設定されていないプロバイダー、内部エラー等）
+    - `code=oauth_failed`: 上記以外のハンドラー到達後のエラー（認可キャンセル、`code` / `error` の両方欠落、`oauth_state` Cookie の欠落・不一致、state 不正・期限切れ、プロバイダーから検証済みメールアドレスが取得できない、設定されていないプロバイダー、内部エラー等）
     - `code=rate_limited`: IPレートリミット超過（`Retry-After`ヘッダーに再試行までの秒数を付与）
     - `code=service_unavailable`: レートリミット基盤（Redis）障害により判定不能（fail-closed、issue #266）
 
-- **400 Bad Request** - `provider` が `google` / `github` 以外、または必須の `code` / `state` が欠落
+- **400 Bad Request** - `provider` が `google` / `github` 以外、または必須の `state` が欠落
   ```json
   { "error": "invalid request" }
   ```

@@ -439,6 +439,36 @@ func TestNewRouter_OAuthRateLimiterUnavailableRedirectsToLogin(t *testing.T) {
 	}
 }
 
+func TestNewRouter_OAuthProviderErrorRedirectsToLogin(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{"google", "github"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			validator, err := openapivalidate.New()
+			require.NoError(t, err)
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
+			handler := authhttp.NewOAuthHandler(nil, authhttp.SessionCookieConfig{}, "http://localhost:3000")
+			r := newTestRouterWithLimiter(t, handler, httpratelimit.NewLimiter(rdb), 0, validator)
+			req := httptest.NewRequest(http.MethodGet, "/v1/auth/oauth/"+provider+"/callback?error=access_denied&state=abc&error_description=private-detail", nil)
+			req.AddCookie(&http.Cookie{Name: "oauth_state", Value: "abc"})
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusFound, rec.Code)
+			assert.Equal(t, "http://localhost:3000/login?error=oauth_failed", rec.Header().Get("Location"))
+			res := rec.Result()
+			t.Cleanup(func() { _ = res.Body.Close() })
+			cookies := res.Cookies()
+			require.Len(t, cookies, 1)
+			assert.Equal(t, "oauth_state", cookies[0].Name)
+			assert.Equal(t, -1, cookies[0].MaxAge)
+		})
+	}
+}
+
 // TestNewRouter_TrustedProxyHops は TrustedProxyHops の設定に応じて
 // httpmw.RealIP が X-Forwarded-For を解決し、レートリミッターのバケット分割
 // （httpx.ClientIP 経由のキー生成）に反映されることを検証します。

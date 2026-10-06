@@ -161,6 +161,40 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 			callbackCalled:   false,
 		},
 		{
+			name:             "failure: provider denied authorization",
+			query:            "?error=access_denied&state=abc&error_description=private-detail",
+			stateCookie:      "abc",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+		},
+		{
+			name:             "failure: provider error takes precedence over code",
+			query:            "?code=auth-code&error=access_denied&state=abc",
+			stateCookie:      "abc",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+		},
+		{
+			name:             "failure: provider error without state cookie",
+			query:            "?error=access_denied&state=abc",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+		},
+		{
+			name:             "failure: provider error with mismatched state",
+			query:            "?error=access_denied&state=attacker-state",
+			stateCookie:      "victim-state",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+		},
+		{
+			name:             "failure: missing both code and error",
+			query:            "?state=abc",
+			stateCookie:      "abc",
+			expectedStatus:   http.StatusFound,
+			expectedLocation: frontendURL + "/login?error=oauth_failed",
+		},
+		{
 			name:             "failure: missing code/state query",
 			query:            "",
 			stateCookie:      "",
@@ -196,13 +230,9 @@ func TestOAuthHandler_Callback_StateBinding(t *testing.T) {
 			assert.Equal(t, tt.callbackCalled, called, "HandleCallback の呼び出し有無")
 
 			// いずれのケースでも state Cookie は削除される（使い捨て）。
-			if tt.stateCookie != "" {
-				stateCookie := findCookie(w, "oauth_state")
-				if stateCookie != "" {
-					assert.Contains(t, stateCookie, "Max-Age=0", "oauth_state should be cleared")
-					assert.NotContains(t, stateCookie, "Domain=", "oauth_state deletion must remain host-only")
-				}
-			}
+			stateCookie := findCookie(w, "oauth_state")
+			assert.Contains(t, stateCookie, "Max-Age=0", "oauth_state should be cleared")
+			assert.NotContains(t, stateCookie, "Domain=", "oauth_state deletion must remain host-only")
 
 			// 成功時は認証Cookieがセットされ、失敗時はセットされないこと。
 			if tt.callbackCalled {

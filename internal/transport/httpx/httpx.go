@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"log/slog"
 	"net"
 	"net/http"
 )
@@ -15,23 +16,25 @@ import (
 type clientIPKey struct{}
 
 // WriteJSON は status コードと共に v を JSON としてレスポンスへ書き込みます。
-// エンコードに失敗した場合はステータス設定後のため
-// それ以上の回復はできず、呼び出し側の責務として v は常にエンコード可能であることを前提とします。
+// エンコードに失敗した場合は、部分的なレスポンスを送らず 500 を返します。
 func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
 	if v == nil {
+		w.WriteHeader(status)
 		return
 	}
-	if err := json.MarshalWrite(
-		w,
+	body, err := json.Marshal(
 		v,
 		jsontext.EscapeForHTML(true),
 		jsontext.EscapeForJS(true),
-	); err == nil {
-		// encoding/json.Encoder.Encode が付与していた末尾改行を維持する。
-		_, _ = w.Write([]byte{'\n'})
+	)
+	if err != nil {
+		slog.Error("failed to encode JSON response")
+		status = http.StatusInternalServerError
+		body = []byte(`{"error":"internal server error"}`)
 	}
+	w.WriteHeader(status)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // DecodeJSON はリクエストボディを JSON として dst にデコードします。

@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"bytes"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -100,6 +101,30 @@ func TestDecodeJSON(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestWriteJSON_EncodingFailure(t *testing.T) {
+	t.Parallel()
+
+	for name, value := range map[string]any{
+		"NaN":               math.NaN(),
+		"positive infinity": math.Inf(1),
+		"negative infinity": math.Inf(-1),
+		"unsupported type":  make(chan int),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			WriteJSON(w, http.StatusOK, struct {
+				Name  string `json:"name"`
+				Value any    `json:"value"`
+			}{Name: "must not leak partial output", Value: value})
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.Equal(t, "application/json; charset=utf-8", w.Header().Get("Content-Type"))
+			assert.JSONEq(t, `{"error":"internal server error"}`, w.Body.String())
 		})
 	}
 }

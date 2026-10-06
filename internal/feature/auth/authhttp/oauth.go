@@ -86,9 +86,11 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
+	providerError := r.URL.Query().Get("error")
 
-	if code == "" || state == "" {
+	if state == "" || (code == "" && providerError == "") {
 		slog.Warn("oauth callback: missing code or state", "provider", provider)
+		setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
@@ -107,6 +109,11 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	// 照合に成功したので state Cookie は使い捨て（リプレイ防止のため削除）。
 	setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
+	if providerError != "" {
+		slog.Warn("oauth callback: provider rejected authorization", "provider", provider)
+		h.redirectWithError(w, r, oauthErrOAuthFailed)
+		return
+	}
 	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
