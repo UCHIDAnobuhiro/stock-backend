@@ -177,7 +177,7 @@ func TestAuthUsecase_Signup(t *testing.T) {
 			email:    "test@example.com",
 			password: "short",
 			wantErr:  true,
-			errMsg:   "password must be at least 12 characters long",
+			errMsg:   "invalid password: password must be at least 12 characters long",
 		},
 		{
 			name:             "password at minimum length",
@@ -191,7 +191,33 @@ func TestAuthUsecase_Signup(t *testing.T) {
 			email:    "test@example.com",
 			password: "",
 			wantErr:  true,
-			errMsg:   "password must be at least 12 characters long",
+			errMsg:   "invalid password: password must be at least 12 characters long",
+		},
+		{
+			name:     "multibyte password below minimum characters",
+			email:    "test@example.com",
+			password: strings.Repeat("あ", 11),
+			wantErr:  true,
+			errMsg:   "invalid password: password must be at least 12 characters long",
+		},
+		{
+			name:     "supplementary characters below minimum",
+			email:    "test@example.com",
+			password: strings.Repeat("🔑", 6),
+			wantErr:  true,
+			errMsg:   "invalid password: password must be at least 12 characters long",
+		},
+		{
+			name:             "supplementary characters at minimum",
+			email:            "test@example.com",
+			password:         strings.Repeat("🔑", 12),
+			verifyBcryptHash: true,
+		},
+		{
+			name:             "multibyte password at maximum bytes",
+			email:            "test@example.com",
+			password:         strings.Repeat("🔑", 256),
+			verifyBcryptHash: true,
 		},
 		{
 			name:             "long password",
@@ -212,7 +238,14 @@ func TestAuthUsecase_Signup(t *testing.T) {
 			email:    "test@example.com",
 			password: strings.Repeat("a", 1025),
 			wantErr:  true,
-			errMsg:   "password must be at most 1024 characters long",
+			errMsg:   "invalid password: password must be at most 1024 bytes long",
+		},
+		{
+			name:     "multibyte password above maximum bytes",
+			email:    "test@example.com",
+			password: strings.Repeat("🔑", 257),
+			wantErr:  true,
+			errMsg:   "invalid password: password must be at most 1024 bytes long",
 		},
 		{
 			name:          "repository create failure",
@@ -229,6 +262,9 @@ func TestAuthUsecase_Signup(t *testing.T) {
 
 			mockRepo := &mockUserRepository{
 				CreateFunc: func(ctx context.Context, user *auth.User) error {
+					if tt.wantErr && tt.repositoryErr == nil {
+						t.Error("invalid password must not reach the repository")
+					}
 					if tt.verifyBcryptHash {
 						verifyBcryptHash(t, *user.PasswordHash, tt.password)
 					}
@@ -245,6 +281,9 @@ func TestAuthUsecase_Signup(t *testing.T) {
 
 			// Assert error expectations
 			assertError(t, err, tt.wantErr, tt.errMsg)
+			if tt.wantErr && tt.repositoryErr == nil && !errors.Is(err, auth.ErrInvalidPassword) {
+				t.Errorf("expected ErrInvalidPassword, got: %v", err)
+			}
 			if tt.repositoryErr != nil && !errors.Is(err, tt.repositoryErr) {
 				t.Errorf("expected error '%v', got: %v", tt.repositoryErr, err)
 			}

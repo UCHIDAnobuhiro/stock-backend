@@ -92,6 +92,10 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	userID, err := h.uc.Signup(r.Context(), req.Email, req.Password)
 	if err != nil {
+		if errors.Is(err, auth.ErrInvalidPassword) {
+			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
+			return
+		}
 		// ユーザー列挙攻撃を防止するため、実際のエラーを公開しない
 		slog.Warn("signup failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "signup failed"})

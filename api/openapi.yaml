@@ -48,13 +48,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
         "400":
-          description: バリデーションエラー
+          description: バリデーションエラー（パスワードの最低文字数・1024バイト上限違反等）
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
-          description: 登録失敗（メールアドレス重複、パスワードの1024バイト上限超過等）
+          description: 登録失敗（メールアドレス重複等）
           content:
             application/json:
               schema:

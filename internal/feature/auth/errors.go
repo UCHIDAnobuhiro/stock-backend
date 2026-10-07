@@ -12,6 +12,9 @@ var (
 	// ErrInvalidCredentials はメールアドレスまたはパスワードが正しくない場合に返されます。
 	ErrInvalidCredentials = errors.New("invalid email or password")
 
+	// ErrInvalidPassword は登録パスワードが文字数・バイト数の制約に違反する場合に返されます。
+	ErrInvalidPassword = errors.New("invalid password")
+
 	// ErrRefreshTokenInvalid はリフレッシュトークンが存在しない、または不正な場合に返されます。
 	ErrRefreshTokenInvalid = errors.New("invalid refresh token")
 

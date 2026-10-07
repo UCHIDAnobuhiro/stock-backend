@@ -184,9 +184,18 @@ func TestAuthHandler_Signup(t *testing.T) {
 			expectedStatus: http.StatusCreated,
 			expectedBody:   H{"message": "ok"},
 		},
-		// 注: email 形式・password 長さ等のスキーマバリデーションは
+		// 注: email 形式・password 最低文字数等のスキーマバリデーションは
 		// OpenAPI バリデーションミドルウェア（internal/transport/openapivalidate）の
 		// 責務に移行したため、その検証は middleware_test.go で実施する。
+		{
+			name:        "failure: password exceeds byte limit",
+			requestBody: H{"email": "test@example.com", "password": strings.Repeat("🔑", 257)},
+			mockSignupFunc: func(ctx context.Context, email, password string) (int64, error) {
+				return 0, fmt.Errorf("validation failed: %w", auth.ErrInvalidPassword)
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   H{"error": "invalid request"},
+		},
 		{
 			name:        "failure: duplicate email (usecase error)",
 			requestBody: H{"email": "existing@example.com", "password": "password12345"},

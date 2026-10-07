@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -199,11 +200,11 @@ func (u *usecase) pepperPassword(password string) string {
 
 // validatePassword はパスワードがセキュリティ要件を満たしているかチェックします。
 func validatePassword(password string) error {
-	if len(password) < minPasswordLength {
-		return fmt.Errorf("password must be at least %d characters long", minPasswordLength)
+	if utf8.RuneCountInString(password) < minPasswordLength {
+		return fmt.Errorf("%w: password must be at least %d characters long", ErrInvalidPassword, minPasswordLength)
 	}
 	if len(password) > maxPasswordLength {
-		return fmt.Errorf("password must be at most %d characters long", maxPasswordLength)
+		return fmt.Errorf("%w: password must be at most %d bytes long", ErrInvalidPassword, maxPasswordLength)
 	}
 	return nil
 }
