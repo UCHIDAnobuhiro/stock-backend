@@ -306,6 +306,9 @@ go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e
 - migrateのサブコマンドはJob定義を書き換えず、実行時の `--args` overrideとして渡す
 - migrate用CDは固定のconcurrency groupでAPI用CDからの呼び出しと単独手動実行を直列化し、
   実行中のmigrationは自動キャンセルしない。Jobのイメージ更新から実行完了までを排他する
+  - `queue: max`で待機中の実行を後続で置き換えず、最大100件まで保持する。
+    キュー上限超過・手動キャンセル時は、実行履歴とDBの状態を確認し、必要な実行だけを再実行する。
+    順序はグループで待機を開始した順であり、dispatch順を保証しないため、`up`/`down`等の順序が必要な操作は完了を待って次を起動する
 - batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す。
   push起動時は常にイメージ更新のみを行い、バッチの実行は行わない
 

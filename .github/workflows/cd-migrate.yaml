@@ -32,6 +32,7 @@ permissions:
 concurrency:
     group: cd-migrate
     cancel-in-progress: false
+    queue: max
 
 env:
     REGION: asia-northeast1
