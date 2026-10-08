@@ -58,7 +58,7 @@ func WithClientIP(ctx context.Context, ip string) context.Context {
 // context に middleware.RealIP が解決したIPが格納されていればそれを返し、
 // なければ TCP接続元（RemoteAddr）のホスト部にフォールバックします。
 // X-Forwarded-For 等のプロキシヘッダー自体はここでは解釈しません
-// （信頼するプロキシ段数に基づく解釈は middleware.RealIP の責務です）。
+// （信頼するXFFの位置に基づく解釈は middleware.RealIP の責務です）。
 func ClientIP(r *http.Request) string {
 	if ip, ok := r.Context().Value(clientIPKey{}).(string); ok && ip != "" {
 		return ip

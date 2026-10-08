@@ -41,7 +41,7 @@ type Config struct {
 	Blacklist *jwt.Blacklist
 	// SecureCookie が true（本番・TLS終端）のとき HSTS ヘッダーを有効化する。
 	SecureCookie bool
-	// TrustedProxyHops は httpmw.RealIP に渡す、X-Forwarded-For を信頼するプロキシ段数。
+	// TrustedProxyHops は httpmw.RealIP に渡す、X-Forwarded-For の右端からの実クライアントIPの位置。
 	// 0（デフォルト）なら XFF を信頼せず RemoteAddr のみを使用する。
 	TrustedProxyHops int
 }
