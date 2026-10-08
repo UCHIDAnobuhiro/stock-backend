@@ -81,7 +81,7 @@ type ServerConfig struct {
 	CookieDomain   string
 	CORSOrigins    []string
 	GCPProjectID   string // GOOGLE_CLOUD_PROJECT。未設定可（トレース相関に使用）
-	// TrustedProxyHops は X-Forwarded-For を信頼するリバースプロキシの段数。
+	// TrustedProxyHops は X-Forwarded-For の右から何番目を実クライアントIPとして信頼するかを指定する。
 	// middleware.RealIP に渡す。0（デフォルト）なら XFF を一切信頼しない。
 	TrustedProxyHops int
 }

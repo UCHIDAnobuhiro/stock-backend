@@ -43,6 +43,20 @@ func TestRealIP(t *testing.T) {
 			wantIP:      "5.6.7.8",
 		},
 		{
+			name:        "load_balancer_suffix_ignores_spoofed_prefix",
+			trustedHops: 2,
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         []string{"192.0.2.99, 192.0.2.100", "203.0.113.7, 198.51.100.5"},
+			wantIP:      "203.0.113.7",
+		},
+		{
+			name:        "load_balancer_suffix_supports_ipv6_clients",
+			trustedHops: 2,
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         []string{"192.0.2.99, 2001:db8::1, 198.51.100.5"},
+			wantIP:      "2001:db8::1",
+		},
+		{
 			name:        "エントリ数が不足する場合はRemoteAddrにフォールバックする",
 			trustedHops: 5,
 			remoteAddr:  "10.0.0.1:1234",

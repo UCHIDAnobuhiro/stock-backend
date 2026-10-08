@@ -67,7 +67,10 @@ func run(
 		return 2
 	}
 
-	lockDB, err := openSQL(cfg.DB)
+	lockConfig := cfg.DB
+	lockConfig.MaxOpenConns = 1
+	lockConfig.MaxIdleConns = 1
+	lockDB, err := openSQL(lockConfig)
 	if err != nil {
 		slog.Error("DB open failed", "job_id", jobID, "purpose", "batch_lock", "error", err)
 		return 1

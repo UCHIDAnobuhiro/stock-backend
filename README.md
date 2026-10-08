@@ -304,6 +304,11 @@ go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e
 - API用CD（`cd-api.yaml`）は、前段で `cd-migrate.yaml` を呼び出し、`migrate up` が成功した場合のみAPIイメージを更新。
   push起動時は `db/migrations/` に変更がある場合だけmigrateを実行し、変更がなければスキップしてそのままAPIをデプロイする
 - migrateのサブコマンドはJob定義を書き換えず、実行時の `--args` overrideとして渡す
+- migrate用CDは固定のconcurrency groupでAPI用CDからの呼び出しと単独手動実行を直列化し、
+  実行中のmigrationは自動キャンセルしない。Jobのイメージ更新から実行完了までを排他する
+  - `queue: max`で待機中の実行を後続で置き換えず、最大100件まで保持する。
+    キュー上限超過・手動キャンセル時は、実行履歴とDBの状態を確認し、必要な実行だけを再実行する。
+    順序はグループで待機を開始した順であり、dispatch順を保証しないため、`up`/`down`等の順序が必要な操作は完了を待って次を起動する
 - batch用CD（`cd-batch.yaml`）は単一のCloud Run Job `batch` を更新し、`execute=true` の場合だけ選択した `job_id`（`candles` / `logo` / `auth-session-cleanup`）を実行時の `--args` overrideとして渡す。
   push起動時は常にイメージ更新のみを行い、バッチの実行は行わない
 
@@ -311,6 +316,10 @@ go test -tags=e2e -run '^TestE2E' -v -race ./internal/e2e
 Schedulerの再試行や手動実行が重なった場合、同じ`job_id`の後続Executionは処理本体を実行せず、
 `event=batch_skipped`、`reason=already_running`をログへ記録して終了コード0で安全に終了する。
 異なる`job_id`は並行実行でき、先行Executionの終了後は同じ`job_id`を再実行できる。
+lock専用DBプールは1接続に固定し、`DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` は
+別の処理用DBプールに適用する。接続予算には処理用プールに加えてlock専用の1接続を含める。
+Cloud Run Jobの直接実行はCDのconcurrency対象外のため、手動migrateや異なる`job_id`の
+同時実行時はstock-infraの運用手順に従い、実行状況とDB接続予算を確認する。
 
 新規環境では、TerraformでCloud Runを作成する前にAPI・batch・migrateの各ワークフローを
 `publish_only=true` で手動実行（`workflow_dispatch`）し、初回作成に使うイメージをArtifact Registryへpushします。
