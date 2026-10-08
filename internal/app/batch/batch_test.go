@@ -219,6 +219,8 @@ func TestRun_DuplicateTriggersSkipJob(t *testing.T) {
 func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	t.Parallel()
 
+	cfg := &config.Config{DB: infradb.Config{MaxOpenConns: 5, MaxIdleConns: 2}}
+	var openedConfigs []infradb.Config
 	openCalls := 0
 	jobCalls := 0
 	unlockCalls := 0
@@ -236,11 +238,12 @@ func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	}
 
 	got := run(
-		&config.Config{},
+		cfg,
 		[]string{"candles"},
 		availableJobs,
-		func(infradb.Config) (*sql.DB, error) {
+		func(dbConfig infradb.Config) (*sql.DB, error) {
 			openCalls++
+			openedConfigs = append(openedConfigs, dbConfig)
 			return newTestSQLDB(t), nil
 		},
 		func(_ context.Context, db *sql.DB, _, _ int32) (bool, func(context.Context) error, error) {
@@ -257,6 +260,12 @@ func TestRun_AcquiredLockRunsJobAndReleases(t *testing.T) {
 	assert.Equal(t, 1, jobCalls)
 	assert.Equal(t, 1, unlockCalls)
 	assert.NotSame(t, lockDB, jobDB)
+	lockConfig := cfg.DB
+	lockConfig.MaxOpenConns = 1
+	lockConfig.MaxIdleConns = 1
+	assert.Equal(t, []infradb.Config{lockConfig, cfg.DB}, openedConfigs)
+	assert.Equal(t, 5, cfg.DB.MaxOpenConns)
+	assert.Equal(t, 2, cfg.DB.MaxIdleConns)
 }
 
 func TestRun_UnlockErrorFailsAfterSuccessfulJob(t *testing.T) {
