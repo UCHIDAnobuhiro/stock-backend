@@ -9,15 +9,13 @@ COPY . .
 # APIサーバ
 RUN CGO_ENABLED=0 GOOS=linux go build -o api ./cmd/api
 
-FROM alpine:3.21
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
-RUN apk add --no-cache tzdata
 ENV TZ=Asia/Tokyo
 
 COPY --from=builder /app/api .
-RUN addgroup -S app && adduser -S app -G app && chown app:app /app/api
-USER app
+USER nonroot
 
 EXPOSE 8080
 CMD ["./api"]

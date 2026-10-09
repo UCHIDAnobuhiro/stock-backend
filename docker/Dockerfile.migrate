@@ -9,15 +9,13 @@ COPY . .
 # goose 埋め込みマイグレーション専用バイナリ
 RUN CGO_ENABLED=0 GOOS=linux go build -o migrate ./cmd/migrate
 
-FROM alpine:3.21
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
-RUN apk add --no-cache tzdata ca-certificates
 ENV TZ=Asia/Tokyo
 
 COPY --from=builder /app/migrate .
-RUN addgroup -S app && adduser -S app -G app && chown app:app /app/migrate
-USER app
+USER nonroot
 
 # デフォルトは `up`（pending を全適用）。
 # Cloud Run Job 等から `status` / `down` / `up-to N` 等を args で渡せる。
