@@ -74,12 +74,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.0
+          version: v2.14.0
           args: --timeout=5m
 
   # アーキテクチャ依存ルール検証（go-arch-lint、デフォルト拒否）
@@ -95,7 +95,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Run go-arch-lint
         run: go tool go-arch-lint check
@@ -113,7 +113,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -134,7 +134,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Run build
         run: go build ./...
@@ -178,7 +178,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Check integration test names
         run: bash scripts/check-tagged-test-names.sh integration TestIntegration
@@ -222,7 +222,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Check E2E test names
         run: bash scripts/check-tagged-test-names.sh e2e TestE2E internal/e2e
@@ -244,7 +244,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Download unit coverage
         uses: actions/download-artifact@v8
@@ -297,7 +297,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       - name: Run migrations
         env:
