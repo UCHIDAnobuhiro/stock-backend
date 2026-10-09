@@ -1,6 +1,6 @@
 module github.com/UCHIDAnobuhiro/stock-backend
 
-go 1.27.1
+go 1.27.2
 
 require (
 	cloud.google.com/go/vision/v2 v2.16.0
@@ -189,7 +189,7 @@ require (
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/image v0.3.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
