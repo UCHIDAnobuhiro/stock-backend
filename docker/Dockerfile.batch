@@ -6,15 +6,13 @@ COPY . .
 # バッチ統合（job_id 引数で candles / logo / auth-session-cleanup を切替）
 RUN CGO_ENABLED=0 GOOS=linux go build -o batch ./cmd/batch
 
-FROM alpine:3.21
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
-RUN apk add --no-cache tzdata
 ENV TZ=Asia/Tokyo
 
 COPY --from=builder /app/batch .
-RUN addgroup -S app && adduser -S app -G app && chown app:app /app/batch
-USER app
+USER nonroot
 
 # デフォルトは candles（株価）。単一のCloud Run Job / composeからjob_idをargsで渡して切り替える。
 ENTRYPOINT ["./batch"]
