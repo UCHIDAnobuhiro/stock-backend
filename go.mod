@@ -22,7 +22,7 @@ require (
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	google.golang.org/api v0.301.0
-	google.golang.org/genai v1.72.0
+	google.golang.org/genai v1.73.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc
 	google.golang.org/grpc v1.84.0
 )
