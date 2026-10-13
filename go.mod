@@ -4,7 +4,7 @@ go 1.27.2
 
 require (
 	cloud.google.com/go/vision/v2 v2.16.0
-	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/go-chi/cors v1.2.2
