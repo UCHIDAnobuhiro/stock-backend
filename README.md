@@ -460,3 +460,5 @@ docker compose -f docker/docker-compose.yml -p stock run --rm --no-deps auth-ses
 - **Redis**: `localhost:6379`
 - **ログ確認**: `docker logs -f stock-backend`
 - **バッチプロセス**: `candles`（株価取り込み）、`logo`（ロゴURL取り込み）、`auth-session-cleanup`（期限切れ認証セッション削除）
+
+Cloud SQLへの接続は`DB_CONNECTION_MODE`で選びます。未設定時は従来通り`INSTANCE_CONNECTION_NAME`があれば`/cloudsql` Unixソケット、なければ`DB_HOST`/`DB_PORT`のTCPです。`private`を指定するとGo Cloud SQL Connectorが`INSTANCE_CONNECTION_NAME`のprivate IPを使用し、接続失敗時に公開IPへ切り替えません。DBユーザー/パスワードは既存の`DB_USER`/`DB_PASSWORD`を使います。本番の段階切替はinfraリポジトリの運用手順とTerraform変数で管理します。

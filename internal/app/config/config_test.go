@@ -397,3 +397,15 @@ func TestParseLogFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadMigrate_MapsPrivateDBConnectionMode(t *testing.T) {
+	t.Setenv("DB_CONNECTION_MODE", "private")
+	t.Setenv("INSTANCE_CONNECTION_NAME", "example:region:db")
+	cfg, err := LoadMigrate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DB.ConnectionMode != "private" || cfg.DB.InstanceName != "example:region:db" {
+		t.Fatalf("DB connection config = mode %q, instance %q", cfg.DB.ConnectionMode, cfg.DB.InstanceName)
+	}
+}

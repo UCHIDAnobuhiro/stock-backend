@@ -41,13 +41,14 @@ func (Password) LogValue() slog.Value { return slog.StringValue("***") }
 
 // Config はデータベース接続設定を保持します。
 type Config struct {
-	User         string
-	Password     Password
-	Name         string
-	Host         string
-	Port         string
-	InstanceName string // Cloud SQLインスタンス接続名（オプション）
-	SSLMode      string // TCP 接続時の sslmode（空なら DefaultSSLMode）
+	User           string
+	Password       Password
+	Name           string
+	Host           string
+	Port           string
+	InstanceName   string // Cloud SQLインスタンス接続名（オプション）
+	ConnectionMode string // 空: 従来の自動選択、socket: Unix socket、private: Go Connector private IP
+	SSLMode        string // TCP 接続時の sslmode（空なら DefaultSSLMode）
 
 	// コネクションプール設定。ゼロ値のときは Default* 定数にフォールバックします。
 	MaxOpenConns    int
@@ -60,6 +61,12 @@ type Config struct {
 // それ以外の場合は TCP 接続として Host/Port を必須とします。
 // Password は空でも許容します（ローカル開発で空パスワード運用を想定）。
 func (c Config) Validate() error {
+	if c.ConnectionMode != "" && c.ConnectionMode != "socket" && c.ConnectionMode != "private" {
+		return fmt.Errorf("invalid DB_CONNECTION_MODE: %q", c.ConnectionMode)
+	}
+	if (c.ConnectionMode == "socket" || c.ConnectionMode == "private") && strings.TrimSpace(c.InstanceName) == "" {
+		return fmt.Errorf("INSTANCE_CONNECTION_NAME is required for DB_CONNECTION_MODE=%s", c.ConnectionMode)
+	}
 	var missing []string
 	if strings.TrimSpace(c.User) == "" {
 		missing = append(missing, "DB_USER")
