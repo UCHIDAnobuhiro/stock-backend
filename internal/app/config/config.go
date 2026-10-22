@@ -166,6 +166,7 @@ func readDB(warn *[]string) db.Config {
 		Host:            os.Getenv("DB_HOST"),
 		Port:            os.Getenv("DB_PORT"),
 		InstanceName:    os.Getenv("INSTANCE_CONNECTION_NAME"),
+		ConnectionMode:  os.Getenv("DB_CONNECTION_MODE"),
 		SSLMode:         os.Getenv("DB_SSLMODE"),
 		MaxOpenConns:    readInt("DB_MAX_OPEN_CONNS", warn),
 		MaxIdleConns:    readInt("DB_MAX_IDLE_CONNS", warn),

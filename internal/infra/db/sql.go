@@ -22,6 +22,19 @@ type SQLOpener func(dsn string) (*sql.DB, error)
 // リトライロジックを含み、設定不正や接続失敗は呼び出し元へ返します。
 // 設定の読み込み（環境変数）は internal/app/config に集約されています。
 func OpenSQL(cfg Config) (*sql.DB, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid DB config: %w", err)
+	}
+	if cfg.ConnectionMode == "private" {
+		db, err := ConnectSQLWithRetry("", 60*time.Second, func(string) (*sql.DB, error) {
+			return openPrivateSQL(cfg, newCloudSQLDialer)
+		})
+		if err != nil {
+			return nil, err
+		}
+		configurePool(db, cfg)
+		return db, nil
+	}
 	return openSQLWithRetry(cfg, 60*time.Second, DefaultSQLOpener)
 }
 
