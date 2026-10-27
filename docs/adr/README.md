@@ -61,3 +61,4 @@ Claude Code の `/adr` スキルを使用してください：
 | [ADR-0008](0008-レートリミット障害時のfail-open-fail-closed方針.md)                   | レートリミット障害時の fail-open / fail-closed 方針 | Accepted   |
 | [ADR-0009](0009-リフレッシュトークンローテーションを採用する.md)                    | リフレッシュトークンローテーションを採用する | Accepted   |
 | [ADR-0010](0010-フラットなフィーチャーパッケージと宣言的依存検査を採用する.md)       | フラットなフィーチャーパッケージと宣言的依存検査を採用する | Proposed   |
+| [ADR-0011](0011-cloud-sql-private-ip接続への段階移行.md) | Cloud SQL private IP接続への段階移行 | Proposed |
