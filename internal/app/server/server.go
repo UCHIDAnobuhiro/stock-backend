@@ -145,7 +145,6 @@ func Run(cfg *config.Config) int {
 			Limiter:          rateLimiter,
 			OpenAPIValidator: openapiValidator,
 			AllowedOrigins:   cfg.Server.CORSOrigins,
-			GCPProjectID:     cfg.Server.GCPProjectID,
 			JWTSecret:        cfg.Server.JWTSecret,
 			Blacklist:        jwtBlacklist,
 			SecureCookie:     cfg.Server.SecureCookie,

@@ -13,7 +13,10 @@ import (
 // os.Exit は defer を実行しないため、後処理が走るよう実体は internal/app/server に分離している。
 func main() {
 	cfg, err := config.LoadAPI()
-	logger := slog.New(logging.NewHandler(os.Stdout, cfg.Log.Level, cfg.Log.UseJSON))
+	logger := slog.New(logging.NewContextHandler(
+		logging.NewHandler(os.Stdout, cfg.Log.Level, cfg.Log.UseJSON),
+		cfg.Server.GCPProjectID,
+	))
 	slog.SetDefault(logger)
 	for _, w := range cfg.Warnings {
 		slog.Warn(w)

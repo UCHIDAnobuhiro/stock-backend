@@ -35,7 +35,6 @@ type Config struct {
 	Limiter          *httpratelimit.Limiter
 	OpenAPIValidator func(http.Handler) http.Handler
 	AllowedOrigins   []string
-	GCPProjectID     string
 	JWTSecret        string
 	// Blacklist はログアウト済みJWT（jti）の即時失効チェックに使用する。nil可（未失効扱い）。
 	Blacklist *jwt.Blacklist
@@ -57,15 +56,20 @@ func NewRouter(h Handlers, cfg Config) http.Handler {
 	// httpx.ClientIP 経由で参照できるようにする。
 	r.Use(httpmw.RealIP(cfg.TrustedProxyHops))
 
+	// TraceID は AccessLog より前に置く。AccessLog を含む以降のすべてのログに
+	// ctx 経由で trace_id を付与し、レスポンスヘッダー X-Trace-Id でも返すため。
+	r.Use(httpmw.TraceID())
+
 	// AccessLog を外側、Recover を内側に置くことで、panic を 500 に変換した結果も
 	// アクセスログに記録される。
-	r.Use(httpmw.AccessLog(cfg.GCPProjectID))
+	r.Use(httpmw.AccessLog())
 	r.Use(httpmw.Recover())
 
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Origin", "Content-Type", "Authorization", "X-CSRF-Token"},
+		ExposedHeaders:   []string{httpmw.TraceIDHeader},
 		AllowCredentials: true,
 		MaxAge:           int((12 * time.Hour).Seconds()),
 	}))
