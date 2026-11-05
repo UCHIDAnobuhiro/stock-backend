@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/api"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/logging"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpx"
 )
 
@@ -20,7 +21,12 @@ func Recover() func(http.Handler) http.Handler {
 					if rec == http.ErrAbortHandler {
 						panic(rec)
 					}
-					slog.ErrorContext(r.Context(), "panic recovered", "error", rec, "path", r.URL.Path, "method", r.Method)
+					slog.LogAttrs(r.Context(), slog.LevelError, "panic recovered",
+						slog.Any("error", rec),
+						slog.String("path", r.URL.Path),
+						slog.String("method", r.Method),
+						logging.PanicStackAttr(rec),
+					)
 					httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 				}
 			}()

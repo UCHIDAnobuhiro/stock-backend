@@ -389,6 +389,48 @@ func TestRun_LockErrorIsLogged(t *testing.T) {
 	assert.True(t, strings.Contains(logOutput, `error="lock query failed"`), logOutput)
 }
 
+// TestRun_JobPanicReturnsOneAndReleasesLock はジョブ実行中の panic を回復して終了コード 1 を返し、
+// ロック解放が行われ、stack_trace 付きのログが出力されることを検証します。
+// slog.SetDefault を使うため t.Parallel() は使いません。
+func TestRun_JobPanicReturnsOneAndReleasesLock(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	unlockCalls := 0
+	availableJobs := map[string]job{
+		"candles": {
+			lockKey: 2,
+			run:     func(*config.Config, *sql.DB) int { panic("job exploded") },
+		},
+	}
+
+	var got int
+	require.NotPanics(t, func() {
+		got = run(
+			&config.Config{},
+			[]string{"candles"},
+			availableJobs,
+			func(infradb.Config) (*sql.DB, error) { return newTestSQLDB(t), nil },
+			func(context.Context, *sql.DB, int32, int32) (bool, func(context.Context) error, error) {
+				return true, func(context.Context) error {
+					unlockCalls++
+					return nil
+				}, nil
+			},
+		)
+	})
+
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 1, unlockCalls)
+	logOutput := output.String()
+	assert.Contains(t, logOutput, "event=batch_panic")
+	assert.Contains(t, logOutput, "job_id=candles")
+	assert.Contains(t, logOutput, "stack_trace=")
+	assert.Contains(t, logOutput, "job exploded")
+}
+
 func newTestSQLDB(t *testing.T) *sql.DB {
 	t.Helper()
 
