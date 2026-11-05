@@ -12,8 +12,12 @@ linters:
     - bodyclose
     - unconvert
     - misspell
+    - sloglint
 
   settings:
+    sloglint:
+      # context が利用可能なスコープでは slog.XxxContext を強制し、trace_id の付与漏れを防ぐ。
+      context: scope
     depguard:
       rules:
         # GORM は sqlc + database/sql に移行済み。再混入を防止する。
