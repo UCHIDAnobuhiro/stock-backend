@@ -130,7 +130,8 @@ internal/
 │   ├── config/       # 環境変数パースの純粋関数ヘルパー
 │   ├── di/           # 依存性注入ファクトリ
 │   ├── migrate/      # マイグレーション実行ロジック（goose サブコマンドディスパッチ）
-│   └── router/       # HTTPルーター設定
+│   ├── router/       # HTTPルーター設定
+│   └── server/       # APIサーバーのDIワイヤリング・起動・グレースフルシャットダウン
 ├── feature/          # フィーチャーモジュール（垂直スライス）
 │   ├── auth/
 │   ├── candles/
@@ -221,11 +222,11 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - `Repository`（読み取り）と `WriteRepository`（書き込み）の両インターフェースを実装
    - usecaseコードを変更せずにRedisキャッシュを透過的に追加
    - Redisが利用できない場合はグレースフルデグレード（警告ログを出力し、キャッシュなしで動作）
-4. **依存性注入**: `cmd/api/main.go` で手動DI
-   - Repositories → Usecases → Handlers のワイヤリングは主に main.go で直接実施
+4. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
+   - Repositories → Usecases → Handlers のワイヤリングは主に `server.Run` で直接実施
    - `internal/app/di/` には一部のファクトリ関数を配置（例: MarketRepositoryの生成）
-5. **3つのエントリーポイント**:
-   - `cmd/api/main.go`: REST APIサーバー（ポート8080）の起動・DIワイヤリング
+5. **3つのエントリーポイント**（いずれも `cmd/*/main.go` は設定読み込み・ロガー構成・`os.Exit` だけを行い、実体は `internal/app/<name>` の `Run(cfg, ...) int` に置く）:
+   - `cmd/api/main.go`: REST APIサーバー（ポート8080）。実体は `internal/app/server`
      - 環境変数パースの純粋関数ヘルパーは `internal/app/config/`（`CORS_ALLOWED_ORIGINS` / `COOKIE_SECURE` 等）
    - `cmd/batch/main.go`: バッチジョブ統合エントリーポイント。コマンド引数 `job_id` で実行内容を切替（`auth-session-cleanup`: 期限切れ認証セッション削除 / `candles`: TwelveData APIから株価データ取得 / `logo`: ロゴURL取得）
    - `cmd/migrate/main.go`: goose 埋め込みマイグレーションを適用する専用バイナリ（Cloud Run Job 等で起動）
@@ -266,7 +267,7 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - リクエスト/レスポンス型は `api/openapi.yaml` に定義し、`go generate ./internal/api/...` で生成
 6. **DBスキーマの変更が必要なら**: 上記「マイグレーション」の環境変数を指定した `go tool goose create <name> sql` で
    `db/migrations/` にファイルを作成し、Up/Down 両方を必ず実装。`schema-doc-sync` でスキーマ文書も再生成する
-7. **依存関係をワイヤリング**: `cmd/api/main.go` または `cmd/batch/main.go` にて
+7. **依存関係をワイヤリング**: `internal/app/server/server.go` または `internal/app/batch/` にて
 8. **ルートを登録**: `internal/app/router/router.go` にて
 9. **go-arch-lint にコンポーネントを追加**: `.go-arch-lint.yml` に以下を追加：
    - `components` に `<name>`（コア）、`<name>-http`（transport）、必要なら `<name>-sqlc` や外部アダプタ
