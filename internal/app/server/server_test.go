@@ -1,133 +1,93 @@
-package main
+package server
 
 import (
-	"database/sql"
+	"bytes"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
 
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/feature/auth"
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/db"
-	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/jwt"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/di"
 )
 
-// clearEnv は設定検証に関わる環境変数をすべて空にし、テストを決定的にする。
-func clearEnv(t *testing.T) {
-	t.Helper()
-	for _, k := range []string{
-		jwt.EnvKeyJWTSecret,
-		auth.EnvKeyPasswordPepper,
-		"COOKIE_SECURE",
-		"COOKIE_DOMAIN",
-		"APP_ENV",
-		"CORS_ALLOWED_ORIGINS",
-		"GOOGLE_CLIENT_ID",
-		"GOOGLE_CLIENT_SECRET",
-		"GOOGLE_REDIRECT_URL",
-		"GITHUB_CLIENT_ID",
-		"GITHUB_CLIENT_SECRET",
-		"GITHUB_REDIRECT_URL",
-		"OAUTH_FRONTEND_REDIRECT_URL",
-	} {
-		t.Setenv(k, "")
+const testSecret = "0123456789abcdef0123456789abcdef"
+
+// newTestConfig は config.LoadAPI の検証を通過した状態に相当する設定を返す。
+// DB は未設定（ゼロ値）のため、DB 接続まで到達すると OpenSQL の検証で失敗する。
+func newTestConfig(redisAddr string) *config.Config {
+	host, port, _ := strings.Cut(redisAddr, ":")
+	return &config.Config{
+		Redis: config.RedisConfig{Host: host, Port: port},
+		Server: config.ServerConfig{
+			JWTSecret:      testSecret,
+			PasswordPepper: testSecret,
+		},
 	}
 }
 
-func TestRun_ReturnsTwoWhenConfigInvalid(t *testing.T) {
-	clearEnv(t) // JWT_SECRET 未設定 → loadServerConfig が失敗する
-
-	if got := run(); got != 2 {
-		t.Errorf("run() = %d, want 2", got)
-	}
+// captureLog は slog のデフォルトロガーをバッファに差し替え、テスト終了時に元へ戻す。
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &output
 }
 
 func TestRun_ReturnsOneWhenDBConfigInvalid(t *testing.T) {
-	clearEnv(t)
-	// 最低長(32 バイト)を満たす値で config 検証を通し、DB 設定不備で失敗させる
-	t.Setenv(jwt.EnvKeyJWTSecret, "0123456789abcdef0123456789abcdef")
-	t.Setenv(auth.EnvKeyPasswordPepper, "0123456789abcdef0123456789abcdef")
-	t.Setenv("DB_USER", "")
+	// Redis は DB より先に接続するため、正常な Redis を用意して DB 設定不備まで到達させる
+	server := miniredis.RunT(t)
+	output := captureLog(t)
 
-	if got := run(); got != 1 {
-		t.Errorf("run() = %d, want 1", got)
+	if got := Run(newTestConfig(server.Addr())); got != 1 {
+		t.Errorf("Run() = %d, want 1", got)
+	}
+	if !strings.Contains(output.String(), "DB open failed") {
+		t.Errorf("startup did not fail at DB open: %s", output)
 	}
 }
 
 func TestRun_RedisUnavailableStopsStartup(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		oauth bool
+		oauth *di.OAuthConfig
 	}{
 		{name: "OAuth disabled"},
-		{name: "OAuth enabled", oauth: true},
+		{name: "OAuth enabled", oauth: &di.OAuthConfig{
+			FrontendURL: "https://example.com",
+			Google: &di.ProviderCredentials{
+				ClientID:     "client-id",
+				ClientSecret: "client-secret",
+				RedirectURL:  "https://example.com/callback",
+			},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			clearEnv(t)
 			// 起動停止が退行しても、開発環境のADCでVision初期化が成功してサーバーが待機しないようにする。
 			t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing-adc.json"))
-			t.Setenv(jwt.EnvKeyJWTSecret, "0123456789abcdef0123456789abcdef")
-			t.Setenv(auth.EnvKeyPasswordPepper, "0123456789abcdef0123456789abcdef")
-			if tc.oauth {
-				t.Setenv("GOOGLE_CLIENT_ID", "client-id")
-				t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
-				t.Setenv("GOOGLE_REDIRECT_URL", "https://example.com/callback")
-				t.Setenv("OAUTH_FRONTEND_REDIRECT_URL", "https://example.com")
-			}
 
 			server := miniredis.RunT(t)
 			server.SetError("LOADING Redis is loading the dataset in memory")
-			host, port, ok := strings.Cut(server.Addr(), ":")
-			if !ok {
-				t.Fatalf("invalid Redis address: %q", server.Addr())
-			}
-			t.Setenv("REDIS_HOST", host)
-			t.Setenv("REDIS_PORT", port)
-			t.Setenv("REDIS_PASSWORD", "")
+			output := captureLog(t)
 
-			logFile, err := os.CreateTemp(t.TempDir(), "api-startup-*.log")
-			if err != nil {
-				t.Fatal(err)
+			cfg := newTestConfig(server.Addr())
+			cfg.OAuth = tc.oauth
+			if got := Run(cfg); got != 1 {
+				t.Errorf("Run() = %d, want 1", got)
 			}
-			defer func() {
-				if err := logFile.Close(); err != nil {
-					t.Errorf("close log file: %v", err)
+
+			log := output.String()
+			if !strings.Contains(log, "Redis startup failed") {
+				t.Errorf("Redis failure did not stop startup: %s", log)
+			}
+			for _, unexpected := range []string{"DB open failed", "failed to create vision client", "Starting server"} {
+				if strings.Contains(log, unexpected) {
+					t.Errorf("startup proceeded after Redis failure (%q logged): %s", unexpected, log)
 				}
-			}()
-			stdout := os.Stdout
-			defaultLogger := slog.Default()
-			os.Stdout = logFile
-			defer func() {
-				os.Stdout = stdout
-				slog.SetDefault(defaultLogger)
-			}()
-
-			openedDB := false
-			got := runWithDBOpener(func(db.Config) (*sql.DB, error) {
-				openedDB = true
-				return sql.Open("pgx", "postgres://localhost/test")
-			})
-			if !openedDB {
-				t.Error("DB opener was not called")
-			}
-			if got != 1 {
-				t.Errorf("runWithDBOpener() = %d, want 1", got)
-			}
-			output, err := os.ReadFile(logFile.Name())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(output), "Redis startup failed") {
-				t.Errorf("Redis failure did not stop startup: %s", output)
-			}
-			if strings.Contains(string(output), "Starting server") {
-				t.Errorf("HTTP server started despite Redis failure: %s", output)
-			}
-			if strings.Contains(string(output), "failed to create vision client") {
-				t.Errorf("startup proceeded to Vision after Redis failure: %s", output)
 			}
 		})
 	}

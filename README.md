@@ -89,7 +89,8 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 │   │   ├── config/             # 環境変数パースの純粋関数ヘルパー
 │   │   ├── di/                 # 依存性注入
 │   │   ├── migrate/            # マイグレーション実行ロジック（goose サブコマンドディスパッチ）
-│   │   └── router/             # ルーティング設定
+│   │   ├── router/             # ルーティング設定
+│   │   └── server/             # APIサーバーのDIワイヤリング・起動
 │   │
 │   ├── feature/                # フィーチャーモジュール（垂直スライス、1機能=1パッケージ）
 │   │   ├── auth/               # 認証機能（package auth: entity/usecase/repository）
