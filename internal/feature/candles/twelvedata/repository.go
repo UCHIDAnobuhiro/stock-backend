@@ -52,7 +52,7 @@ func (t *TwelveDataMarket) GetTimeSeries(ctx context.Context, symbol, interval s
 	}
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			slog.Warn("failed to close response body", "error", err)
+			slog.WarnContext(ctx, "failed to close response body", "error", err)
 		}
 	}()
 

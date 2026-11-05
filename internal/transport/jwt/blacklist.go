@@ -30,7 +30,7 @@ func blacklistKey(jti string) string {
 // jtiが空、またはttlが0以下（=既に期限切れ）の場合は何もしません。
 func (b *Blacklist) Revoke(ctx context.Context, jti string, ttl time.Duration) error {
 	if b == nil || b.rdb == nil {
-		slog.Warn("jwt blacklist unavailable, logout will not revoke token immediately")
+		slog.WarnContext(ctx, "jwt blacklist unavailable, logout will not revoke token immediately")
 		return nil
 	}
 	if jti == "" || ttl <= 0 {
@@ -51,7 +51,7 @@ func (b *Blacklist) IsRevoked(ctx context.Context, jti string) bool {
 	}
 	exists, err := b.rdb.Exists(ctx, blacklistKey(jti)).Result()
 	if err != nil {
-		slog.Warn("jwt blacklist check failed, allowing request", "error", err)
+		slog.WarnContext(ctx, "jwt blacklist check failed, allowing request", "error", err)
 		return false
 	}
 	return exists > 0

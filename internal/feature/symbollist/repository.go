@@ -55,7 +55,7 @@ func (r *repository) UpdateLogoURL(ctx context.Context, code, logoURL string, up
 		return err
 	}
 	if rowsAffected == 0 {
-		slog.Warn("UpdateLogoURL: no matching symbol found", "code", code)
+		slog.WarnContext(ctx, "UpdateLogoURL: no matching symbol found", "code", code)
 	}
 	return nil
 }

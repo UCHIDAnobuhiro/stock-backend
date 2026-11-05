@@ -39,7 +39,7 @@ func (rl *RateLimiter) WaitIfNeeded(ctx context.Context) error {
 	if rl.count > rl.limit {
 		sleep := rl.interval - now.Sub(rl.lastReset)
 		if sleep > 0 {
-			slog.Info("rate limit reached, sleeping", "limit", rl.limit, "sleep_duration", sleep)
+			slog.InfoContext(ctx, "rate limit reached, sleeping", "limit", rl.limit, "sleep_duration", sleep)
 			timer := time.NewTimer(sleep)
 			defer timer.Stop()
 			select {

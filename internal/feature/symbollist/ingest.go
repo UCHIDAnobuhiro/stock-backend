@@ -80,7 +80,7 @@ func (u *LogoIngestUsecase) IngestAll(ctx context.Context) (LogoIngestResult, er
 
 		logoURL, err := u.logoProvider.GetLogoURL(ctx, s.Code)
 		if err != nil {
-			slog.Error("failed to fetch logo url", "symbol", s.Code, "error", err)
+			slog.ErrorContext(ctx, "failed to fetch logo url", "symbol", s.Code, "error", err)
 			result.Failed++
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return result, ctxErr
@@ -92,7 +92,7 @@ func (u *LogoIngestUsecase) IngestAll(ctx context.Context) (LogoIngestResult, er
 			return result, err
 		}
 		if err := u.symbolRepo.UpdateLogoURL(ctx, s.Code, logoURL, u.now()); err != nil {
-			slog.Error("failed to update logo url", "symbol", s.Code, "error", err)
+			slog.ErrorContext(ctx, "failed to update logo url", "symbol", s.Code, "error", err)
 			result.Failed++
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return result, ctxErr

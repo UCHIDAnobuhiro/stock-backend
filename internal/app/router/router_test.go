@@ -225,6 +225,17 @@ func TestNewRouter_PublicRoutes(t *testing.T) {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Len(t, rec.Header().Get("X-Trace-Id"), 32)
+	})
+
+	t.Run("success: CORS exposes X-Trace-Id header", func(t *testing.T) {
+		t.Parallel()
+		r := newTestRouter(t, oauthHandler)
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		req.Header.Set("Origin", "http://localhost:3000")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		assert.Contains(t, rec.Header().Get("Access-Control-Expose-Headers"), "X-Trace-Id")
 	})
 
 	tests := []struct {

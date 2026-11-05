@@ -145,12 +145,12 @@ internal/
 │   ├── httpratelimit/ # Redisベースのスライディングウィンドウレートリミッター（HTTPミドルウェア）
 │   ├── httpx/        # JSON・クライアントIP等のHTTP共通処理
 │   ├── jwt/          # JWT生成・認証ミドルウェア（package jwt）
-│   ├── middleware/   # 共通HTTPミドルウェア（セキュリティヘッダー等）
+│   ├── middleware/   # 共通HTTPミドルウェア（TraceID・アクセスログ・セキュリティヘッダー等）
 │   └── openapivalidate/ # OpenAPIリクエスト検証ミドルウェア
 ├── infra/            # 技術基盤層（外部リソース接続・横断ユーティリティ）
 │   ├── db/           # データベース初期化
 │   ├── httpclient/   # 外部API呼び出し用HTTPクライアント設定（outbound）
-│   ├── logging/      # 構造化ログ用ヘルパー（機密情報マスク等）
+│   ├── logging/      # 構造化ログ用ヘルパー（機密情報マスク・trace_id を付与する ContextHandler 等）
 │   └── redis/        # Redisクライアントセットアップ
 └── shared/           # 共有ユーティリティ（利用可否は .go-arch-lint.yml の依存宣言に従う）
     └── clientratelimit/ # 外部API呼び出し用 in-memory レートリミッター
@@ -222,10 +222,12 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - `Repository`（読み取り）と `WriteRepository`（書き込み）の両インターフェースを実装
    - usecaseコードを変更せずにRedisキャッシュを透過的に追加
    - Redisが利用できない場合はグレースフルデグレード（警告ログを出力し、キャッシュなしで動作）
-4. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
+4. **リクエスト単位のログ相関（trace_id）**: `transport/middleware.TraceID` が `traceparent` / `X-Cloud-Trace-Context` から（無ければ生成して）trace_id を解決して `r.Context()` に保持し、レスポンスヘッダー `X-Trace-Id` でも返します。`cmd/api/main.go` で `logging.NewContextHandler` を使うため、ctx 付きで出したログには trace_id（`GOOGLE_CLOUD_PROJECT` 設定時は Cloud Logging 相関フィールドも）が自動付与されます
+   - ctx が使えるスコープでは `slog.InfoContext(ctx, ...)` 等の `XxxContext` を使う（`.golangci.yml` の sloglint `context: scope` で強制）。HTTP ハンドラー・ミドルウェアでは `r.Context()` を渡す
+5. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
    - Repositories → Usecases → Handlers のワイヤリングは主に `server.Run` で直接実施
    - `internal/app/di/` には一部のファクトリ関数を配置（例: MarketRepositoryの生成）
-5. **3つのエントリーポイント**（いずれも `cmd/*/main.go` は設定読み込み・ロガー構成・`os.Exit` だけを行い、実体は `internal/app/<name>` の `Run(cfg, ...) int` に置く）:
+6. **3つのエントリーポイント**（いずれも `cmd/*/main.go` は設定読み込み・ロガー構成・`os.Exit` だけを行い、実体は `internal/app/<name>` の `Run(cfg, ...) int` に置く）:
    - `cmd/api/main.go`: REST APIサーバー（ポート8080）。実体は `internal/app/server`
      - 環境変数パースの純粋関数ヘルパーは `internal/app/config/`（`CORS_ALLOWED_ORIGINS` / `COOKIE_SECURE` 等）
    - `cmd/batch/main.go`: バッチジョブ統合エントリーポイント。コマンド引数 `job_id` で実行内容を切替（`auth-session-cleanup`: 期限切れ認証セッション削除 / `candles`: TwelveData APIから株価データ取得 / `logo`: ロゴURL取得）

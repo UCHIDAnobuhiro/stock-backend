@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -13,12 +12,11 @@ import (
 )
 
 // AccessLog は各 HTTP リクエストを slog の構造化ログとして出力するミドルウェアを返します。
-// Cloud Logging が解釈できる httpRequest フィールドとトレース相関フィールドを出力します。
+// Cloud Logging が解釈できる httpRequest フィールドを出力します。
 //
-// projectID（GOOGLE_CLOUD_PROJECT）が指定されている場合、X-Cloud-Trace-Context ヘッダーから
-// トレース ID を抽出してログをリクエスト単位で相関させます。空の場合はトレースフィールドを
-// 出力しません。
-func AccessLog(projectID string) func(http.Handler) http.Handler {
+// トレース相関フィールドは、TraceID ミドルウェアが ctx に設定したトレース情報を
+// logging.ContextHandler がログ出力時に自動で付与するため、ここでは扱いません。
+func AccessLog() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -55,13 +53,6 @@ func AccessLog(projectID string) func(http.Handler) http.Handler {
 				}),
 			}
 
-			if trace, span, ok := traceContext(projectID, r.Header.Get("X-Cloud-Trace-Context")); ok {
-				attrs = append(attrs,
-					slog.String("logging.googleapis.com/trace", trace),
-					slog.String("logging.googleapis.com/spanId", span),
-				)
-			}
-
 			slog.LogAttrs(r.Context(), severityForStatus(status), "request", attrs...)
 		})
 	}
@@ -78,27 +69,4 @@ func severityForStatus(status int) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
-}
-
-// traceContext は X-Cloud-Trace-Context ヘッダー（"TRACE_ID/SPAN_ID;o=1" 形式）を
-// パースし、Cloud Logging が要求する trace リソース名と span ID を返します。
-// projectID が空、またはヘッダーから trace ID を取得できない場合は ok=false を返します。
-func traceContext(projectID, header string) (trace, span string, ok bool) {
-	if projectID == "" || header == "" {
-		return "", "", false
-	}
-
-	traceID := header
-	if i := strings.IndexByte(traceID, '/'); i >= 0 {
-		span = traceID[i+1:]
-		traceID = traceID[:i]
-		if j := strings.IndexByte(span, ';'); j >= 0 {
-			span = span[:j]
-		}
-	}
-	if traceID == "" {
-		return "", "", false
-	}
-
-	return fmt.Sprintf("projects/%s/traces/%s", projectID, traceID), span, true
 }

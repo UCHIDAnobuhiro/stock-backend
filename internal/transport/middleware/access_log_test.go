@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/logging"
 )
 
 func TestSeverityForStatus(t *testing.T) {
@@ -34,67 +36,6 @@ func TestSeverityForStatus(t *testing.T) {
 	}
 }
 
-func TestTraceContext(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		projectID string
-		header    string
-		wantTrace string
-		wantSpan  string
-		wantOK    bool
-	}{
-		{
-			name:      "full header with span and options",
-			projectID: "my-proj",
-			header:    "abc123/456;o=1",
-			wantTrace: "projects/my-proj/traces/abc123",
-			wantSpan:  "456",
-			wantOK:    true,
-		},
-		{
-			name:      "trace id only",
-			projectID: "my-proj",
-			header:    "abc123",
-			wantTrace: "projects/my-proj/traces/abc123",
-			wantSpan:  "",
-			wantOK:    true,
-		},
-		{
-			name:      "empty project disables trace",
-			projectID: "",
-			header:    "abc123/456;o=1",
-			wantOK:    false,
-		},
-		{
-			name:      "empty header",
-			projectID: "my-proj",
-			header:    "",
-			wantOK:    false,
-		},
-		{
-			name:      "empty trace id",
-			projectID: "my-proj",
-			header:    "/456;o=1",
-			wantOK:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			trace, span, ok := traceContext(tt.projectID, tt.header)
-			assert.Equal(t, tt.wantOK, ok)
-			if tt.wantOK {
-				assert.Equal(t, tt.wantTrace, trace)
-				assert.Equal(t, tt.wantSpan, span)
-			}
-		})
-	}
-}
-
 // TestAccessLog_LogsStructuredRequest はミドルウェアがリクエストを slog の構造化ログとして
 // httpRequest フィールド付きで出力し、ステータスに応じた severity を設定することを検証します。
 func TestAccessLog_LogsStructuredRequest(t *testing.T) {
@@ -103,7 +44,7 @@ func TestAccessLog_LogsStructuredRequest(t *testing.T) {
 	restore := swapDefaultLogger(&buf)
 	defer restore()
 
-	h := AccessLog("")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := AccessLog()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -130,26 +71,29 @@ func TestAccessLog_LogsStructuredRequest(t *testing.T) {
 	assert.False(t, hasTrace)
 }
 
-// TestAccessLog_IncludesTrace は projectID と X-Cloud-Trace-Context が揃っている場合に
-// トレース相関フィールドが出力されることを検証します。
+// TestAccessLog_IncludesTrace は TraceID → AccessLog を連結したとき、ContextHandler により
+// アクセスログへ trace_id と Cloud Logging 用の相関フィールドが付与されることを検証します。
 func TestAccessLog_IncludesTrace(t *testing.T) {
 	// 並列化しない: slog.Default() というグローバルを差し替えるため。
 	var buf bytes.Buffer
-	restore := swapDefaultLogger(&buf)
-	defer restore()
+	prev := slog.Default()
+	defer slog.SetDefault(prev)
+	slog.SetDefault(slog.New(logging.NewContextHandler(slog.NewJSONHandler(&buf, nil), "my-project")))
 
-	h := AccessLog("my-proj")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := TraceID()(AccessLog()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
-	req.Header.Set("X-Cloud-Trace-Context", "trace-abc/span-1;o=1")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
+	traceID := w.Header().Get(TraceIDHeader)
+	require.Len(t, traceID, 32)
+
 	got := decodeLog(t, buf.Bytes())
-	assert.Equal(t, "projects/my-proj/traces/trace-abc", got["logging.googleapis.com/trace"])
-	assert.Equal(t, "span-1", got["logging.googleapis.com/spanId"])
+	assert.Equal(t, traceID, got["trace_id"])
+	assert.Equal(t, "projects/my-project/traces/"+traceID, got["logging.googleapis.com/trace"])
 }
 
 // TestAccessLog_ErrorStatusSeverity は 5xx 応答で severity が ERROR になることを検証します。
@@ -159,7 +103,7 @@ func TestAccessLog_ErrorStatusSeverity(t *testing.T) {
 	restore := swapDefaultLogger(&buf)
 	defer restore()
 
-	h := AccessLog("")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := AccessLog()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 

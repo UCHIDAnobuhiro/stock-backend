@@ -100,7 +100,7 @@ func (c *CachingRepository) UpsertBatch(ctx context.Context, candles []Candle) e
 	for si := range seen {
 		key := c.cacheKey(si.symbol, si.interval)
 		if err := c.rdb.Del(ctx, key).Err(); err != nil {
-			slog.Warn("failed to invalidate candle cache",
+			slog.WarnContext(ctx, "failed to invalidate candle cache",
 				"symbol", si.symbol,
 				"interval", si.interval,
 				"error", err,

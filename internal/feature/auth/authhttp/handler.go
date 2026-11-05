@@ -86,7 +86,7 @@ func NewHandler(uc Usecase, limiter *httpratelimit.Limiter, cookies SessionCooki
 func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req api.SignupRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
-		slog.Warn("signup validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
+		slog.WarnContext(r.Context(), "signup validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
@@ -97,7 +97,7 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// ユーザー列挙攻撃を防止するため、実際のエラーを公開しない
-		slog.Warn("signup failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
+		slog.WarnContext(r.Context(), "signup failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: "signup failed"})
 		return
 	}
@@ -108,10 +108,10 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 	hookCtx := context.WithoutCancel(r.Context())
 	for _, hook := range h.postHooks {
 		if err := hook.OnUserCreated(hookCtx, userID); err != nil {
-			slog.Error("post-signup hook failed", "error", err, "userID", userID)
+			slog.ErrorContext(r.Context(), "post-signup hook failed", "error", err, "userID", userID)
 		}
 	}
-	slog.Info("user signup successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
+	slog.InfoContext(r.Context(), "user signup successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 	httpx.WriteJSON(w, http.StatusCreated, api.MessageResponse{Message: "ok"})
 }
 
@@ -123,7 +123,7 @@ func (h *Handler) Signup(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req api.LoginRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
-		slog.Warn("login validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
+		slog.WarnContext(r.Context(), "login validation failed", "error", err, "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "invalid request"})
 		return
 	}
@@ -134,7 +134,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	result := h.limiter.Allow(r.Context(), key, loginEmailLimit, loginEmailWindow, httpratelimit.FailClosed)
 	if !result.Allowed {
 		if result.ServiceUnavailable {
-			slog.Error("login rate limiter unavailable, rejecting request",
+			slog.ErrorContext(r.Context(), "login rate limiter unavailable, rejecting request",
 				"type", "email",
 				"email_hash", logging.HashedEmail(req.Email),
 				"remote_addr", httpx.ClientIP(r),
@@ -142,7 +142,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
 			return
 		}
-		slog.Warn("login rate limit exceeded",
+		slog.WarnContext(r.Context(), "login rate limit exceeded",
 			"type", "email",
 			"email_hash", logging.HashedEmail(req.Email),
 			"remote_addr", httpx.ClientIP(r),
@@ -155,7 +155,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
-		slog.Error("failed to generate csrf token", "error", err)
+		slog.ErrorContext(r.Context(), "failed to generate csrf token", "error", err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
@@ -163,23 +163,23 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			// ユーザー列挙攻撃を防止するため、認証失敗の詳細を公開しない。
-			slog.Warn("login failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
+			slog.WarnContext(r.Context(), "login failed", "error", err, "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 			httpx.WriteJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "invalid email or password"})
 			return
 		}
 		if errors.Is(err, auth.ErrSessionUnavailable) {
-			slog.Error("login session unavailable", "error", err, "email_hash", logging.HashedEmail(req.Email))
+			slog.ErrorContext(r.Context(), "login session unavailable", "error", err, "email_hash", logging.HashedEmail(req.Email))
 			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
 			return
 		}
-		slog.Error("login failed with internal error", "email_hash", logging.HashedEmail(req.Email))
+		slog.ErrorContext(r.Context(), "login failed with internal error", "email_hash", logging.HashedEmail(req.Email))
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
 
 	setSessionCookiesWithCSRF(w, pair, csrfToken, h.cookies)
 
-	slog.Info("user login successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
+	slog.InfoContext(r.Context(), "user login successful", "email_hash", logging.HashedEmail(req.Email), "remote_addr", httpx.ClientIP(r))
 	httpx.WriteJSON(w, http.StatusOK, api.MessageResponse{Message: "ok"})
 }
 
@@ -194,7 +194,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	// 消費済みトークンだけを保持するため、先にCSRFトークンを用意する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
-		slog.Error("failed to generate csrf token during refresh", "error", err)
+		slog.ErrorContext(r.Context(), "failed to generate csrf token during refresh", "error", err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
@@ -214,11 +214,11 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, auth.ErrSessionUnavailable) {
-			slog.Error("refresh session unavailable", "error", err, "remote_addr", httpx.ClientIP(r))
+			slog.ErrorContext(r.Context(), "refresh session unavailable", "error", err, "remote_addr", httpx.ClientIP(r))
 			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
 			return
 		}
-		slog.Error("failed to refresh session", "error", err, "remote_addr", httpx.ClientIP(r))
+		slog.ErrorContext(r.Context(), "failed to refresh session", "error", err, "remote_addr", httpx.ClientIP(r))
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal error"})
 		return
 	}
@@ -237,13 +237,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	// トークンが有効な場合のみjtiをブラックリストに登録し、有効期限前でも即時失効させる。
 	// Redis未接続時等は警告ログのみでログアウト自体は継続する（グレースフルデグレード）。
 	if err := jwt.RevokeRequestToken(r.Context(), r, h.jwtSecret, h.blacklist); err != nil {
-		slog.Warn("failed to revoke token on logout", "error", err)
+		slog.WarnContext(r.Context(), "failed to revoke token on logout", "error", err)
 	}
 
 	refreshErr := h.uc.Logout(r.Context(), refreshToken)
 	clearSessionCookies(w, h.cookies)
 	if refreshErr != nil {
-		slog.Error("failed to revoke refresh session on logout", "error", refreshErr)
+		slog.ErrorContext(r.Context(), "failed to revoke refresh session on logout", "error", refreshErr)
 		if errors.Is(refreshErr, auth.ErrSessionUnavailable) {
 			httpx.WriteJSON(w, http.StatusServiceUnavailable, api.ErrorResponse{Error: "service temporarily unavailable"})
 			return
