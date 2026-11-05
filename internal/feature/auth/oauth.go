@@ -226,7 +226,7 @@ func (uc *oauthUsecase) findOrCreateUser(ctx context.Context, providerName strin
 	hookCtx := context.WithoutCancel(ctx)
 	for _, hook := range uc.hooks {
 		if err := hook.OnUserCreated(hookCtx, newUser.ID); err != nil {
-			slog.Error("post-create hook failed", "user_id", newUser.ID, "error", err)
+			slog.ErrorContext(ctx, "post-create hook failed", "user_id", newUser.ID, "error", err)
 		}
 	}
 

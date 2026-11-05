@@ -63,7 +63,7 @@ func (h *OAuthHandler) BeginAuth(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	authURL, state, err := h.oauth.BeginAuth(r.Context(), provider)
 	if err != nil {
-		slog.Warn("oauth begin: failed", "provider", provider, "error", err)
+		slog.WarnContext(r.Context(), "oauth begin: failed", "provider", provider, "error", err)
 		httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "unsupported provider"})
 		return
 	}
@@ -89,7 +89,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	providerError := r.URL.Query().Get("error")
 
 	if state == "" || (code == "" && providerError == "") {
-		slog.Warn("oauth callback: missing code or state", "provider", provider)
+		slog.WarnContext(r.Context(), "oauth callback: missing code or state", "provider", provider)
 		setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
@@ -100,7 +100,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// 一致しても定数時間比較で照合し、タイミング攻撃の余地を残さない。
 	stateCookie, err := r.Cookie(oauthStateCookie)
 	if err != nil || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(state)) != 1 {
-		slog.Warn("oauth callback: state cookie mismatch", "provider", provider)
+		slog.WarnContext(r.Context(), "oauth callback: state cookie mismatch", "provider", provider)
 		// 照合に失敗した場合でも state Cookie は不要になるため削除する。
 		setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
@@ -110,14 +110,14 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	// 照合に成功したので state Cookie は使い捨て（リプレイ防止のため削除）。
 	setAuthCookie(w, oauthStateCookie, "", -1, h.cookies.hostOnly(), true)
 	if providerError != "" {
-		slog.Warn("oauth callback: provider rejected authorization", "provider", provider)
+		slog.WarnContext(r.Context(), "oauth callback: provider rejected authorization", "provider", provider)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
 	// セッション発行後のCSRF生成失敗で利用不能なセッションを残さないよう、先に生成する。
 	csrfToken, err := csrf.GenerateToken()
 	if err != nil {
-		slog.Error("failed to generate csrf token", "error", err)
+		slog.ErrorContext(r.Context(), "failed to generate csrf token", "error", err)
 		h.redirectWithError(w, r, oauthErrOAuthFailed)
 		return
 	}
@@ -126,15 +126,15 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, auth.ErrStateNotFound) || errors.Is(err, auth.ErrOAuthEmailUnavailable) || errors.Is(err, auth.ErrUnknownProvider) {
 			// 期待されうる失敗（state期限切れ・プロバイダー起因等）は Warn に留める。
-			slog.Warn("oauth callback rejected", "provider", provider, "error", err)
+			slog.WarnContext(r.Context(), "oauth callback rejected", "provider", provider, "error", err)
 			h.redirectWithError(w, r, oauthErrOAuthFailed)
 		} else if errors.Is(err, auth.ErrOAuthEmailConflict) {
 			// 同メールの既存アカウントへの自動リンクは乗っ取りリスクがあるため拒否する。
 			// メールアドレス自体はログに残さない。
-			slog.Warn("oauth login rejected: email conflicts with existing account", "provider", provider)
+			slog.WarnContext(r.Context(), "oauth login rejected: email conflicts with existing account", "provider", provider)
 			h.redirectWithError(w, r, oauthErrAccountConflict)
 		} else {
-			slog.Error("oauth callback failed", "provider", provider, "error", err)
+			slog.ErrorContext(r.Context(), "oauth callback failed", "provider", provider, "error", err)
 			h.redirectWithError(w, r, oauthErrOAuthFailed)
 		}
 		return
@@ -142,7 +142,7 @@ func (h *OAuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookiesWithCSRF(w, pair, csrfToken, h.cookies)
 
-	slog.Info("oauth login successful", "provider", provider)
+	slog.InfoContext(r.Context(), "oauth login successful", "provider", provider)
 
 	http.Redirect(w, r, h.frontendURL, http.StatusFound)
 }

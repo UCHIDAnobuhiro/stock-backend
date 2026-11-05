@@ -128,7 +128,7 @@ func (u *usecase) InitializeDefaults(ctx context.Context, userID int64) error {
 			return fmt.Errorf("checking symbol %s: %w", code, err)
 		}
 		if !exists {
-			slog.Warn("default symbol not found in symbols table, skipping", "code", code)
+			slog.WarnContext(ctx, "default symbol not found in symbols table, skipping", "code", code)
 			continue
 		}
 		if err := u.repo.Add(ctx, UserSymbol{

@@ -32,7 +32,7 @@ func NewHandler(uc Usecase) *Handler {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	symbols, err := h.uc.ListActiveSymbols(r.Context())
 	if err != nil {
-		slog.Error("failed to list symbols", "error", err)
+		slog.ErrorContext(r.Context(), "failed to list symbols", "error", err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}

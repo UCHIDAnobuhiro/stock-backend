@@ -47,7 +47,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.uc.ListUserSymbols(r.Context(), userID)
 	if err != nil {
-		slog.Error("failed to list watchlist", "error", err, "userID", userID)
+		slog.ErrorContext(r.Context(), "failed to list watchlist", "error", err, "userID", userID)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}
@@ -88,7 +88,7 @@ func (h *Handler) Add(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, watchlist.ErrAlreadyInWatchlist):
 			httpx.WriteJSON(w, http.StatusConflict, api.ErrorResponse{Error: err.Error()})
 		default:
-			slog.Error("failed to add watchlist symbol", "error", err, "userID", userID)
+			slog.ErrorContext(r.Context(), "failed to add watchlist symbol", "error", err, "userID", userID)
 			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		}
 		return
@@ -115,7 +115,7 @@ func (h *Handler) Remove(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, watchlist.ErrNotInWatchlist):
 			httpx.WriteJSON(w, http.StatusNotFound, api.ErrorResponse{Error: err.Error()})
 		default:
-			slog.Error("failed to remove watchlist symbol", "error", err, "userID", userID)
+			slog.ErrorContext(r.Context(), "failed to remove watchlist symbol", "error", err, "userID", userID)
 			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		}
 		return
@@ -149,7 +149,7 @@ func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, watchlist.ErrReorderCodesMismatch):
 			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: err.Error()})
 		default:
-			slog.Error("failed to reorder watchlist", "error", err, "userID", userID)
+			slog.ErrorContext(r.Context(), "failed to reorder watchlist", "error", err, "userID", userID)
 			httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		}
 		return

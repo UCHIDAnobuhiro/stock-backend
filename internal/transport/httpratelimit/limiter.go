@@ -80,7 +80,7 @@ return {0, count}
 func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.Duration, policy Policy) Result {
 	if l == nil || l.rdb == nil {
 		if policy == FailClosed {
-			slog.Warn("rate limiter unavailable (no redis), rejecting request",
+			slog.WarnContext(ctx, "rate limiter unavailable (no redis), rejecting request",
 				"prefix", keyPrefix(key))
 			return Result{Allowed: false, ServiceUnavailable: true}
 		}
@@ -107,11 +107,11 @@ func (l *Limiter) Allow(ctx context.Context, key string, limit int, window time.
 
 	if err != nil || len(res) < 1 {
 		if policy == FailClosed {
-			slog.Error("rate limit check failed, rejecting request",
+			slog.ErrorContext(ctx, "rate limit check failed, rejecting request",
 				"prefix", keyPrefix(key), "error", err)
 			return Result{Allowed: false, ServiceUnavailable: true}
 		}
-		slog.Warn("rate limit check failed, allowing request",
+		slog.WarnContext(ctx, "rate limit check failed, allowing request",
 			"prefix", keyPrefix(key), "error", err)
 		return Result{Allowed: true}
 	}

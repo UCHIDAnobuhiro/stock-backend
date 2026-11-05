@@ -49,14 +49,14 @@ func New() (func(http.Handler) http.Handler, error) {
 			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
 		},
 		// 入力値を含み得るエラー文字列は記録せず、スキーマ由来の項目名と違反コードだけを残す。
-		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
+		ErrorHandlerWithOpts: func(ctx context.Context, err error, w http.ResponseWriter, _ *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
 			var sizeErr *http.MaxBytesError
 			if errors.As(err, &sizeErr) {
 				httpx.WriteJSON(w, http.StatusRequestEntityTooLarge, api.ErrorResponse{Error: "request body too large"})
 				return
 			}
 			field, reason := validationLogFields(err)
-			slog.Warn("OpenAPI リクエストバリデーション失敗", "field", field, "reason", reason, "status", opts.StatusCode)
+			slog.WarnContext(ctx, "OpenAPI リクエストバリデーション失敗", "field", field, "reason", reason, "status", opts.StatusCode)
 			httpx.WriteJSON(w, opts.StatusCode, api.ErrorResponse{Error: "invalid request"})
 		},
 		// servers の Host 検証を無効化する。実行環境（localhost / Cloud Run のホスト名）で

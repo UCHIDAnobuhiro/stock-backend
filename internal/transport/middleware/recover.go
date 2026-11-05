@@ -20,7 +20,7 @@ func Recover() func(http.Handler) http.Handler {
 					if rec == http.ErrAbortHandler {
 						panic(rec)
 					}
-					slog.Error("panic recovered", "error", rec, "path", r.URL.Path, "method", r.Method)
+					slog.ErrorContext(r.Context(), "panic recovered", "error", rec, "path", r.URL.Path, "method", r.Method)
 					httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 				}
 			}()

@@ -76,7 +76,7 @@ func (h *Handler) GetCandlesHandler(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: candles.ErrInvalidOutputSize.Error()})
 			return
 		}
-		slog.Error("failed to get candles", "error", err, "code", code)
+		slog.ErrorContext(r.Context(), "failed to get candles", "error", err, "code", code)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}
@@ -146,7 +146,7 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.uc.GetQuotes(r.Context(), codes, interval, bars)
 	if err != nil {
-		slog.Error("failed to get quotes", "error", err, "codes", codes)
+		slog.ErrorContext(r.Context(), "failed to get quotes", "error", err, "codes", codes)
 		httpx.WriteJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "internal server error"})
 		return
 	}
@@ -172,7 +172,7 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 	failures := make([]api.QuoteFailureResponse, 0, len(result.Failures))
 	for _, failure := range result.Failures {
 		if failure.Cause != nil {
-			slog.Error(
+			slog.ErrorContext(r.Context(),
 				"failed to get quote",
 				"error", failure.Cause,
 				"code", failure.Code,
@@ -185,7 +185,7 @@ func (h *Handler) GetQuotesHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if len(failures) > 0 {
-		slog.Warn(
+		slog.WarnContext(r.Context(),
 			"some quotes were unavailable",
 			"requested", len(codes),
 			"succeeded", len(quotes),

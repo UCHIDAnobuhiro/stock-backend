@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 
@@ -39,7 +38,7 @@ func TestRun_DoesNotChangeDefaultLogger(t *testing.T) {
 		slog.SetDefault(original)
 	})
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	slog.SetDefault(logger)
 
 	if got := Run(&config.Config{}, []string{"no-such"}); got != 2 {

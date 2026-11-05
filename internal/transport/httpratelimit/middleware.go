@@ -53,7 +53,7 @@ func ByUserID(limiter *Limiter, cfg RateLimitConfig) func(http.Handler) http.Han
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			userID, ok := jwt.UserIDFromContext(r.Context())
 			if !ok {
-				slog.Error("rate limiter: user id not found in context (AuthRequired must run before ByUserID)",
+				slog.ErrorContext(r.Context(), "rate limiter: user id not found in context (AuthRequired must run before ByUserID)",
 					"type", "user",
 					"prefix", cfg.Prefix,
 				)
@@ -87,7 +87,7 @@ func writeRateLimitResult(
 	logArgs ...any,
 ) {
 	if result.ServiceUnavailable {
-		slog.Error("rate limiter unavailable, rejecting request",
+		slog.ErrorContext(r.Context(), "rate limiter unavailable, rejecting request",
 			append([]any{"type", logType}, logArgs...)...,
 		)
 		if onRejected != nil {
@@ -99,7 +99,7 @@ func writeRateLimitResult(
 		})
 		return
 	}
-	slog.Warn("rate limit exceeded",
+	slog.WarnContext(r.Context(), "rate limit exceeded",
 		append([]any{"type", logType}, logArgs...)...,
 	)
 	w.Header().Set("Retry-After", strconv.Itoa(int(result.RetryAfter.Seconds())))
