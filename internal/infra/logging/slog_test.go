@@ -150,3 +150,30 @@ func decodeLog(t *testing.T, b []byte) map[string]any {
 	}
 	return got
 }
+
+// TestNewHandler_ErrorReporting は JSON のときだけ ERROR ログに Error Reporting 用の @type が付くことを検証します。
+func TestNewHandler_ErrorReporting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		useJSON bool
+		wantTyp bool
+	}{
+		{name: "json has @type", useJSON: true, wantTyp: true},
+		{name: "text has no @type", useJSON: false, wantTyp: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			slog.New(NewHandler(&buf, slog.LevelInfo, tt.useJSON)).Error("boom")
+
+			if got := strings.Contains(buf.String(), "@type"); got != tt.wantTyp {
+				t.Errorf("contains @type = %v, want %v (out=%s)", got, tt.wantTyp, buf.String())
+			}
+		})
+	}
+}

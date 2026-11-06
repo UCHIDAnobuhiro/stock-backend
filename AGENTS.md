@@ -223,6 +223,7 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - usecaseコードを変更せずにRedisキャッシュを透過的に追加
    - Redisが利用できない場合はグレースフルデグレード（警告ログを出力し、キャッシュなしで動作）
 4. **リクエスト単位のログ相関（trace_id）**: `transport/middleware.TraceID` が `traceparent` / `X-Cloud-Trace-Context` から（無ければ生成して）trace_id を解決して `r.Context()` に保持し、レスポンスヘッダー `X-Trace-Id` でも返します。`cmd/api/main.go` で `logging.NewContextHandler` を使うため、ctx 付きで出したログには trace_id（`GOOGLE_CLOUD_PROJECT` 設定時は Cloud Logging 相関フィールドも）が自動付与されます
+   - JSON 出力時は `logging.NewErrorReportingHandler` が ERROR 以上のログに ReportedErrorEvent の @type と reportLocation（ログ出力元）を付与し Error Reporting に集約する。5xx アクセスログは `SkipErrorReport` で除外
    - ctx が使えるスコープでは `slog.InfoContext(ctx, ...)` 等の `XxxContext` を使う（`.golangci.yml` の sloglint `context: scope` で強制）。HTTP ハンドラー・ミドルウェアでは `r.Context()` を渡す
 5. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
    - Repositories → Usecases → Handlers のワイヤリングは主に `server.Run` で直接実施

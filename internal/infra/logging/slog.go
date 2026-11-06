@@ -6,14 +6,14 @@ import (
 )
 
 // NewHandler はログ出力フォーマットを切り替えて slog ハンドラーを生成します。
-//   - useJSON == true: Cloud Logging 対応の JSON ハンドラー（本番 / Cloud Run 向け）
+//   - useJSON == true: Cloud Logging 対応の JSON ハンドラー（本番 / Cloud Run 向け）。ERROR 以上は Error Reporting 対象
 //   - useJSON == false: 人が読みやすいプレーンな TextHandler（ローカル開発向け）
 //
 // Text 形式は Cloud Logging 連携を前提としないため、severity / message への
 // リマップは行わず slog 既定のキー（level / msg）のまま出力します。
 func NewHandler(w io.Writer, level slog.Level, useJSON bool) slog.Handler {
 	if useJSON {
-		return NewCloudLoggingHandler(w, level)
+		return NewErrorReportingHandler(NewCloudLoggingHandler(w, level))
 	}
 	return slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})
 }

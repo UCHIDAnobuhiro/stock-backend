@@ -115,6 +115,28 @@ func TestAccessLog_ErrorStatusSeverity(t *testing.T) {
 	assert.Equal(t, "ERROR", got["severity"])
 }
 
+// TestAccessLog_5xxDoesNotLeakSkipMarker は 5xx のアクセスログが Error Reporting 対象外となり、
+// 目印のキーが出力に漏れないことを検証します。
+func TestAccessLog_5xxDoesNotLeakSkipMarker(t *testing.T) {
+	// 並列化しない: slog.Default() というグローバルを差し替えるため。
+	var buf bytes.Buffer
+	prev := slog.Default()
+	defer slog.SetDefault(prev)
+	slog.SetDefault(slog.New(logging.NewErrorReportingHandler(slog.NewJSONHandler(&buf, nil))))
+
+	h := AccessLog()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/boom", nil))
+
+	got := decodeLog(t, buf.Bytes())
+	assert.Equal(t, "ERROR", got["level"])
+	assert.NotContains(t, got, "@type")
+	for k := range got {
+		assert.NotContains(t, k, "skip_error_report")
+	}
+}
+
 // swapDefaultLogger は slog のデフォルトロガーをバッファ出力に差し替え、復元関数を返します。
 // テスト対象のミドルウェアが slog.LogAttrs を使うため、出力をキャプチャするのに使います。
 func swapDefaultLogger(buf *bytes.Buffer) func() {
