@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,4 +113,29 @@ func TestRecover(t *testing.T) {
 			assert.Equal(t, "hello", rr.Body.String())
 		})
 	}
+}
+
+// TestRecover_LogsStackTrace は panic 回復時のログに Cloud Error Reporting 形式の
+// stack_trace が含まれることを検証します。
+// slog.SetDefault を使うため t.Parallel() は使いません。
+func TestRecover_LogsStackTrace(t *testing.T) {
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	wrapped := Recover()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("something went wrong")
+	}))
+	rr := httptest.NewRecorder()
+	wrapped.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/some/path", nil))
+
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+	stack, ok := entry["stack_trace"].(string)
+	require.True(t, ok, "stack_trace should be a string: %s", buf.String())
+	assert.True(t, strings.HasPrefix(stack, "panic: something went wrong"), stack)
+	assert.Contains(t, stack, "goroutine ")
+	assert.NotContains(t, stack, "runtime/debug.Stack")
 }
