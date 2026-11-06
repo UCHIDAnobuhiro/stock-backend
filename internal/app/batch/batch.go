@@ -11,6 +11,7 @@ import (
 
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/app/config"
 	infradb "github.com/UCHIDAnobuhiro/stock-backend/internal/infra/db"
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/logging"
 )
 
 const (
@@ -56,11 +57,25 @@ func run(
 	openSQL sqlOpener,
 	lockJob jobLocker,
 ) (exitCode int) {
+	// 最初に登録し、ロック解放・DB クローズの後に panic を回復する。
+	var jobID string
+	defer func() {
+		if rec := recover(); rec != nil {
+			attrs := []any{"event", "batch_panic"}
+			if jobID != "" {
+				attrs = append(attrs, "job_id", jobID)
+			}
+			attrs = append(attrs, logging.PanicStackAttr(rec))
+			slog.Error("batch job panicked", attrs...)
+			exitCode = 1
+		}
+	}()
+
 	if len(args) < 1 {
 		slog.Error("job_id is required", "usage", "batch <"+supportedJobs(availableJobs)+">")
 		return 2
 	}
-	jobID := args[0]
+	jobID = args[0]
 	selectedJob, ok := availableJobs[jobID]
 	if !ok {
 		slog.Error("unknown job_id", "job_id", jobID, "supported", supportedJobs(availableJobs))

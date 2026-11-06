@@ -224,10 +224,11 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - Redisが利用できない場合はグレースフルデグレード（警告ログを出力し、キャッシュなしで動作）
 4. **リクエスト単位のログ相関（trace_id）**: `transport/middleware.TraceID` が `traceparent` / `X-Cloud-Trace-Context` から（無ければ生成して）trace_id を解決して `r.Context()` に保持し、レスポンスヘッダー `X-Trace-Id` でも返します。`cmd/api/main.go` で `logging.NewContextHandler` を使うため、ctx 付きで出したログには trace_id（`GOOGLE_CLOUD_PROJECT` 設定時は Cloud Logging 相関フィールドも）が自動付与されます
    - ctx が使えるスコープでは `slog.InfoContext(ctx, ...)` 等の `XxxContext` を使う（`.golangci.yml` の sloglint `context: scope` で強制）。HTTP ハンドラー・ミドルウェアでは `r.Context()` を渡す
-5. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
+5. **panic 時のスタックトレース出力**: API は `transport/middleware.Recover`、バッチは `internal/app/batch` の `run` が panic を回復し、`infra/logging.PanicStackAttr` で `stack_trace` フィールド（`panic: <msg>\n\ngoroutine N [running]:...` 形式）を付けてエラーログに出します。Cloud Error Reporting は構造化ログの `jsonPayload.stack_trace` を自動検出して集約します。バッチは panic 時も DB クローズ・ロック解放後に終了コード 1 を返します
+6. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI
    - Repositories → Usecases → Handlers のワイヤリングは主に `server.Run` で直接実施
    - `internal/app/di/` には一部のファクトリ関数を配置（例: MarketRepositoryの生成）
-6. **3つのエントリーポイント**（いずれも `cmd/*/main.go` は設定読み込み・ロガー構成・`os.Exit` だけを行い、実体は `internal/app/<name>` の `Run(cfg, ...) int` に置く）:
+7. **3つのエントリーポイント**（いずれも `cmd/*/main.go` は設定読み込み・ロガー構成・`os.Exit` だけを行い、実体は `internal/app/<name>` の `Run(cfg, ...) int` に置く）:
    - `cmd/api/main.go`: REST APIサーバー（ポート8080）。実体は `internal/app/server`
      - 環境変数パースの純粋関数ヘルパーは `internal/app/config/`（`CORS_ALLOWED_ORIGINS` / `COOKIE_SECURE` 等）
    - `cmd/batch/main.go`: バッチジョブ統合エントリーポイント。コマンド引数 `job_id` で実行内容を切替（`auth-session-cleanup`: 期限切れ認証セッション削除 / `candles`: TwelveData APIから株価データ取得 / `logo`: ロゴURL取得）
