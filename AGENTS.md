@@ -223,6 +223,7 @@ feature/<name>/                # package <name>（ドメイン+ユースケー�
    - usecaseコードを変更せずにRedisキャッシュを透過的に追加
    - Redisが利用できない場合はグレースフルデグレード（警告ログを出力し、キャッシュなしで動作）
 4. **リクエスト単位のログ相関（trace_id）**: `transport/middleware.TraceID` が `traceparent` / `X-Cloud-Trace-Context` から（無ければ生成して）trace_id を解決して `r.Context()` に保持し、レスポンスヘッダー `X-Trace-Id` でも返します。`cmd/api/main.go` で `logging.NewContextHandler` を使うため、ctx 付きで出したログには trace_id（`GOOGLE_CLOUD_PROJECT` 設定時は Cloud Logging 相関フィールドも）が自動付与されます
+   - JSON 出力時は `logging.NewErrorReportingHandler` が ERROR 以上のログに ReportedErrorEvent の @type と reportLocation（ログ出力元）を付与し Error Reporting に集約する。5xx アクセスログは `SkipErrorReport` で除外
    - ctx が使えるスコープでは `slog.InfoContext(ctx, ...)` 等の `XxxContext` を使う（`.golangci.yml` の sloglint `context: scope` で強制）。HTTP ハンドラー・ミドルウェアでは `r.Context()` を渡す
 5. **panic 時のスタックトレース出力**: API は `transport/middleware.Recover`、バッチは `internal/app/batch` の `run` が panic を回復し、`infra/logging.PanicStackAttr` で `stack_trace` フィールド（`panic: <msg>\n\ngoroutine N [running]:...` 形式）を付けてエラーログに出します。Cloud Error Reporting は構造化ログの `jsonPayload.stack_trace` を自動検出して集約します。バッチは panic 時も DB クローズ・ロック解放後に終了コード 1 を返します
 6. **依存性注入**: `internal/app/server/server.go`（API）・`internal/app/batch/`（バッチ）で手動DI

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/UCHIDAnobuhiro/stock-backend/internal/infra/logging"
 	"github.com/UCHIDAnobuhiro/stock-backend/internal/transport/httpx"
 )
 
@@ -52,6 +53,9 @@ func AccessLog() func(http.Handler) http.Handler {
 					"latency":       fmt.Sprintf("%.9fs", latency.Seconds()),
 				}),
 			}
+
+			// 5xx はハンドラー側のエラーログと Error Reporting で重複するため除外する。
+			attrs = append(attrs, logging.SkipErrorReport())
 
 			slog.LogAttrs(r.Context(), severityForStatus(status), "request", attrs...)
 		})
