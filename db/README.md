@@ -83,8 +83,7 @@ go tool goose down
 
 接続情報はサーバーと同じ環境変数（`DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_HOST` / `DB_PORT` /
 `INSTANCE_CONNECTION_NAME` / `DB_IP_TYPE`）から読み取ります。`INSTANCE_CONNECTION_NAME` がある場合は
-Cloud SQL Go Connector で接続し、本番では `DB_IP_TYPE=PRIVATE` で private IP を使います
-（[ADR-0011](../docs/adr/0011-cloud-sql-go-connector-による-private-ip-接続.md)）。
+Cloud SQL Go Connector で接続し、本番では `DB_IP_TYPE=PRIVATE` で private IP を使います。
 
 ## シードデータの投入
 
