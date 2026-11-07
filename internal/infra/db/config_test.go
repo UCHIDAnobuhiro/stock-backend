@@ -63,7 +63,7 @@ func TestBuildDSN_SSLMode(t *testing.T) {
 	}
 }
 
-// TestBuildDSN_CloudSQL はCloud SQL Unixソケット接続用のDSN文字列が正しく生成されることを検証します。
+// TestBuildDSN_CloudSQL はCloud SQL Go Connector用に host を含まず sslmode=disable のDSNが生成されることを検証します。
 func TestBuildDSN_CloudSQL(t *testing.T) {
 	t.Parallel()
 
@@ -76,7 +76,7 @@ func TestBuildDSN_CloudSQL(t *testing.T) {
 
 	dsn := BuildDSN(cfg)
 
-	expected := "host=/cloudsql/project:region:instance user=testuser password=testpass dbname=testdb"
+	expected := "user=testuser password=testpass dbname=testdb sslmode=disable"
 	if dsn != expected {
 		t.Errorf("expected DSN %q, got %q", expected, dsn)
 	}
@@ -100,7 +100,7 @@ func TestBuildDSN_CloudSQLTakesPrecedence(t *testing.T) {
 	if dsn == "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable" {
 		t.Error("expected Cloud SQL DSN format, but got TCP format")
 	}
-	expected := "host=/cloudsql/project:region:instance user=testuser password=testpass dbname=testdb"
+	expected := "user=testuser password=testpass dbname=testdb sslmode=disable"
 	if dsn != expected {
 		t.Errorf("expected DSN %q, got %q", expected, dsn)
 	}
@@ -243,6 +243,50 @@ func TestConfig_Validate_TCP_Success(t *testing.T) {
 func TestConfig_Validate_CloudSQL_Success(t *testing.T) {
 	t.Parallel()
 	cfg := Config{User: "u", Name: "d", InstanceName: "project:region:instance"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+}
+
+// TestConfig_Validate_CloudSQLIPType は Cloud SQL 接続で DB_IP_TYPE が空・PUBLIC・PRIVATE のときだけ
+// 受け付けることを検証します。
+func TestConfig_Validate_CloudSQLIPType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ipType  string
+		wantErr bool
+	}{
+		{name: "empty defaults to public", ipType: ""},
+		{name: "public", ipType: IPTypePublic},
+		{name: "private", ipType: IPTypePrivate},
+		{name: "lowercase is rejected", ipType: "private", wantErr: true},
+		{name: "psc is not supported", ipType: "PSC", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Config{User: "u", Name: "d", InstanceName: "project:region:instance", IPType: tt.ipType}
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "DB_IP_TYPE") {
+					t.Fatalf("expected DB_IP_TYPE error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("expected no error, got %v", err)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate_TCPIgnoresIPType は TCP 接続では DB_IP_TYPE を検証対象にしないことを検証します。
+func TestConfig_Validate_TCPIgnoresIPType(t *testing.T) {
+	t.Parallel()
+	cfg := Config{User: "u", Name: "d", Host: "h", Port: "5432", IPType: "unknown"}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}

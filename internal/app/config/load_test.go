@@ -97,6 +97,22 @@ func TestLoadAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("Cloud SQL 接続設定を DB 設定へ反映", func(t *testing.T) {
+		clearServerEnv(t)
+		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)
+		t.Setenv(auth.EnvKeyPasswordPepper, validSecret)
+		t.Setenv("INSTANCE_CONNECTION_NAME", "project:region:instance")
+		t.Setenv("DB_IP_TYPE", "PRIVATE")
+
+		cfg, err := LoadAPI()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.DB.InstanceName != "project:region:instance" || cfg.DB.IPType != "PRIVATE" {
+			t.Errorf("expected Cloud SQL settings to be loaded, got instance=%q ipType=%q", cfg.DB.InstanceName, cfg.DB.IPType)
+		}
+	})
+
 	t.Run("APP_ENV=production で secureCookie が true", func(t *testing.T) {
 		clearServerEnv(t)
 		t.Setenv(jwt.EnvKeyJWTSecret, validSecret)

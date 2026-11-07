@@ -21,6 +21,14 @@ const (
 	DefaultSSLMode = "disable"
 )
 
+// Cloud SQL Go Connector が接続する IP 種別です（DB_IP_TYPE）。
+const (
+	// IPTypePublic は Cloud SQL インスタンスの public IP へ接続します。未指定時の既定値です。
+	IPTypePublic = "PUBLIC"
+	// IPTypePrivate は VPC 経由で Cloud SQL インスタンスの private IP へ接続します。
+	IPTypePrivate = "PRIVATE"
+)
+
 // Password はログ出力・文字列化・JSONシリアライズ時に値をマスクする機密文字列型です。
 // fmt.Stringer / fmt.GoStringer / json.Marshaler / slog.LogValuer を実装しているため、
 // 誤って構造体ごとログ出力しても平文パスワードは "***" に置換されます。
@@ -47,6 +55,7 @@ type Config struct {
 	Host         string
 	Port         string
 	InstanceName string // Cloud SQLインスタンス接続名（オプション）
+	IPType       string // Cloud SQL 接続時の IP 種別（空なら IPTypePublic）
 	SSLMode      string // TCP 接続時の sslmode（空なら DefaultSSLMode）
 
 	// コネクションプール設定。ゼロ値のときは Default* 定数にフォールバックします。
@@ -57,6 +66,7 @@ type Config struct {
 
 // Validate は Config の必須項目が設定されているかを検証します。
 // InstanceName が設定されている場合は Cloud SQL 接続とみなし、Host/Port は不要です。
+// Cloud SQL 接続では IPType が空・IPTypePublic・IPTypePrivate のいずれかであることも検証します。
 // それ以外の場合は TCP 接続として Host/Port を必須とします。
 // Password は空でも許容します（ローカル開発で空パスワード運用を想定）。
 func (c Config) Validate() error {
@@ -78,18 +88,25 @@ func (c Config) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
+	if strings.TrimSpace(c.InstanceName) != "" {
+		switch c.IPType {
+		case "", IPTypePublic, IPTypePrivate:
+		default:
+			return fmt.Errorf("invalid DB_IP_TYPE %q: must be %s or %s", c.IPType, IPTypePublic, IPTypePrivate)
+		}
+	}
 	return nil
 }
 
 // BuildDSN は設定からPostgreSQL DSN文字列を構築します。
-// InstanceNameが設定されている場合はCloud SQL Unixソケット接続を作成します。
+// InstanceNameが設定されている場合は Cloud SQL Go Connector 用に host を含めず、
+// sslmode=disable とします（接続先の解決と TLS は Connector の dialer が担うため）。
 // それ以外の場合はHostとPortを使用してTCP接続を作成します。
 // 各値は libpq の仕様に従ってエスケープされるため、パスワード等に空白や特殊文字が
 // 含まれていても安全に DSN を生成できます。
 func BuildDSN(cfg Config) string {
 	if cfg.InstanceName != "" {
-		return fmt.Sprintf("host=%s user=%s password=%s dbname=%s",
-			quotePGValue("/cloudsql/"+cfg.InstanceName),
+		return fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable",
 			quotePGValue(cfg.User),
 			quotePGValue(string(cfg.Password)),
 			quotePGValue(cfg.Name))

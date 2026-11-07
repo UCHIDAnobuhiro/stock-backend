@@ -19,10 +19,15 @@ const pingTimeout = 5 * time.Second
 type SQLOpener func(dsn string) (*sql.DB, error)
 
 // OpenSQL は渡された設定を検証して *sql.DB を返します。
+// InstanceName が設定されている場合は Cloud SQL Go Connector で、それ以外は TCP で接続します。
 // リトライロジックを含み、設定不正や接続失敗は呼び出し元へ返します。
 // 設定の読み込み（環境変数）は internal/app/config に集約されています。
 func OpenSQL(cfg Config) (*sql.DB, error) {
-	return openSQLWithRetry(cfg, 60*time.Second, DefaultSQLOpener)
+	opener := DefaultSQLOpener
+	if cfg.InstanceName != "" {
+		opener = newCloudSQLOpener(cfg.InstanceName, cfg.IPType)
+	}
+	return openSQLWithRetry(cfg, 60*time.Second, opener)
 }
 
 // openSQLWithRetry は OpenSQL の検証と接続処理を実行します。
@@ -34,6 +39,9 @@ func openSQLWithRetry(cfg Config, timeout time.Duration, opener SQLOpener) (*sql
 	if cfg.InstanceName != "" && (cfg.Host != "" || cfg.Port != "") {
 		slog.Warn("DB_HOST and DB_PORT are ignored when INSTANCE_CONNECTION_NAME is set",
 			"host", cfg.Host, "port", cfg.Port, "instance", cfg.InstanceName)
+	}
+	if cfg.InstanceName == "" && cfg.IPType != "" {
+		slog.Warn("DB_IP_TYPE is ignored when INSTANCE_CONNECTION_NAME is not set", "ip_type", cfg.IPType)
 	}
 	dsn := BuildDSN(cfg)
 
@@ -92,8 +100,12 @@ func DefaultSQLOpener(dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// sql.Open はコネクション確立を遅延するため、Ping で疎通確認する。
-	// ハング時に有限時間で失敗させるためタイムアウト付きコンテキストを使う。
+	return pingOrClose(db)
+}
+
+// pingOrClose は sql.Open / sql.OpenDB で遅延されたコネクション確立を Ping で確認します。
+// ハング時に有限時間で失敗させるためタイムアウト付きコンテキストを使い、失敗時は db を閉じます。
+func pingOrClose(db *sql.DB) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
