@@ -1,6 +1,6 @@
 module github.com/UCHIDAnobuhiro/stock-backend
 
-go 1.27.3
+go 1.27.4
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.26.0
