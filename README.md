@@ -8,6 +8,8 @@ REST APIとして、ユーザー認証・株式データ配信・キャッシュ
 
 **公開アプリ:** [https://www.stockviewapp.com](https://www.stockviewapp.com)
 
+https://github.com/user-attachments/assets/887d4325-c931-4dd8-b77e-c18835e75c88
+
 ## 主な機能
 
 - **ユーザー認証**
