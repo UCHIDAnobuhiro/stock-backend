@@ -3,7 +3,7 @@ module github.com/UCHIDAnobuhiro/stock-backend
 go 1.27.4
 
 require (
-	cloud.google.com/go/cloudsqlconn v1.26.0
+	cloud.google.com/go/cloudsqlconn v1.27.0
 	cloud.google.com/go/vision/v2 v2.17.1
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/getkin/kin-openapi v0.153.0
@@ -24,7 +24,7 @@ require (
 	golang.org/x/sync v0.25.0
 	google.golang.org/api v0.313.0
 	google.golang.org/genai v1.77.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c
 	google.golang.org/grpc v1.85.0
 )
 
@@ -32,12 +32,12 @@ require (
 	cdr.dev/slog v1.4.2-0.20221206192828-e4803b10ae17 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.1 // indirect
+	cloud.google.com/go/auth v0.24.4 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	cloud.google.com/go/longrunning v1.3.0 // indirect
-	cloud.google.com/go/monitoring v1.31.0 // indirect
-	cloud.google.com/go/sql v0.3.0 // indirect
+	cloud.google.com/go/longrunning v1.5.0 // indirect
+	cloud.google.com/go/monitoring v1.32.1 // indirect
+	cloud.google.com/go/sql v0.7.0 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
@@ -208,8 +208,8 @@ require (
 	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	gonum.org/v1/plot v0.12.0 // indirect
-	google.golang.org/genproto v0.0.0-20261019180522-ce908d29299b // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20261019180522-ce908d29299b // indirect
+	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
