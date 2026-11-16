@@ -58,8 +58,6 @@ type OAuthStateStore interface {
 type OAuthAccountRepository interface {
 	// FindByProvider はプロバイダー名とプロバイダーUIDでOAuthAccountを検索します。
 	FindByProvider(ctx context.Context, provider, providerUID string) (*OAuthAccount, error)
-	// Create はOAuthAccountを新規作成します。
-	Create(ctx context.Context, account *OAuthAccount) error
 }
 
 // OAuthUserCreator はOAuth新規ユーザー作成時にUserとOAuthAccountを
