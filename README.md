@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/887d4325-c931-4dd8-b77e-c18835e75c88
 - **ユーザー認証**
 
   - メールアドレス/パスワードによるログイン
-  - OAuth2 ソーシャルログイン（Google / GitHub。Google は PKCE 対応、GitHub は state による CSRF 保護。同メールの既存アカウントへの自動リンクは行わない）
+  - OAuth2 ソーシャルログイン（Google / GitHub。両プロバイダーとも PKCE（S256）と state による CSRF 保護。同メールの既存アカウントへの自動リンクは行わない）
   - JWTの発行（10分の短期アクセストークン + PostgreSQL管理のリフレッシュトークン）
   - トークン検証ミドルウェアによる認可
 
@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/887d4325-c931-4dd8-b77e-c18835e75c88
 | DB              | PostgreSQL / Cloud SQL                                              |
 | キャッシュ      | Redis                                                               |
 | AI / ML         | Cloud Vision API / Gemini API（Vertex AI）                          |
-| 認証・セキュリティ | JWT / bcrypt / OAuth2（GoogleのみPKCE、Google・GitHubともstate検証）/ CSRF（Double Submit Cookie）/ レートリミット |
+| 認証・セキュリティ | JWT / bcrypt / OAuth2（Google・GitHubともPKCE（S256）とstate検証）/ CSRF（Double Submit Cookie）/ レートリミット |
 | API仕様         | OpenAPI 3.0.4 / oapi-codegen（型生成）                              |
 | 設定管理        | **docker/.env（ローカル）/ Secret Manager（本番）+ os.Getenv()**|
 | コンテナ        | Docker / Docker Compose                                             |
@@ -187,7 +187,7 @@ go generate ./internal/api/...
 
 - 10分のJWTアクセストークンによる認証（Cookieまたは`Authorization: Bearer <token>`ヘッダー）
 - **リフレッシュトークン**: 30日有効の不透明トークンをPostgreSQLでハッシュ管理し、使用ごとにローテーション
-- **OAuth2 ソーシャルログイン**: Google / GitHub（GoogleのみPKCE対応、state は両プロバイダーともRedis管理。同メールの既存アカウントへの自動リンクは行わず、フロントエンドへ `error=account_conflict` 付きでリダイレクト）。OAuth 環境変数が設定されている場合のみ有効
+- **OAuth2 ソーシャルログイン**: Google / GitHub（両プロバイダーともPKCE（S256）対応、state は両プロバイダーともRedis管理。同メールの既存アカウントへの自動リンクは行わず、フロントエンドへ `error=account_conflict` 付きでリダイレクト）。OAuth 環境変数が設定されている場合のみ有効
 - **CSRF保護**: Double Submit Cookieパターン（`csrf_token` Cookie + `X-CSRF-Token` ヘッダーの一致を検証）
 - **レートリミット**: Redisスライディングウィンドウ方式（signup: 5回/時、login: 10回/分、OAuth認可開始・callback: 各20回/分、logo API: ユーザー単位で各10回/日）
 - **セキュリティヘッダー**: `X-Content-Type-Options`、`X-Frame-Options` 等を全レスポンスに付与
