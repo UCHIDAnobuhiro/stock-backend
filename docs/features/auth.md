@@ -694,7 +694,7 @@ graph TB
 - **RefreshSessionRepository**: `refresh_sessions`の永続化と原子的なローテーション
 - **OAuthProvider**: プロバイダー抽象化（`AuthorizationURL`, `ExchangeCode`）
 - **OAuthStateStore**: PKCE state の一時保存（`SaveState`, `ConsumeState`）
-- **OAuthAccountRepository**: `oauth_accounts` 永続化（`FindByProvider`, `Create`）
+- **OAuthAccountRepository**: `oauth_accounts` 永続化（`FindByProvider`）
 - **OAuthUserCreator**: User と OAuthAccount をトランザクション内で原子的に作成
 - **UserCreatedHook**: ユーザー新規作成後のフック（例: ウォッチリスト初期化）
 

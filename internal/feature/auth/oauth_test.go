@@ -36,15 +36,10 @@ func (m *mockOAuthStateStore) ConsumeState(ctx context.Context, state string) (s
 // mockOAuthAccountRepository は OAuthAccountRepository インターフェースのモック実装です。
 type mockOAuthAccountRepository struct {
 	FindByProviderFunc func(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error)
-	CreateFunc         func(ctx context.Context, account *auth.OAuthAccount) error
 }
 
 func (m *mockOAuthAccountRepository) FindByProvider(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error) {
 	return m.FindByProviderFunc(ctx, provider, providerUID)
-}
-
-func (m *mockOAuthAccountRepository) Create(ctx context.Context, account *auth.OAuthAccount) error {
-	return m.CreateFunc(ctx, account)
 }
 
 // mockOAuthUserCreator は OAuthUserCreator インターフェースのモック実装です。
@@ -133,7 +128,6 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 			t.Parallel()
 
 			var lookupEmail string
-			linkCalled := false
 			creatorCalled := false
 
 			users := &mockUserRepository{
@@ -151,10 +145,6 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 						return tt.existingAccount, nil
 					}
 					return nil, auth.ErrUserNotFound
-				},
-				CreateFunc: func(ctx context.Context, account *auth.OAuthAccount) error {
-					linkCalled = true
-					return nil
 				},
 			}
 			creator := &mockOAuthUserCreator{
@@ -201,9 +191,6 @@ func TestOAuthUsecase_HandleCallback_FindOrCreateUser(t *testing.T) {
 					t.Error("token is empty")
 				}
 			}
-			if linkCalled {
-				t.Error("OAuthAccount auto-link (Create) must never be called")
-			}
 			if creatorCalled != tt.wantCreatorCalled {
 				t.Errorf("creator called = %v, want %v", creatorCalled, tt.wantCreatorCalled)
 			}
@@ -232,7 +219,6 @@ func TestOAuthUsecase_HandleCallback_HookRunsWithoutCancelOnClientDisconnect(t *
 		FindByProviderFunc: func(ctx context.Context, provider, providerUID string) (*auth.OAuthAccount, error) {
 			return nil, auth.ErrUserNotFound
 		},
-		CreateFunc: func(ctx context.Context, account *auth.OAuthAccount) error { return nil },
 	}
 	creator := &mockOAuthUserCreator{
 		CreateUserWithOAuthAccountFunc: func(ctx context.Context, user *auth.User, account *auth.OAuthAccount) error {

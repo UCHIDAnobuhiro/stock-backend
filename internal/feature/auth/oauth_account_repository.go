@@ -36,20 +36,3 @@ func (r *oauthAccountRepository) FindByProvider(ctx context.Context, provider, p
 	acct := oauthAccountFromSQLC(row)
 	return &acct, nil
 }
-
-// Create は OAuthAccount を新規作成します。
-func (r *oauthAccountRepository) Create(ctx context.Context, acct *OAuthAccount) error {
-	if acct == nil {
-		return errors.New("account is nil")
-	}
-	row, err := r.q.CreateOAuthAccount(ctx, authsqlc.CreateOAuthAccountParams{
-		UserID:      acct.UserID,
-		Provider:    acct.Provider,
-		ProviderUid: acct.ProviderUID,
-	})
-	if err != nil {
-		return err
-	}
-	*acct = oauthAccountFromSQLC(row)
-	return nil
-}
