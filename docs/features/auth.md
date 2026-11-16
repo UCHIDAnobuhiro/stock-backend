@@ -8,7 +8,7 @@ Auth フィーチャーは、短期JWTとサーバー管理リフレッシュト
 
 - **ユーザー登録（Signup）**: メールアドレスとパスワードで新規ユーザーを登録
 - **ログイン**: 認証情報を検証し、JWTとリフレッシュトークンを発行
-- **OAuth2 ログイン**: Google / GitHub プロバイダーによるソーシャルログイン（GoogleはPKCE対応、GitHubはstateによるCSRF保護。同メールの既存アカウントへの自動リンクは行わず、フロントエンドのログイン画面へ `error=account_conflict` 付きでリダイレクトする）
+- **OAuth2 ログイン**: Google / GitHub プロバイダーによるソーシャルログイン（両プロバイダーとも PKCE（S256）と state によるCSRF保護。同メールの既存アカウントへの自動リンクは行わず、フロントエンドのログイン画面へ `error=account_conflict` 付きでリダイレクトする）
 - **パスワード暗号化**: HMAC-SHA256ペッパー + bcryptによる安全なパスワードハッシュ化
 - **JWT認証**: 保護エンドポイントへのアクセス制御用に有効期限10分のJWTトークンを発行
 - **セッション更新**: 30日有効のリフレッシュトークンを使用ごとにローテーションし、再利用を検知した系列を失効
@@ -206,7 +206,7 @@ sequenceDiagram
     end
 
     Usecase->>Usecase: Generate state (32B random)
-    Usecase->>Usecase: Generate codeVerifier (32B random)<br/>GoogleのみcodeChallenge = BASE64URL(SHA256(codeVerifier))を使用
+    Usecase->>Usecase: Generate codeVerifier (32B random)<br/>codeChallenge = BASE64URL(SHA256(codeVerifier))を使用
     Usecase->>StateStore: SaveState(state, codeVerifier, TTL=10min)
     Usecase->>Provider: AuthorizationURL(state, codeChallenge)
     Provider-->>Usecase: Authorization URL
@@ -704,7 +704,7 @@ graph TB
 - **refreshSessionRepository**（[session_repository.go](../../internal/feature/auth/session_repository.go)）: refreshセッションのPostgreSQL実装
 - **redisOAuthStateStore**（[oauth_state_store.go](../../internal/feature/auth/oauth_state_store.go)）: OAuthStateStore の Redis 実装（`GETDEL` で atomic に消費）
 - **GoogleProvider**（[oauth_provider_google.go](../../internal/feature/auth/oauth_provider_google.go)）: Google OAuth2 実装（PKCE S256 対応、`/oauth2/v3/userinfo` でメール取得）
-- **GitHubProvider**（[oauth_provider_github.go](../../internal/feature/auth/oauth_provider_github.go)）: GitHub OAuth2 実装（GitHub は PKCE 非対応、state による CSRF 保護のみ）
+- **GitHubProvider**（[oauth_provider_github.go](../../internal/feature/auth/oauth_provider_github.go)）: GitHub OAuth2 実装（PKCE S256 対応、`/user/emails` で検証済みプライマリメール、`/user` で数値 ID を取得）
 
 ### アーキテクチャ上の特徴
 

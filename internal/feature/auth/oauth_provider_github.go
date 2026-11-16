@@ -37,22 +37,27 @@ func NewGitHubProvider(clientID, clientSecret, redirectURL string, hc *http.Clie
 	}
 }
 
-// AuthorizationURL はGitHub認可URLを返します。
-// GitHubのOAuth AppはPKCEをサポートしないためcodeChallengeは使用しません。
-// stateによるCSRF保護とRedisでのstate管理でセキュリティを確保します。
-func (p *GitHubProvider) AuthorizationURL(state, _ string) string {
-	return p.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
+// AuthorizationURL はPKCE(S256)付きのGitHub認可URLを返します。
+func (p *GitHubProvider) AuthorizationURL(state, codeChallenge string) string {
+	return p.cfg.AuthCodeURL(
+		state,
+		oauth2.AccessTypeOnline,
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
 }
 
 // ExchangeCode はauthorization codeをユーザー情報に交換します。
 // GitHub APIの /user/emails で検証済みプライマリメールを、/user で数値IDを取得します。
-func (p *GitHubProvider) ExchangeCode(ctx context.Context, code, _ string) (*OAuthUserInfo, error) {
+func (p *GitHubProvider) ExchangeCode(ctx context.Context, code, codeVerifier string) (*OAuthUserInfo, error) {
 	// oauth2ライブラリはcontextのoauth2.HTTPClientキー経由でHTTPクライアントを取得するため、
 	// ここで注入しないとp.hcのタイムアウトがトークン交換に適用されない。
 	if p.hc != nil {
 		ctx = context.WithValue(ctx, oauth2.HTTPClient, p.hc)
 	}
-	tok, err := p.cfg.Exchange(ctx, code)
+	tok, err := p.cfg.Exchange(ctx, code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("github: code exchange failed: %w", err)
 	}

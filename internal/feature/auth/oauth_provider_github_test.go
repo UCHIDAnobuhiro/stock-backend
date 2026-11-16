@@ -35,7 +35,7 @@ func TestGitHubProvider_AuthorizationURL(t *testing.T) {
 
 	p := newTestGitHubProvider(t, http.NewServeMux())
 
-	authURL := p.AuthorizationURL("test-state", "unused-challenge")
+	authURL := p.AuthorizationURL("test-state", "test-challenge")
 
 	u, err := url.Parse(authURL)
 	require.NoError(t, err)
@@ -43,8 +43,8 @@ func TestGitHubProvider_AuthorizationURL(t *testing.T) {
 	q := u.Query()
 	assert.Equal(t, "test-state", q.Get("state"))
 	assert.Equal(t, "user:email", q.Get("scope"))
-	// GitHub の OAuth App は PKCE をサポートしないため code_challenge は付与されない。
-	assert.False(t, q.Has("code_challenge"))
+	assert.Equal(t, "test-challenge", q.Get("code_challenge"))
+	assert.Equal(t, "S256", q.Get("code_challenge_method"))
 }
 
 func TestGitHubProvider_ExchangeCode(t *testing.T) {
@@ -53,10 +53,14 @@ func TestGitHubProvider_ExchangeCode(t *testing.T) {
 	t.Run("success: picks primary+verified email and returns numeric user ID", func(t *testing.T) {
 		t.Parallel()
 
+		var gotCode, gotVerifier string
 		var emailsAccept, emailsAPIVersion, userAccept, userAPIVersion string
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+			_ = r.ParseForm()
+			gotCode = r.FormValue("code")
+			gotVerifier = r.FormValue("code_verifier")
 			writeJSON(w, http.StatusOK, `{"access_token":"test-token","token_type":"Bearer"}`)
 		})
 		mux.HandleFunc("/user/emails", func(w http.ResponseWriter, r *http.Request) {
@@ -77,12 +81,14 @@ func TestGitHubProvider_ExchangeCode(t *testing.T) {
 
 		p := newTestGitHubProvider(t, mux)
 
-		info, err := p.ExchangeCode(context.Background(), "auth-code", "")
+		info, err := p.ExchangeCode(context.Background(), "auth-code", "verifier-abc")
 
 		require.NoError(t, err)
 		require.NotNil(t, info)
 		assert.Equal(t, "12345", info.ProviderUID)
 		assert.Equal(t, "gh@example.com", info.Email)
+		assert.Equal(t, "auth-code", gotCode)
+		assert.Equal(t, "verifier-abc", gotVerifier)
 		assert.Equal(t, "application/vnd.github+json", emailsAccept)
 		assert.Equal(t, "2022-11-28", emailsAPIVersion)
 		assert.Equal(t, "application/vnd.github+json", userAccept)
